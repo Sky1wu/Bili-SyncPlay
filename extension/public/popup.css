@@ -271,6 +271,21 @@ button.secondary.success-button .button-icon-check {
 
 .shared-video-heading {
   margin-top: 12px;
+  margin-bottom: 10px;
+}
+
+#share-current-video {
+  min-height: 36px;
+  margin-top: 10px;
+  border-radius: 14px;
+  font-size: 13px;
+  line-height: 1;
+  box-shadow: none;
+}
+
+.full-width-button {
+  width: 100%;
+  justify-content: center;
 }
 
 .row {
@@ -357,6 +372,11 @@ button.secondary {
 .video-card-button:hover {
   transform: translateY(-1px);
   box-shadow: 0 14px 26px rgba(22, 32, 51, 0.08);
+}
+
+.video-card-button:disabled:hover {
+  transform: none;
+  box-shadow: none;
 }
 
 .video-card-button:disabled {

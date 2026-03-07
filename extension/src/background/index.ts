@@ -1,4 +1,4 @@
-import type { ClientMessage, RoomState, ServerMessage, SharedVideo } from "@bili-syncplay/protocol";
+import type { ClientMessage, PlaybackState, RoomState, ServerMessage, SharedVideo } from "@bili-syncplay/protocol";
 import { loadState, saveState } from "../shared/storage";
 import type {
   BackgroundToContentMessage,
@@ -46,6 +46,13 @@ async function bootstrap(): Promise<void> {
   if (roomCode) {
     connect();
   }
+
+  chrome.tabs.onRemoved.addListener((tabId) => {
+    if (sharedTabId === tabId) {
+      sharedTabId = null;
+      log("background", `Cleared shared tab binding for closed tab ${tabId}`);
+    }
+  });
 }
 
 function connect(): void {
@@ -120,6 +127,7 @@ async function handleServerMessage(message: ServerMessage): Promise<void> {
     case "room:joined":
       roomCode = message.payload.roomCode;
       memberId = message.payload.memberId;
+      lastError = null;
       await persistState();
       flushPendingShare();
       notifyAll();
@@ -131,6 +139,7 @@ async function handleServerMessage(message: ServerMessage): Promise<void> {
       }
       roomState = message.payload;
       roomCode = message.payload.roomCode;
+      lastError = null;
       await persistState();
       await ensureSharedVideoOpen(roomState);
       const compensatedRoomState = compensateRoomState(roomState);
@@ -162,6 +171,97 @@ function flushPendingShare(): void {
     pendingSharedPlayback = null;
   }
   pendingSharedVideo = null;
+}
+
+async function getActiveTab(): Promise<chrome.tabs.Tab | null> {
+  const [tab] = await chrome.tabs.query({ active: true, currentWindow: true });
+  return tab ?? null;
+}
+
+async function getActiveVideoPayload(): Promise<{
+  ok: boolean;
+  payload: { video: SharedVideo; playback: PlaybackState | null } | null;
+  tabId: number | null;
+  error?: string;
+}> {
+  const activeTab = await getActiveTab();
+  if (!activeTab?.id) {
+    return { ok: false, payload: null, tabId: null, error: "No active tab." };
+  }
+
+  if (!activeTab.url || !/^https:\/\/www\.bilibili\.com\/video\//.test(activeTab.url)) {
+    return { ok: false, payload: null, tabId: activeTab.id, error: "Please open a Bilibili video page first." };
+  }
+
+  try {
+    const response = await chrome.tabs.sendMessage(activeTab.id, {
+      type: "background:get-current-video"
+    });
+    if (!response?.ok || !response.payload?.video) {
+      return { ok: false, payload: null, tabId: activeTab.id, error: "Current page does not have a playable video." };
+    }
+    return {
+      ok: true,
+      payload: response.payload,
+      tabId: activeTab.id
+    };
+  } catch {
+    return { ok: false, payload: null, tabId: activeTab.id, error: "Cannot access the current page." };
+  }
+}
+
+async function queueOrSendSharedVideo(
+  payload: { video: SharedVideo; playback: PlaybackState | null },
+  tabId: number | null
+): Promise<void> {
+  rememberSharedSourceTab(tabId ?? undefined, payload.video.url);
+
+  if (connected && roomCode) {
+    sendToServer({ type: "video:share", payload: payload.video });
+    if (payload.playback) {
+      sendToServer({
+        type: "playback:update",
+        payload: {
+          ...payload.playback,
+          serverTime: 0,
+          actorId: memberId ?? payload.playback.actorId
+        }
+      });
+    }
+    return;
+  }
+
+  pendingSharedVideo = payload.video;
+  pendingSharedPlayback = payload.playback
+    ? {
+        type: "playback:update",
+        payload: {
+          ...payload.playback,
+          serverTime: 0,
+          actorId: memberId ?? payload.playback.actorId
+        }
+      }
+    : null;
+
+  if (roomCode) {
+    connect();
+    return;
+  }
+
+  roomCode = null;
+  memberId = null;
+  roomState = null;
+  await persistState();
+  connect();
+  if (connected) {
+    pendingCreateRoom = false;
+    sendToServer({
+      type: "room:create",
+      payload: { displayName: displayName ?? undefined }
+    });
+  } else {
+    pendingCreateRoom = true;
+  }
 }
 
 function syncClock(): void {
@@ -321,6 +421,28 @@ async function ensureSharedVideoOpen(state: RoomState): Promise<void> {
   }
 }
 
+async function openSharedVideoFromPopup(): Promise<void> {
+  const targetUrl = roomState?.sharedVideo?.url;
+  if (!targetUrl) {
+    return;
+  }
+
+  const existingTabs = await chrome.tabs.query({ url: ["https://www.bilibili.com/video/*"] });
+  const matched = existingTabs.find((tab) => normalizeUrl(tab.url) === normalizeUrl(targetUrl));
+  if (matched?.id !== undefined) {
+    sharedTabId = matched.id;
+    lastOpenedSharedUrl = targetUrl;
+    await chrome.tabs.update(matched.id, { active: true });
+    log("background", `Popup activated shared tab ${matched.id}`);
+    return;
+  }
+
+  const created = await chrome.tabs.create({ url: targetUrl, active: true });
+  sharedTabId = created.id ?? null;
+  lastOpenedSharedUrl = targetUrl;
+  log("background", `Popup opened shared video in new tab ${sharedTabId ?? "unknown"}`);
+}
+
 function normalizeUrl(url: string | undefined | null): string | null {
   if (!url) {
     return null;
@@ -463,57 +585,39 @@ chrome.runtime.onMessage.addListener((message: PopupToBackgroundMessage | Conten
         }
         sendResponse(popupState());
         return;
+      case "popup:get-active-video": {
+        const response = await getActiveVideoPayload();
+        if (!response.ok && response.error) {
+          lastError = response.error;
+        } else {
+          lastError = null;
+        }
+        notifyAll();
+        sendResponse(response);
+        return;
+      }
+      case "popup:share-current-video": {
+        const response = await getActiveVideoPayload();
+        if (!response.ok || !response.payload) {
+          lastError = response.error ?? "Cannot read the current video.";
+          notifyAll();
+          sendResponse({ ok: false, error: lastError });
+          return;
+        }
+        lastError = null;
+        await queueOrSendSharedVideo(response.payload, response.tabId);
+        await persistState();
+        notifyAll();
+        sendResponse({ ok: true });
+        return;
+      }
+      case "popup:open-shared-video":
+        await openSharedVideoFromPopup();
+        sendResponse({ ok: true });
+        return;
       case "popup:set-server-url":
         await updateServerUrl(message.serverUrl);
         sendResponse(popupState());
-        return;
-      case "content:share-video":
-        if (connected && roomCode) {
-          rememberSharedSourceTab(sender.tab?.id, message.payload.video.url);
-          sendToServer({ type: "video:share", payload: message.payload.video });
-          if (message.payload.playback) {
-            sendToServer({
-              type: "playback:update",
-              payload: {
-                ...message.payload.playback,
-                serverTime: 0,
-                actorId: memberId ?? message.payload.playback.actorId
-              }
-            });
-          }
-          sendResponse({ ok: true });
-          return;
-        }
-        sendResponse({ ok: false, reason: "not-in-room" });
-        return;
-      case "content:create-room-and-share":
-        roomCode = null;
-        memberId = null;
-        roomState = null;
-        pendingSharedVideo = message.payload.video;
-        pendingSharedPlayback = message.payload.playback
-          ? {
-              type: "playback:update",
-              payload: {
-                ...message.payload.playback,
-                serverTime: 0,
-                actorId: message.payload.playback.actorId
-              }
-            }
-          : null;
-        rememberSharedSourceTab(sender.tab?.id, message.payload.video.url);
-        await persistState();
-        connect();
-        if (connected) {
-          pendingCreateRoom = false;
-          sendToServer({
-            type: "room:create",
-            payload: { displayName: displayName ?? undefined }
-          });
-        } else {
-          pendingCreateRoom = true;
-        }
-        sendResponse({ ok: true });
         return;
       case "content:report-user":
         if (displayName !== message.payload.displayName) {
@@ -548,15 +652,11 @@ chrome.runtime.onMessage.addListener((message: PopupToBackgroundMessage | Conten
         if (connected && roomCode) {
           sendToServer({ type: "sync:request" });
         }
-        sendResponse(roomState ? { ok: true, roomState: compensateRoomState(roomState), memberId } : { ok: false, memberId });
-        return;
-      case "content:get-share-context":
-        sendResponse({
-          ok: true,
-          roomCode,
-          roomState: roomState ? compensateRoomState(roomState) : null,
-          connected
-        });
+        sendResponse(
+          roomState
+            ? { ok: true, roomState: compensateRoomState(roomState), memberId, roomCode }
+            : { ok: false, memberId, roomCode }
+        );
         return;
       case "content:debug-log":
         log("content", message.payload.message);

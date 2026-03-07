@@ -11,6 +11,7 @@ interface PopupRefs {
   roomPanelIdle: HTMLElement;
   roomCodeInput: HTMLInputElement;
   copyRoomButton: HTMLButtonElement;
+  shareCurrentVideoButton: HTMLButtonElement;
   sharedVideoCard: HTMLButtonElement;
   sharedVideoTitle: HTMLElement;
   sharedVideoMeta: HTMLElement;
@@ -45,6 +46,7 @@ async function init(): Promise<void> {
         </div>
         <div class="hero-badge">LIVE</div>
       </div>
+
       <div class="grid">
         <div class="metric">
           <span class="metric-label">连接状态</span>
@@ -55,6 +57,7 @@ async function init(): Promise<void> {
           <span class="metric-value" id="members-status">-</span>
         </div>
       </div>
+
       <div class="room-panel">
         <div class="metric room-code-metric" id="room-panel-joined">
           <div class="room-code-header">
@@ -63,7 +66,7 @@ async function init(): Promise<void> {
               <span class="metric-value room-code-value" id="room-status">-</span>
             </div>
             <div class="room-code-actions">
-              <button class="secondary compact-button copy-button" id="copy-room">
+              <button class="secondary compact-button copy-button" id="copy-room" type="button">
                 <span class="button-icon-wrap" aria-hidden="true">
                   <svg class="button-icon button-icon-copy" viewBox="0 0 16 16">
                     <rect x="5" y="3" width="8" height="10" rx="2" fill="none" stroke="currentColor" stroke-width="1.6"></rect>
@@ -75,24 +78,31 @@ async function init(): Promise<void> {
                 </span>
                 <span class="button-label">复制</span>
               </button>
-              <button class="secondary compact-button danger-button" id="leave-room">退出</button>
+              <button class="secondary compact-button danger-button" id="leave-room" type="button">退出</button>
             </div>
           </div>
         </div>
+
         <div class="metric room-entry-metric" id="room-panel-idle">
           <div class="room-entry-header">
-            <button class="compact-button" id="create-room">创建</button>
+            <button class="compact-button" id="create-room" type="button">创建</button>
             <input id="room-code" placeholder="输入房间码">
-            <button class="secondary compact-button" id="join-room">加入</button>
+            <button class="secondary compact-button" id="join-room" type="button">加入</button>
           </div>
         </div>
       </div>
+
       <div class="status-banner" id="status-message" hidden></div>
+
       <div class="section-title shared-video-heading">当前共享视频</div>
+
       <button class="video-card video-card-button" id="shared-video-card" type="button">
         <div class="video-title" id="shared-video-title">暂无共享视频</div>
-        <div class="video-meta" id="shared-video-meta">点击后可打开共享视频</div>
+        <div class="video-meta" id="shared-video-meta">点击可打开共享视频</div>
       </button>
+
+      <button class="secondary compact-button full-width-button" id="share-current-video" type="button">同步当前页视频</button>
+
       <div class="row">
         <div style="flex: 1;">
           <div class="section-title">房间成员</div>
@@ -100,6 +110,7 @@ async function init(): Promise<void> {
         </div>
       </div>
     </div>
+
     <div class="card">
       <details class="details">
         <summary>高级信息</summary>
@@ -109,7 +120,7 @@ async function init(): Promise<void> {
               <span class="metric-label">服务端地址</span>
               <div class="settings-row">
                 <input id="server-url" placeholder="ws://localhost:8787">
-                <button class="secondary compact-button" id="save-server-url">保存</button>
+                <button class="secondary compact-button" id="save-server-url" type="button">保存</button>
               </div>
             </div>
             <div class="metric">
@@ -150,6 +161,7 @@ function collectRefs(): PopupRefs {
     roomPanelIdle: getById("room-panel-idle"),
     roomCodeInput: getById("room-code") as HTMLInputElement,
     copyRoomButton: getById("copy-room") as HTMLButtonElement,
+    shareCurrentVideoButton: getById("share-current-video") as HTMLButtonElement,
     sharedVideoCard: getById("shared-video-card") as HTMLButtonElement,
     sharedVideoTitle: getById("shared-video-title"),
     sharedVideoMeta: getById("shared-video-meta"),
@@ -175,9 +187,7 @@ function getById(id: string): HTMLElement {
 }
 
 async function queryState(): Promise<BackgroundToPopupMessage["payload"]> {
-  const response = (await chrome.runtime.sendMessage({
-    type: "popup:get-state"
-  })) as BackgroundToPopupMessage;
+  const response = (await chrome.runtime.sendMessage({ type: "popup:get-state" })) as BackgroundToPopupMessage;
   return response.payload;
 }
 
@@ -209,7 +219,6 @@ async function render(): Promise<void> {
   refs.copyRoomButton.disabled = !state.roomCode;
   refs.roomPanelJoined.hidden = !state.roomCode;
   refs.roomPanelIdle.hidden = Boolean(state.roomCode);
-  refs.copyRoomButton.classList.remove("success-button");
 
   refs.sharedVideoTitle.textContent = state.roomState?.sharedVideo?.title ?? "暂无共享视频";
   refs.sharedVideoMeta.textContent = formatVideoMeta(state.roomState?.sharedVideo?.url ?? null);
@@ -221,7 +230,7 @@ async function render(): Promise<void> {
 
 function formatVideoMeta(url: string | null): string {
   if (!url) {
-    return "点击后可打开共享视频";
+    return "点击可打开共享视频";
   }
   const match = url.match(/\/video\/([^/?]+)/);
   return match ? match[1] : "打开共享视频";
@@ -258,6 +267,47 @@ function escapeHtml(value: string): string {
     .replaceAll("'", "&#39;");
 }
 
+async function handleShareCurrentVideo(): Promise<void> {
+  if (!refs) {
+    return;
+  }
+
+  const state = await queryState();
+  const activeVideo = await chrome.runtime.sendMessage({ type: "popup:get-active-video" });
+  if (!activeVideo?.ok || !activeVideo.payload?.video) {
+    await render();
+    return;
+  }
+
+  const currentVideo = activeVideo.payload.video as { title: string; url: string };
+  if (!state.roomCode) {
+    const shouldCreateRoom = window.confirm("当前未加入房间。是否创建房间并同步当前页视频？");
+    if (!shouldCreateRoom) {
+      return;
+    }
+  } else if (
+    state.roomState?.sharedVideo?.url &&
+    normalizeUrl(state.roomState.sharedVideo.url) !== normalizeUrl(currentVideo.url)
+  ) {
+    const shouldReplace = window.confirm(
+      `当前房间正在同步《${state.roomState.sharedVideo.title}》。\n是否替换为《${currentVideo.title}》？`
+    );
+    if (!shouldReplace) {
+      return;
+    }
+  }
+
+  await chrome.runtime.sendMessage({ type: "popup:share-current-video" });
+  await render();
+}
+
+function normalizeUrl(url: string | null | undefined): string | null {
+  if (!url) {
+    return null;
+  }
+  return url.split("?")[0].replace(/\/+$/, "");
+}
+
 function bindActions(nodes: PopupRefs): void {
   nodes.createRoomButton.addEventListener("click", async () => {
     await chrome.runtime.sendMessage({ type: "popup:create-room" });
@@ -279,10 +329,11 @@ function bindActions(nodes: PopupRefs): void {
   });
 
   nodes.copyRoomButton.addEventListener("click", async () => {
-    const roomCode = nodes.roomCodeInput.value.trim();
-    if (!roomCode) {
+    const roomCode = nodes.roomStatus.textContent?.trim();
+    if (!roomCode || roomCode === "-") {
       return;
     }
+
     await navigator.clipboard.writeText(roomCode);
     nodes.copyRoomButton.classList.add("success-button");
     if (copyRoomResetTimer !== null) {
@@ -294,13 +345,12 @@ function bindActions(nodes: PopupRefs): void {
     }, 1400);
   });
 
+  nodes.shareCurrentVideoButton.addEventListener("click", () => {
+    void handleShareCurrentVideo();
+  });
+
   nodes.sharedVideoCard.addEventListener("click", async () => {
-    const state = await queryState();
-    const url = state.roomState?.sharedVideo?.url;
-    if (!url) {
-      return;
-    }
-    await chrome.tabs.create({ url, active: true });
+    await chrome.runtime.sendMessage({ type: "popup:open-shared-video" });
     window.close();
   });
 
@@ -322,8 +372,6 @@ function bindActions(nodes: PopupRefs): void {
       serverUrl: nodes.serverUrlInput.value.trim()
     })) as BackgroundToPopupMessage;
     nodes.serverUrlInput.value = response.payload.serverUrl;
-    nodes.message.textContent = `已保存服务端地址：${response.payload.serverUrl}`;
-    nodes.message.hidden = false;
     await render();
   };
 

@@ -5,15 +5,15 @@ export type PopupToBackgroundMessage =
   | { type: "popup:join-room"; roomCode: string }
   | { type: "popup:leave-room" }
   | { type: "popup:get-state" }
-  | { type: "popup:set-server-url"; serverUrl: string };
+  | { type: "popup:get-active-video" }
+  | { type: "popup:share-current-video" }
+  | { type: "popup:set-server-url"; serverUrl: string }
+  | { type: "popup:open-shared-video" };
 
 export type ContentToBackgroundMessage =
-  | { type: "content:share-video"; payload: { video: SharedVideo; playback: PlaybackState | null } }
-  | { type: "content:create-room-and-share"; payload: { video: SharedVideo; playback: PlaybackState | null } }
   | { type: "content:playback-update"; payload: PlaybackState }
   | { type: "content:report-user"; payload: { displayName: string } }
   | { type: "content:get-room-state" }
-  | { type: "content:get-share-context" }
   | { type: "content:debug-log"; payload: { message: string } };
 
 export interface DebugLogEntry {
@@ -41,4 +41,5 @@ export type BackgroundToPopupMessage =
 
 export type BackgroundToContentMessage =
   | { type: "background:apply-room-state"; payload: RoomState }
-  | { type: "background:sync-status"; payload: { roomCode: string | null; connected: boolean; memberId: string | null } };
+  | { type: "background:sync-status"; payload: { roomCode: string | null; connected: boolean; memberId: string | null } }
+  | { type: "background:get-current-video" };

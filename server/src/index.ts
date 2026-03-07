@@ -25,7 +25,6 @@ type Room = {
 };
 
 const rooms = new Map<string, Room>();
-const sessions = new Map<WebSocket, Session>();
 const port = Number(process.env.PORT ?? 8787);
 const PAUSE_DOMINANCE_WINDOW_MS = 1500;
 
@@ -263,9 +262,6 @@ wss.on("connection", (socket) => {
     roomCode: null,
     displayName: `Guest-${Math.floor(Math.random() * 900 + 100)}`
   };
-
-  sessions.set(socket, session);
-
   socket.on("message", (raw) => {
     try {
       const parsed = JSON.parse(raw.toString()) as unknown;
@@ -287,7 +283,6 @@ wss.on("connection", (socket) => {
 
   socket.on("close", () => {
     leaveRoom(session);
-    sessions.delete(socket);
   });
 });
 
