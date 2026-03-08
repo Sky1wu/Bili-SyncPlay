@@ -11,6 +11,10 @@ import type {
 const DEFAULT_SERVER_URL = "ws://localhost:8787";
 const MAX_LOGS = 30;
 const CLOCK_SYNC_INTERVAL_MS = 15000;
+const BILIBILI_VIDEO_URL_PATTERNS = [
+  "https://www.bilibili.com/video/*",
+  "https://www.bilibili.com/bangumi/play/*"
+];
 
 let socket: WebSocket | null = null;
 let serverUrl = DEFAULT_SERVER_URL;
@@ -215,7 +219,7 @@ async function getActiveVideoPayload(): Promise<{
     return { ok: false, payload: null, tabId: null, error: "No active tab." };
   }
 
-  if (!activeTab.url || !/^https:\/\/www\.bilibili\.com\/video\//.test(activeTab.url)) {
+  if (!activeTab.url || !/^https:\/\/www\.bilibili\.com\/(?:video|bangumi\/play)\//.test(activeTab.url)) {
     return { ok: false, payload: null, tabId: activeTab.id, error: "Please open a Bilibili video page first." };
   }
 
@@ -427,7 +431,7 @@ async function ensureSharedVideoOpen(state: RoomState): Promise<void> {
       }
     }
 
-    const existingTabs = await chrome.tabs.query({ url: ["https://www.bilibili.com/video/*"] });
+    const existingTabs = await chrome.tabs.query({ url: BILIBILI_VIDEO_URL_PATTERNS });
     const matched = existingTabs.find((tab) => normalizeUrl(tab.url) === normalizeUrl(targetUrl));
     if (matched?.id !== undefined) {
       sharedTabId = matched.id;
@@ -454,7 +458,7 @@ async function openSharedVideoFromPopup(): Promise<void> {
     return;
   }
 
-  const existingTabs = await chrome.tabs.query({ url: ["https://www.bilibili.com/video/*"] });
+  const existingTabs = await chrome.tabs.query({ url: BILIBILI_VIDEO_URL_PATTERNS });
   const matched = existingTabs.find((tab) => normalizeUrl(tab.url) === normalizeUrl(targetUrl));
   if (matched?.id !== undefined) {
     sharedTabId = matched.id;
@@ -478,7 +482,7 @@ function normalizeUrl(url: string | undefined | null): string | null {
 }
 
 async function notifyContentScripts(message: BackgroundToContentMessage): Promise<void> {
-  const tabs = await chrome.tabs.query({ url: ["https://www.bilibili.com/video/*"] });
+  const tabs = await chrome.tabs.query({ url: BILIBILI_VIDEO_URL_PATTERNS });
   await Promise.all(
     tabs
       .filter((tab) => tab.id !== undefined)

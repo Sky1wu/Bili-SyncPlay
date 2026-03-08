@@ -31,7 +31,8 @@
   "content_scripts": [
     {
       "matches": [
-        "https://www.bilibili.com/video/*"
+        "https://www.bilibili.com/video/*",
+        "https://www.bilibili.com/bangumi/play/*"
       ],
       "js": [
         "content.js"

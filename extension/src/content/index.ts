@@ -354,7 +354,7 @@ function getSharedVideo(): SharedVideo | null {
     return null;
   }
 
-  const match = url.match(/\/video\/([^/?]+)/);
+  const match = url.match(/\/(?:video|bangumi\/play)\/([^/?]+)/);
   if (!match) {
     return null;
   }
