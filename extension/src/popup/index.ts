@@ -17,6 +17,7 @@ interface PopupRefs {
   sharedVideoMeta: HTMLElement;
   logs: HTMLElement;
   memberList: HTMLElement;
+  copyLogsButton: HTMLButtonElement;
   serverUrlInput: HTMLInputElement;
   saveServerUrlButton: HTMLButtonElement;
   debugMemberStatus: HTMLElement;
@@ -30,6 +31,7 @@ interface PopupRefs {
 let refs: PopupRefs | null = null;
 let renderTimer: number | null = null;
 let copyRoomResetTimer: number | null = null;
+let copyLogsResetTimer: number | null = null;
 
 void init();
 
@@ -136,7 +138,21 @@ async function init(): Promise<void> {
               <span class="metric-value" id="clock-status">-</span>
             </div>
           </div>
-          <div class="section-title">调试日志</div>
+          <div class="logs-header">
+            <div class="section-title">调试日志</div>
+            <button class="secondary compact-button copy-button" id="copy-logs" type="button">
+              <span class="button-icon-wrap" aria-hidden="true">
+                <svg class="button-icon button-icon-copy" viewBox="0 0 16 16">
+                  <rect x="5" y="3" width="8" height="10" rx="2" fill="none" stroke="currentColor" stroke-width="1.6"></rect>
+                  <path d="M3.5 10.5V5.5C3.5 4.4 4.4 3.5 5.5 3.5" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round"></path>
+                </svg>
+                <svg class="button-icon button-icon-check" viewBox="0 0 16 16">
+                  <path d="M3.2 8.3L6.6 11.4L12.8 4.9" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"></path>
+                </svg>
+              </span>
+              <span class="button-label">复制</span>
+            </button>
+          </div>
           <div class="log-box" id="debug-logs">
             <div class="muted">暂无日志</div>
           </div>
@@ -167,6 +183,7 @@ function collectRefs(): PopupRefs {
     sharedVideoMeta: getById("shared-video-meta"),
     logs: getById("debug-logs"),
     memberList: getById("member-list"),
+    copyLogsButton: getById("copy-logs") as HTMLButtonElement,
     serverUrlInput: getById("server-url") as HTMLInputElement,
     saveServerUrlButton: getById("save-server-url") as HTMLButtonElement,
     debugMemberStatus: getById("member-status"),
@@ -342,6 +359,28 @@ function bindActions(nodes: PopupRefs): void {
     copyRoomResetTimer = window.setTimeout(() => {
       copyRoomResetTimer = null;
       nodes.copyRoomButton.classList.remove("success-button");
+    }, 1400);
+  });
+
+  nodes.copyLogsButton.addEventListener("click", async () => {
+    const state = await queryState();
+    const text = state.logs
+      .slice()
+      .reverse()
+      .map((entry) => {
+        const time = new Date(entry.at).toLocaleTimeString("zh-CN", { hour12: false });
+        return `[${time}] [${entry.scope}] ${entry.message}`;
+      })
+      .join("\n");
+
+    await navigator.clipboard.writeText(text || "暂无日志");
+    nodes.copyLogsButton.classList.add("success-button");
+    if (copyLogsResetTimer !== null) {
+      window.clearTimeout(copyLogsResetTimer);
+    }
+    copyLogsResetTimer = window.setTimeout(() => {
+      copyLogsResetTimer = null;
+      nodes.copyLogsButton.classList.remove("success-button");
     }, 1400);
   });
 

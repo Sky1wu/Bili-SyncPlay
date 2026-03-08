@@ -62,10 +62,17 @@ async function init(): Promise<void> {
       const previousRoomCode = activeRoomCode;
       activeRoomCode = message.payload.roomCode;
       localMemberId = message.payload.memberId;
+      const roomChanged = Boolean(previousRoomCode && message.payload.roomCode && previousRoomCode !== message.payload.roomCode);
 
-      if (message.payload.roomCode && (message.payload.roomCode !== previousRoomCode || !hasReceivedInitialRoomState)) {
+      if (roomChanged) {
+        hasReceivedInitialRoomState = false;
+        pendingRoomStateHydration = true;
+      }
+
+      if (message.payload.roomCode && !hasReceivedInitialRoomState) {
         pendingRoomStateHydration = true;
         debugLog(`Waiting for initial room state of ${message.payload.roomCode}`);
+        scheduleHydrationRetry(150);
       }
 
       if (!message.payload.roomCode) {
@@ -500,7 +507,7 @@ async function applyRoomState(state: RoomState): Promise<void> {
   hasReceivedInitialRoomState = true;
 }
 
-async function hydrateRoomState(retries = 5): Promise<void> {
+async function hydrateRoomState(): Promise<void> {
   if (hydrateRetryTimer !== null) {
     window.clearTimeout(hydrateRetryTimer);
     hydrateRetryTimer = null;
@@ -526,16 +533,8 @@ async function hydrateRoomState(retries = 5): Promise<void> {
     return;
   }
 
-  if (retries <= 0) {
-    debugLog("Hydrate retries exhausted");
-    hydrationReady = true;
-    return;
-  }
-
-  debugLog(`Hydrate retry scheduled (${retries})`);
-  window.setTimeout(() => {
-    void hydrateRoomState(retries - 1);
-  }, 1200);
+  debugLog(`Hydrate pending for ${response.roomCode ?? activeRoomCode ?? "unknown-room"}, retry scheduled`);
+  scheduleHydrationRetry(1500);
 }
 
 function syncPlaybackPosition(

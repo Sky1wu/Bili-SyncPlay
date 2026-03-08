@@ -26,7 +26,9 @@ type Room = {
 
 const rooms = new Map<string, Room>();
 const port = Number(process.env.PORT ?? 8787);
-const PAUSE_DOMINANCE_WINDOW_MS = 1500;
+// Only suppress the immediate stale "playing" echoes that can arrive right after
+// a pause/buffering transition. A longer window blocks legitimate resume actions.
+const PAUSE_DOMINANCE_WINDOW_MS = 400;
 
 const httpServer = createServer((_, response) => {
   response.writeHead(200, { "content-type": "application/json" });

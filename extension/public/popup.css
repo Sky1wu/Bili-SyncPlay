@@ -269,6 +269,18 @@ button.secondary.success-button .button-icon-check {
   color: var(--text-secondary);
 }
 
+.logs-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  margin-bottom: 10px;
+}
+
+.logs-header .section-title {
+  margin-bottom: 0;
+}
+
 .shared-video-heading {
   margin-top: 12px;
   margin-bottom: 10px;
