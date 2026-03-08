@@ -20,6 +20,7 @@ let hasReceivedInitialRoomState = false;
 let pendingRoomStateHydration = true;
 let hydrateRetryTimer: number | null = null;
 let videoBindingTimer: number | null = null;
+let navigationWatchTimer: number | null = null;
 let intendedPlayState: PlaybackState["playState"] = "paused";
 let lastLocalIntentAt = 0;
 let lastLocalIntentPlayState: PlaybackState["playState"] | null = null;
@@ -30,6 +31,7 @@ let lastExplicitPlaybackAction:
       at: number;
     }
   | null = null;
+let explicitNonSharedPlaybackUrl: string | null = null;
 let pauseHoldUntil = 0;
 let pendingPlaybackApplication: PlaybackState | null = null;
 let lastAppliedVersionByActor = new Map<string, { serverTime: number; seq: number }>();
@@ -52,10 +54,15 @@ let recentRemotePlayingIntent:
 
 const LOCAL_INTENT_GUARD_MS = 1200;
 const PAUSE_HOLD_MS = 1200;
+const INITIAL_ROOM_STATE_PAUSE_HOLD_MS = 3000;
 const REMOTE_ECHO_SUPPRESSION_MS = 700;
 const REMOTE_PLAY_TRANSITION_GUARD_MS = 1800;
 const USER_GESTURE_GRACE_MS = 1200;
 const FESTIVAL_SNAPSHOT_TTL_MS = 1200;
+const NAVIGATION_WATCH_INTERVAL_MS = 400;
+const VIDEO_BIND_INTERVAL_MS = 250;
+
+let lastObservedPageUrl = window.location.href.split("#")[0];
 
 void init();
 
@@ -69,6 +76,7 @@ function debugLog(message: string): void {
 async function init(): Promise<void> {
   startUserGestureTracking();
   startPlaybackBinding();
+  startNavigationWatch();
   void reportCurrentUser();
 
   chrome.runtime.onMessage.addListener((message: BackgroundToContentMessage, _sender, sendResponse) => {
@@ -127,99 +135,147 @@ function startUserGestureTracking(): void {
 }
 
 function startPlaybackBinding(): void {
-  const attachListeners = () => {
-    const video = getVideoElement();
-    if (!video || (video as HTMLVideoElement & { __biliSyncBound?: boolean }).__biliSyncBound) {
+  attachPlaybackListeners();
+  if (videoBindingTimer === null) {
+    videoBindingTimer = window.setInterval(attachPlaybackListeners, VIDEO_BIND_INTERVAL_MS);
+  }
+}
+
+function attachPlaybackListeners(): void {
+  const video = getVideoElement();
+  if (!video || (video as HTMLVideoElement & { __biliSyncBound?: boolean }).__biliSyncBound) {
+    return;
+  }
+
+  (video as HTMLVideoElement & { __biliSyncBound?: boolean }).__biliSyncBound = true;
+
+  const scheduleBroadcast = (followUpMs?: number) => {
+    void broadcastPlayback(video);
+    if (followUpMs) {
+      window.setTimeout(() => {
+        void broadcastPlayback(video);
+      }, followUpMs);
+    }
+  };
+
+  const rememberExplicitPlaybackAction = (playState: "playing" | "paused") => {
+    if (Date.now() - lastUserGestureAt < USER_GESTURE_GRACE_MS) {
+      lastExplicitPlaybackAction = {
+        playState,
+        at: Date.now()
+      };
+    }
+  };
+
+  const guardUnexpectedResume = () => {
+    const currentVideo = getSharedVideo();
+    if (
+      currentVideo &&
+      isCurrentVideoShared(currentVideo) &&
+      hasRecentRemoteStopIntent(currentVideo.url) &&
+      intendedPlayState !== "playing" &&
+      Date.now() - lastUserGestureAt >= USER_GESTURE_GRACE_MS
+    ) {
+      debugLog(`Forced pause hold reapplied after unexpected resume intended=${intendedPlayState}`);
+      window.setTimeout(() => {
+        pauseVideo(video, "unexpected-resume-during-shared-stop-hold");
+      }, 0);
+      return true;
+    }
+    if (forcePauseOnNonSharedPage(video)) {
+      return true;
+    }
+    if (forcePauseWhileWaitingForInitialRoomState(video)) {
+      return true;
+    }
+    return false;
+  };
+
+  video.addEventListener("play", () => {
+    rememberExplicitPlaybackAction("playing");
+    if (!guardUnexpectedResume()) {
+      scheduleBroadcast(180);
+    }
+  });
+  video.addEventListener("pause", () => {
+    const currentVideo = getSharedVideo();
+    rememberExplicitPlaybackAction("paused");
+    if (currentVideo && normalizeUrl(currentVideo.url) === explicitNonSharedPlaybackUrl) {
+      explicitNonSharedPlaybackUrl = null;
+    }
+    scheduleBroadcast(120);
+  });
+  video.addEventListener("waiting", () => scheduleBroadcast());
+  video.addEventListener("stalled", () => scheduleBroadcast());
+  video.addEventListener("loadedmetadata", () => {
+    if (!forcePauseWhileWaitingForInitialRoomState(video)) {
+      applyPendingPlaybackApplication(video);
+    }
+  });
+  video.addEventListener("canplay", () => {
+    if (!forcePauseWhileWaitingForInitialRoomState(video)) {
+      applyPendingPlaybackApplication(video);
+    }
+    scheduleBroadcast(120);
+  });
+  video.addEventListener("playing", () => {
+    rememberExplicitPlaybackAction("playing");
+    if (!guardUnexpectedResume()) {
+      scheduleBroadcast(180);
+    }
+  });
+  video.addEventListener("seeking", () => scheduleBroadcast());
+  video.addEventListener("seeked", () => scheduleBroadcast(120));
+  video.addEventListener("ratechange", () => scheduleBroadcast(120));
+  video.addEventListener("timeupdate", () => {
+    if (Date.now() - lastBroadcastAt > 2000 && !video.paused) {
+      void broadcastPlayback(video);
+    }
+  });
+}
+
+function startNavigationWatch(): void {
+  const handlePotentialNavigation = () => {
+    const nextPageUrl = window.location.href.split("#")[0];
+    if (nextPageUrl === lastObservedPageUrl) {
       return;
     }
 
-    (video as HTMLVideoElement & { __biliSyncBound?: boolean }).__biliSyncBound = true;
+    lastObservedPageUrl = nextPageUrl;
+    festivalSnapshot = null;
+    pendingPlaybackApplication = null;
+    explicitNonSharedPlaybackUrl = null;
 
-    const scheduleBroadcast = (followUpMs?: number) => {
-      void broadcastPlayback(video);
-      if (followUpMs) {
-        window.setTimeout(() => {
-          void broadcastPlayback(video);
-        }, followUpMs);
-      }
-    };
+    if (!activeRoomCode || !parseBilibiliVideoRef(nextPageUrl)) {
+      return;
+    }
 
-    const rememberExplicitPlaybackAction = (playState: "playing" | "paused") => {
-      if (Date.now() - lastUserGestureAt < USER_GESTURE_GRACE_MS) {
-        lastExplicitPlaybackAction = {
-          playState,
-          at: Date.now()
-        };
-      }
-    };
-
-    const guardUnexpectedResume = () => {
-      const currentVideo = getSharedVideo();
-      if (
-        currentVideo &&
-        hasRecentRemoteStopIntent(currentVideo.url) &&
-        intendedPlayState !== "playing" &&
-        Date.now() - lastUserGestureAt >= USER_GESTURE_GRACE_MS
-      ) {
-        debugLog(`Forced pause hold reapplied after unexpected resume intended=${intendedPlayState}`);
-        window.setTimeout(() => {
-          video.pause();
-        }, 0);
-        return true;
-      }
-      if (forcePauseWhileWaitingForInitialRoomState(video)) {
-        return true;
-      }
-      return false;
-    };
-
-    video.addEventListener("play", () => {
-      rememberExplicitPlaybackAction("playing");
-      if (!guardUnexpectedResume()) {
-        scheduleBroadcast(180);
-      }
-    });
-    video.addEventListener("pause", () => {
-      rememberExplicitPlaybackAction("paused");
-      scheduleBroadcast(120);
-    });
-    video.addEventListener("waiting", () => scheduleBroadcast());
-    video.addEventListener("stalled", () => scheduleBroadcast());
-    video.addEventListener("loadedmetadata", () => {
-      if (!forcePauseWhileWaitingForInitialRoomState(video)) {
-        applyPendingPlaybackApplication(video);
-      }
-    });
-    video.addEventListener("canplay", () => {
-      if (!forcePauseWhileWaitingForInitialRoomState(video)) {
-        applyPendingPlaybackApplication(video);
-      }
-      scheduleBroadcast(120);
-    });
-    video.addEventListener("playing", () => {
-      rememberExplicitPlaybackAction("playing");
-      if (!guardUnexpectedResume()) {
-        scheduleBroadcast(180);
-      }
-    });
-    video.addEventListener("seeking", () => scheduleBroadcast());
-    video.addEventListener("seeked", () => scheduleBroadcast(120));
-    video.addEventListener("ratechange", () => scheduleBroadcast(120));
-    video.addEventListener("timeupdate", () => {
-      if (Date.now() - lastBroadcastAt > 2000 && !video.paused) {
-        void broadcastPlayback(video);
-      }
-    });
+    hasReceivedInitialRoomState = false;
+    pendingRoomStateHydration = true;
+    intendedPlayState = "paused";
+    activatePauseHold(INITIAL_ROOM_STATE_PAUSE_HOLD_MS);
+    debugLog(`Detected in-room navigation to ${nextPageUrl}, waiting for room state`);
+    attachPlaybackListeners();
+    const video = getVideoElement();
+    if (video && !video.paused && Date.now() - lastUserGestureAt >= USER_GESTURE_GRACE_MS) {
+      debugLog(`Suppressed autoplay immediately after in-room navigation to ${nextPageUrl}`);
+      pauseVideo(video, "in-room-navigation-autoplay");
+    }
+    void hydrateRoomState();
   };
 
-  attachListeners();
-  if (videoBindingTimer === null) {
-    videoBindingTimer = window.setInterval(attachListeners, 1500);
+  handlePotentialNavigation();
+  if (navigationWatchTimer === null) {
+    navigationWatchTimer = window.setInterval(handlePotentialNavigation, NAVIGATION_WATCH_INTERVAL_MS);
   }
 }
 
 function getVideoElement(): HTMLVideoElement | null {
   return document.querySelector("video");
+}
+
+function pauseVideo(video: HTMLVideoElement, _reason: string): void {
+  video.pause();
 }
 
 function forcePauseWhileWaitingForInitialRoomState(video: HTMLVideoElement): boolean {
@@ -238,14 +294,60 @@ function forcePauseWhileWaitingForInitialRoomState(video: HTMLVideoElement): boo
   intendedPlayState = "paused";
   window.setTimeout(() => {
     if (!video.paused) {
-      video.pause();
+      pauseVideo(video, "waiting-for-initial-room-state");
     }
   }, 0);
   return true;
 }
 
-function activatePauseHold(): void {
-  pauseHoldUntil = Date.now() + PAUSE_HOLD_MS;
+function forcePauseOnNonSharedPage(video: HTMLVideoElement): boolean {
+  if (!activeRoomCode || !activeSharedUrl) {
+    return false;
+  }
+
+  const currentVideo = getSharedVideo();
+  const normalizedCurrentUrl = normalizeUrl(currentVideo?.url);
+  if (!currentVideo || !normalizedCurrentUrl || normalizedCurrentUrl === activeSharedUrl) {
+    explicitNonSharedPlaybackUrl = null;
+    return false;
+  }
+
+  if (video.paused) {
+    return true;
+  }
+
+  if (explicitNonSharedPlaybackUrl === normalizedCurrentUrl) {
+    return false;
+  }
+
+  if (
+    lastExplicitPlaybackAction &&
+    Date.now() - lastExplicitPlaybackAction.at < USER_GESTURE_GRACE_MS &&
+    lastExplicitPlaybackAction.playState === "playing"
+  ) {
+    explicitNonSharedPlaybackUrl = normalizedCurrentUrl;
+    return false;
+  }
+
+  intendedPlayState = "paused";
+  activatePauseHold(INITIAL_ROOM_STATE_PAUSE_HOLD_MS);
+  window.setTimeout(() => {
+    if (!video.paused) {
+      pauseVideo(video, "non-shared-page-autoplay");
+    }
+  }, 0);
+  return true;
+}
+
+function isCurrentVideoShared(currentVideo: SharedVideo | null): boolean {
+  if (!currentVideo || !activeSharedUrl) {
+    return false;
+  }
+  return normalizeUrl(currentVideo.url) === activeSharedUrl;
+}
+
+function activatePauseHold(durationMs = PAUSE_HOLD_MS): void {
+  pauseHoldUntil = Date.now() + durationMs;
 }
 
 function scheduleHydrationRetry(delayMs = 350): void {
@@ -284,10 +386,20 @@ function applyPendingPlaybackApplication(video: HTMLVideoElement): void {
 }
 
 function hasRecentRemoteStopIntent(currentVideoUrl: string): boolean {
-  if (Date.now() >= pauseHoldUntil || !suppressedRemotePlayback) {
+  if (Date.now() >= pauseHoldUntil) {
     return false;
   }
-  if (normalizeUrl(currentVideoUrl) !== suppressedRemotePlayback.url) {
+  const normalizedCurrentUrl = normalizeUrl(currentVideoUrl);
+  if (!normalizedCurrentUrl) {
+    return false;
+  }
+  if (activeSharedUrl && normalizedCurrentUrl !== activeSharedUrl) {
+    return false;
+  }
+  if (intendedPlayState === "paused" || intendedPlayState === "buffering") {
+    return true;
+  }
+  if (!suppressedRemotePlayback || normalizedCurrentUrl !== suppressedRemotePlayback.url) {
     return false;
   }
   return suppressedRemotePlayback.playState === "paused" || suppressedRemotePlayback.playState === "buffering";
@@ -658,9 +770,44 @@ async function broadcastPlayback(video: HTMLVideoElement): Promise<void> {
   if (!currentVideo) {
     return;
   }
+  const normalizedCurrentVideoUrl = normalizeUrl(currentVideo.url);
+  if (activeRoomCode && activeSharedUrl && normalizedCurrentVideoUrl !== activeSharedUrl) {
+    if (
+      getPlayState(video) === "playing" &&
+      explicitNonSharedPlaybackUrl !== normalizedCurrentVideoUrl &&
+      !(
+        lastExplicitPlaybackAction &&
+        Date.now() - lastExplicitPlaybackAction.at < USER_GESTURE_GRACE_MS &&
+        lastExplicitPlaybackAction.playState === "playing"
+      )
+    ) {
+      intendedPlayState = "paused";
+      activatePauseHold(INITIAL_ROOM_STATE_PAUSE_HOLD_MS);
+      window.setTimeout(() => {
+        if (!video.paused) {
+          pauseVideo(video, "non-shared-page-broadcast-guard");
+        }
+      }, 0);
+    }
+    return;
+  }
 
   lastBroadcastAt = Date.now();
   const playState = getPlayState(video);
+  if (
+    playState === "playing" &&
+    hasRecentRemoteStopIntent(currentVideo.url) &&
+    Date.now() - lastUserGestureAt >= USER_GESTURE_GRACE_MS
+  ) {
+    debugLog(`Skip playing broadcast during remote stop hold ${currentVideo.url}`);
+    intendedPlayState = "paused";
+    window.setTimeout(() => {
+      if (!video.paused) {
+        pauseVideo(video, "shared-stop-hold-broadcast-guard");
+      }
+    }, 0);
+    return;
+  }
   if (shouldSuppressLocalEcho(video, currentVideo, playState)) {
     return;
   }
@@ -711,6 +858,16 @@ async function applyRoomState(state: RoomState): Promise<void> {
 
   if (!normalizedSharedUrl || normalizedCurrentUrl !== normalizedSharedUrl || normalizedPlaybackUrl !== normalizedSharedUrl) {
     debugLog(`Ignored room state for ${state.sharedVideo.url} on current page ${currentVideo.url}`);
+    if (pendingRoomStateHydration) {
+      hasReceivedInitialRoomState = true;
+      pendingRoomStateHydration = false;
+      intendedPlayState = "paused";
+      activatePauseHold(INITIAL_ROOM_STATE_PAUSE_HOLD_MS);
+      const video = getVideoElement();
+      if (video && !video.paused && explicitNonSharedPlaybackUrl !== normalizedCurrentUrl) {
+        pauseVideo(video, "non-shared-page-room-state");
+      }
+    }
     return;
   }
 
@@ -758,7 +915,7 @@ async function applyRoomState(state: RoomState): Promise<void> {
 
   rememberRemotePlaybackForSuppression(state.playback);
   if (state.playback.playState === "paused" || state.playback.playState === "buffering") {
-    activatePauseHold();
+    activatePauseHold(pendingRoomStateHydration || !hasReceivedInitialRoomState ? INITIAL_ROOM_STATE_PAUSE_HOLD_MS : PAUSE_HOLD_MS);
   }
 
   intendedPlayState = state.playback.playState;
@@ -785,9 +942,25 @@ async function hydrateRoomState(): Promise<void> {
 
   const response = await chrome.runtime.sendMessage({ type: "content:get-room-state" });
   localMemberId = response?.memberId ?? null;
+  activeRoomCode = response?.roomCode ?? activeRoomCode;
 
   if (response?.ok && response.roomState) {
     debugLog(`Hydrate room state success for ${response.roomState.roomCode}`);
+    if (response.roomState.playback?.playState === "paused" || response.roomState.playback?.playState === "buffering") {
+      intendedPlayState = response.roomState.playback.playState;
+      activatePauseHold(INITIAL_ROOM_STATE_PAUSE_HOLD_MS);
+    }
+    const video = getVideoElement();
+    if (
+      video &&
+      !video.paused &&
+      (response.roomState.playback?.playState === "paused" || response.roomState.playback?.playState === "buffering") &&
+      Date.now() - lastUserGestureAt >= USER_GESTURE_GRACE_MS
+    ) {
+      intendedPlayState = response.roomState.playback.playState;
+      debugLog(`Suppressed autoplay during hydrate for ${response.roomState.roomCode}`);
+      pauseVideo(video, "hydrate-room-state");
+    }
     await applyRoomState(response.roomState as RoomState);
     hydrationReady = true;
     return;

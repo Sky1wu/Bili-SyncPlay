@@ -400,19 +400,28 @@ function rememberSharedSourceTab(tabId: number | undefined, url: string): void {
 }
 
 function isActiveSharedTab(tabId: number | undefined, url: string): boolean {
+  const normalizedRoomUrl = normalizeUrl(roomState?.sharedVideo?.url);
+  const normalizedPayloadUrl = normalizeUrl(url);
   if (tabId === undefined) {
     return false;
   }
   if (sharedTabId === null) {
-    sharedTabId = tabId;
-    log("background", `Accepted first shared playback tab=${tabId}`);
-    return true;
+    if (normalizedRoomUrl && normalizedPayloadUrl && normalizedRoomUrl === normalizedPayloadUrl) {
+      sharedTabId = tabId;
+      log("background", `Accepted first shared playback tab=${tabId}`);
+      return true;
+    }
+    return false;
   }
   if (sharedTabId === tabId) {
+    if (!normalizedRoomUrl || !normalizedPayloadUrl || normalizedRoomUrl !== normalizedPayloadUrl) {
+      log("background", `Ignored playback from shared tab ${tabId} because url no longer matches room`);
+      return false;
+    }
     log("background", `Accepted playback from shared tab=${tabId}`);
     return true;
   }
-  if (normalizeUrl(roomState?.sharedVideo?.url) === normalizeUrl(url)) {
+  if (normalizedRoomUrl && normalizedPayloadUrl && normalizedRoomUrl === normalizedPayloadUrl) {
     log("background", `Ignored playback from non-shared tab ${tabId}`);
   }
   return false;
