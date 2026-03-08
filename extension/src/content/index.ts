@@ -379,7 +379,8 @@ function shouldSuppressRemotePlayTransition(
   if (
     lastExplicitPlaybackAction &&
     Date.now() - lastExplicitPlaybackAction.at < USER_GESTURE_GRACE_MS &&
-    lastExplicitPlaybackAction.playState === playState
+    lastExplicitPlaybackAction.playState === "playing" &&
+    playState === "playing"
   ) {
     debugLog(`Allowed remote play transition echo by explicit action ${playState} ${currentVideo.url}`);
     return false;
@@ -410,13 +411,22 @@ function getSharedVideo(): SharedVideo | null {
   }
 
   const heading = document.querySelector("h1")?.textContent?.trim();
-  const title = heading || document.title.split("_")[0]?.trim() || document.title.trim();
+  const currentPartTitle = getCurrentPartTitle();
+  const title = currentPartTitle || heading || document.title.split("_")[0]?.trim() || document.title.trim();
 
   return {
     videoId: fallbackVideoRef.videoId,
     url: pageUrl,
     title
   };
+}
+
+function getCurrentPartTitle(): string | null {
+  return (
+    document.querySelector("li.bpx-state-multi-active-item")?.textContent?.trim() ||
+    document.querySelector(".video-section-list li.on, .video-section-list li.active, [data-cid].bpx-state-multi-active-item")?.textContent?.trim() ||
+    null
+  );
 }
 
 function createSharePayload(sharedVideo: SharedVideo): { video: SharedVideo; playback: PlaybackState | null } {
@@ -509,9 +519,14 @@ function parseBilibiliVideoRef(url: string | undefined | null): { videoId: strin
     const bvid = parsed.searchParams.get("bvid");
     if (bvid) {
       const cid = parsed.searchParams.get("cid");
+      const p = parsed.searchParams.get("p");
       return {
-        videoId: cid ? `${bvid}:${cid}` : bvid,
-        normalizedUrl: cid ? `https://www.bilibili.com/video/${bvid}?cid=${cid}` : `https://www.bilibili.com/video/${bvid}`
+        videoId: cid ? `${bvid}:${cid}` : p ? `${bvid}:p${p}` : bvid,
+        normalizedUrl: cid
+          ? `https://www.bilibili.com/video/${bvid}?cid=${cid}`
+          : p
+            ? `https://www.bilibili.com/video/${bvid}?p=${p}`
+            : `https://www.bilibili.com/video/${bvid}`
       };
     }
 
@@ -522,8 +537,10 @@ function parseBilibiliVideoRef(url: string | undefined | null): { videoId: strin
     }
 
     return {
-      videoId: match[1],
-      normalizedUrl: `${parsed.origin}${pathname}`
+      videoId: parsed.searchParams.get("p") ? `${match[1]}:p${parsed.searchParams.get("p")}` : match[1],
+      normalizedUrl: parsed.searchParams.get("p")
+        ? `${parsed.origin}${pathname}?p=${parsed.searchParams.get("p")}`
+        : `${parsed.origin}${pathname}`
     };
   } catch {
     return null;

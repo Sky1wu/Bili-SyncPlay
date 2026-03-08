@@ -503,9 +503,14 @@ function parseBilibiliVideoRef(url: string | undefined | null): { videoId: strin
     const bvid = parsed.searchParams.get("bvid");
     if (bvid) {
       const cid = parsed.searchParams.get("cid");
+      const p = parsed.searchParams.get("p");
       return {
-        videoId: cid ? `${bvid}:${cid}` : bvid,
-        normalizedUrl: cid ? `https://www.bilibili.com/video/${bvid}?cid=${cid}` : `https://www.bilibili.com/video/${bvid}`
+        videoId: cid ? `${bvid}:${cid}` : p ? `${bvid}:p${p}` : bvid,
+        normalizedUrl: cid
+          ? `https://www.bilibili.com/video/${bvid}?cid=${cid}`
+          : p
+            ? `https://www.bilibili.com/video/${bvid}?p=${p}`
+            : `https://www.bilibili.com/video/${bvid}`
       };
     }
 
@@ -516,8 +521,10 @@ function parseBilibiliVideoRef(url: string | undefined | null): { videoId: strin
     }
 
     return {
-      videoId: match[1],
-      normalizedUrl: `${parsed.origin}${pathname}`
+      videoId: parsed.searchParams.get("p") ? `${match[1]}:p${parsed.searchParams.get("p")}` : match[1],
+      normalizedUrl: parsed.searchParams.get("p")
+        ? `${parsed.origin}${pathname}?p=${parsed.searchParams.get("p")}`
+        : `${parsed.origin}${pathname}`
     };
   } catch {
     return null;

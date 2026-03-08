@@ -51,6 +51,47 @@ function roomStateOf(room: Room): RoomState {
   };
 }
 
+function parseBilibiliVideoRef(url: string | undefined | null): { videoId: string; normalizedUrl: string } | null {
+  if (!url) {
+    return null;
+  }
+
+  try {
+    const parsed = new URL(url);
+    const bvid = parsed.searchParams.get("bvid");
+    if (bvid) {
+      const cid = parsed.searchParams.get("cid");
+      const p = parsed.searchParams.get("p");
+      return {
+        videoId: cid ? `${bvid}:${cid}` : p ? `${bvid}:p${p}` : bvid,
+        normalizedUrl: cid
+          ? `https://www.bilibili.com/video/${bvid}?cid=${cid}`
+          : p
+            ? `https://www.bilibili.com/video/${bvid}?p=${p}`
+            : `https://www.bilibili.com/video/${bvid}`
+      };
+    }
+
+    const pathname = parsed.pathname.replace(/\/+$/, "");
+    const match = pathname.match(/^\/(?:video|bangumi\/play)\/([^/?]+)$/);
+    if (!match) {
+      return null;
+    }
+
+    const p = parsed.searchParams.get("p");
+    return {
+      videoId: p ? `${match[1]}:p${p}` : match[1],
+      normalizedUrl: p ? `${parsed.origin}${pathname}?p=${p}` : `${parsed.origin}${pathname}`
+    };
+  } catch {
+    return null;
+  }
+}
+
+function normalizeUrl(url: string | undefined | null): string | null {
+  return parseBilibiliVideoRef(url)?.normalizedUrl ?? null;
+}
+
 function send(socket: WebSocket, message: ServerMessage): void {
   if (socket.readyState === socket.OPEN) {
     socket.send(JSON.stringify(message));
@@ -210,7 +251,12 @@ function handleClientMessage(session: Session, message: ClientMessage): void {
       if (!room) {
         return;
       }
-      if (!room.sharedVideo || room.sharedVideo.url !== message.payload.url) {
+      if (!room.sharedVideo) {
+        return;
+      }
+      const sharedUrl = normalizeUrl(room.sharedVideo.url);
+      const playbackUrl = normalizeUrl(message.payload.url);
+      if (!sharedUrl || !playbackUrl || sharedUrl !== playbackUrl) {
         return;
       }
       const now = Date.now();

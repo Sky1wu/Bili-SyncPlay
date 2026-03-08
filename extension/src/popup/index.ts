@@ -327,11 +327,16 @@ function normalizeUrl(url: string | null | undefined): string | null {
     const parsed = new URL(url);
     const bvid = parsed.searchParams.get("bvid");
     const cid = parsed.searchParams.get("cid");
+    const p = parsed.searchParams.get("p");
     if (bvid) {
-      return cid ? `https://www.bilibili.com/video/${bvid}?cid=${cid}` : `https://www.bilibili.com/video/${bvid}`;
+      return cid
+        ? `https://www.bilibili.com/video/${bvid}?cid=${cid}`
+        : p
+          ? `https://www.bilibili.com/video/${bvid}?p=${p}`
+          : `https://www.bilibili.com/video/${bvid}`;
     }
 
-    return `${parsed.origin}${parsed.pathname.replace(/\/+$/, "")}`;
+    return p ? `${parsed.origin}${parsed.pathname.replace(/\/+$/, "")}?p=${p}` : `${parsed.origin}${parsed.pathname.replace(/\/+$/, "")}`;
   } catch {
     return url.split("?")[0].replace(/\/+$/, "");
   }
