@@ -1,5 +1,12 @@
 import type { PlaybackState, RoomState, SharedVideo } from "@bili-syncplay/protocol";
 
+export interface SharedVideoToastPayload {
+  key: string;
+  actorId: string | null;
+  title: string;
+  videoUrl: string;
+}
+
 export type PopupToBackgroundMessage =
   | { type: "popup:create-room" }
   | { type: "popup:join-room"; roomCode: string }
@@ -40,6 +47,6 @@ export type BackgroundToPopupMessage =
     };
 
 export type BackgroundToContentMessage =
-  | { type: "background:apply-room-state"; payload: RoomState }
+  | { type: "background:apply-room-state"; payload: RoomState; shareToast?: SharedVideoToastPayload | null }
   | { type: "background:sync-status"; payload: { roomCode: string | null; connected: boolean; memberId: string | null } }
   | { type: "background:get-current-video" };

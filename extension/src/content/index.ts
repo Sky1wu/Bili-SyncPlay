@@ -1,5 +1,5 @@
 import type { PlaybackState, RoomState, SharedVideo } from "@bili-syncplay/protocol";
-import type { BackgroundToContentMessage } from "../shared/messages";
+import type { BackgroundToContentMessage, SharedVideoToastPayload } from "../shared/messages";
 
 let seq = 0;
 let lastBroadcastAt = 0;
@@ -51,6 +51,11 @@ let recentRemotePlayingIntent:
       currentTime: number;
     }
   | null = null;
+let lastToastRoomState: RoomState | null = null;
+let toastHost: HTMLDivElement | null = null;
+let toastContainer: HTMLDivElement | null = null;
+let lastSeekToastByActor = new Map<string, number>();
+let lastSharedVideoToastKey: string | null = null;
 
 const LOCAL_INTENT_GUARD_MS = 1200;
 const PAUSE_HOLD_MS = 1200;
@@ -61,6 +66,8 @@ const USER_GESTURE_GRACE_MS = 1200;
 const FESTIVAL_SNAPSHOT_TTL_MS = 1200;
 const NAVIGATION_WATCH_INTERVAL_MS = 400;
 const VIDEO_BIND_INTERVAL_MS = 250;
+const SEEK_TOAST_THRESHOLD_SECONDS = 1.5;
+const SEEK_START_TOAST_SUPPRESSION_MS = 1600;
 
 let lastObservedPageUrl = window.location.href.split("#")[0];
 
@@ -73,15 +80,204 @@ function debugLog(message: string): void {
   }).catch(() => undefined);
 }
 
+function getToastMountTarget(): HTMLElement | null {
+  return (document.fullscreenElement as HTMLElement | null) ?? document.body;
+}
+
+function ensureToastContainer(): HTMLDivElement | null {
+  const mountTarget = getToastMountTarget();
+  if (!mountTarget) {
+    return null;
+  }
+
+  if (toastContainer?.isConnected && toastHost?.parentElement === mountTarget) {
+    return toastContainer;
+  }
+
+  if (toastHost?.isConnected) {
+    toastHost.remove();
+  }
+
+  toastHost = document.createElement("div");
+  toastHost.style.position = "fixed";
+  toastHost.style.inset = "0";
+  toastHost.style.pointerEvents = "none";
+  toastHost.style.zIndex = "2147483000";
+
+  const shadowRoot = toastHost.attachShadow({ mode: "open" });
+  shadowRoot.innerHTML = `
+    <style>
+      .toast-stack {
+        position: absolute;
+        top: 20px;
+        left: 50%;
+        transform: translateX(-50%);
+        display: flex;
+        flex-direction: column;
+        gap: 10px;
+        align-items: center;
+      }
+      .toast {
+        max-width: min(520px, calc(100vw - 32px));
+        padding: 10px 14px;
+        border-radius: 999px;
+        background: rgba(15, 23, 42, 0.88);
+        color: #f8fafc;
+        font: 600 14px/1.35 -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+        box-shadow: 0 12px 30px rgba(15, 23, 42, 0.28);
+        border: 1px solid rgba(148, 163, 184, 0.24);
+        backdrop-filter: blur(14px);
+      }
+    </style>
+    <div class="toast-stack" id="toast-stack"></div>
+  `;
+
+  mountTarget.appendChild(toastHost);
+  toastContainer = shadowRoot.getElementById("toast-stack") as HTMLDivElement | null;
+  return toastContainer;
+}
+
+function showToast(message: string): void {
+  const container = ensureToastContainer();
+  if (!container) {
+    return;
+  }
+
+  const toast = document.createElement("div");
+  toast.className = "toast";
+  toast.textContent = message;
+  container.appendChild(toast);
+
+  window.setTimeout(() => {
+    toast.remove();
+  }, 2600);
+}
+
+function getMemberName(state: RoomState, memberId: string | null | undefined): string | null {
+  if (!memberId) {
+    return null;
+  }
+  return state.members.find((member) => member.id === memberId)?.name ?? null;
+}
+
+function formatToastTime(seconds: number): string {
+  const totalSeconds = Math.max(0, Math.floor(seconds));
+  const mins = Math.floor(totalSeconds / 60);
+  const secs = totalSeconds % 60;
+  return `${mins}:${secs.toString().padStart(2, "0")}`;
+}
+
+function shouldShowSeekToast(previousPlayback: PlaybackState, nextPlayback: PlaybackState): boolean {
+  const actualDelta = nextPlayback.currentTime - previousPlayback.currentTime;
+  const elapsedSeconds = Math.max(0, nextPlayback.serverTime - previousPlayback.serverTime) / 1000;
+  const expectedDelta = elapsedSeconds * previousPlayback.playbackRate;
+
+  if (previousPlayback.playState === "playing" && nextPlayback.playState !== "playing") {
+    return Math.abs(actualDelta - expectedDelta) >= SEEK_TOAST_THRESHOLD_SECONDS;
+  }
+
+  if (previousPlayback.playState !== "playing" || nextPlayback.playState !== "playing") {
+    return Math.abs(actualDelta) >= SEEK_TOAST_THRESHOLD_SECONDS;
+  }
+
+  return Math.abs(actualDelta - expectedDelta) >= SEEK_TOAST_THRESHOLD_SECONDS;
+}
+
+function notifyRoomStateToasts(state: RoomState): void {
+  const previousState = lastToastRoomState;
+  lastToastRoomState = state;
+
+  if (!localMemberId || !previousState || previousState.roomCode !== state.roomCode) {
+    return;
+  }
+
+  const sharedVideoChanged = previousState.sharedVideo?.url !== state.sharedVideo?.url;
+
+  const previousMembers = new Map(previousState.members.map((member) => [member.id, member.name]));
+  const currentMembers = new Map(state.members.map((member) => [member.id, member.name]));
+
+  for (const [memberId, memberName] of currentMembers) {
+    if (!previousMembers.has(memberId) && memberId !== localMemberId) {
+      showToast(`${memberName} 加入了房间`);
+    }
+  }
+
+  for (const [memberId, memberName] of previousMembers) {
+    if (!currentMembers.has(memberId) && memberId !== localMemberId) {
+      showToast(`${memberName} 离开了房间`);
+    }
+  }
+
+  if (sharedVideoChanged) {
+    return;
+  }
+
+  const shouldShowSeek =
+    Boolean(
+      previousState.playback &&
+        state.playback &&
+        previousState.sharedVideo?.url === state.sharedVideo?.url &&
+        state.playback.actorId !== localMemberId &&
+        shouldShowSeekToast(previousState.playback, state.playback)
+    );
+
+  if (
+    previousState.playback?.playState !== state.playback?.playState &&
+    state.playback &&
+    state.playback.playState !== "buffering" &&
+    state.playback.actorId !== localMemberId &&
+    !(shouldShowSeek && state.playback.playState === "playing") &&
+    !(
+      state.playback.playState === "playing" &&
+      lastSeekToastByActor.has(state.playback.actorId) &&
+      Date.now() - (lastSeekToastByActor.get(state.playback.actorId) ?? 0) < SEEK_START_TOAST_SUPPRESSION_MS
+    )
+  ) {
+    const actorName = getMemberName(state, state.playback.actorId);
+    if (actorName) {
+      showToast(state.playback.playState === "playing" ? `${actorName} 开始播放` : `${actorName} 暂停了视频`);
+    }
+  }
+
+  if (shouldShowSeek && state.playback) {
+    const actorName = getMemberName(state, state.playback.actorId);
+    if (actorName) {
+      lastSeekToastByActor.set(state.playback.actorId, Date.now());
+      showToast(`${actorName} 跳转到 ${formatToastTime(state.playback.currentTime)}`);
+    }
+  }
+}
+
+function maybeShowSharedVideoToast(toast: SharedVideoToastPayload | null | undefined, state: RoomState): void {
+  if (!toast || !localMemberId || lastSharedVideoToastKey === toast.key) {
+    return;
+  }
+  if (normalizeUrl(toast.videoUrl) !== normalizeUrl(state.sharedVideo?.url)) {
+    return;
+  }
+
+  const actorName = getMemberName(state, toast.actorId);
+  if (!actorName || toast.actorId === localMemberId) {
+    lastSharedVideoToastKey = toast.key;
+    return;
+  }
+
+  lastSharedVideoToastKey = toast.key;
+  showToast(`${actorName} 共享了新视频：${toast.title}`);
+}
 async function init(): Promise<void> {
   startUserGestureTracking();
   startPlaybackBinding();
   startNavigationWatch();
+  document.addEventListener("fullscreenchange", () => {
+    toastContainer = null;
+    void ensureToastContainer();
+  });
   void reportCurrentUser();
 
   chrome.runtime.onMessage.addListener((message: BackgroundToContentMessage, _sender, sendResponse) => {
     if (message.type === "background:apply-room-state") {
-      void applyRoomState(message.payload);
+      void applyRoomState(message.payload, message.shareToast ?? null);
       return false;
     }
 
@@ -837,7 +1033,10 @@ async function broadcastPlayback(video: HTMLVideoElement): Promise<void> {
   debugLog(`Broadcast playback ${playState} ${currentVideo.url} t=${payload.currentTime.toFixed(2)} seq=${payload.seq}`);
 }
 
-async function applyRoomState(state: RoomState): Promise<void> {
+async function applyRoomState(state: RoomState, shareToast: SharedVideoToastPayload | null = null): Promise<void> {
+  notifyRoomStateToasts(state);
+  maybeShowSharedVideoToast(shareToast, state);
+
   const currentVideo = getSharedVideo();
   if (!state.sharedVideo || !state.playback || !currentVideo) {
     return;

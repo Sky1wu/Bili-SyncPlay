@@ -17,11 +17,16 @@ export interface PlaybackState {
   seq: number;
 }
 
+export interface RoomMember {
+  id: string;
+  name: string;
+}
+
 export interface RoomState {
   roomCode: RoomCode;
   sharedVideo: SharedVideo | null;
   playback: PlaybackState | null;
-  members: string[];
+  members: RoomMember[];
 }
 
 export interface ClientHelloPayload {

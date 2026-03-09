@@ -5,7 +5,8 @@ import type {
   BackgroundToPopupMessage,
   ContentToBackgroundMessage,
   DebugLogEntry,
-  PopupToBackgroundMessage
+  PopupToBackgroundMessage,
+  SharedVideoToastPayload
 } from "../shared/messages";
 
 const DEFAULT_SERVER_URL = "ws://localhost:8787";
@@ -39,6 +40,9 @@ let pendingSharedVideo: SharedVideo | null = null;
 let pendingSharedPlayback: ClientMessage | null = null;
 let openingSharedUrl: string | null = null;
 let pendingLocalShareUrl: string | null = null;
+let pendingShareToast: (SharedVideoToastPayload & { expiresAt: number; roomCode: string }) | null = null;
+
+const SHARE_TOAST_TTL_MS = 8000;
 
 bootstrap().catch(console.error);
 
@@ -139,6 +143,7 @@ async function handleServerMessage(message: ServerMessage): Promise<void> {
       notifyAll();
       return;
     case "room:state":
+      const previousSharedUrl = roomState?.sharedVideo?.url ?? null;
       if (
         pendingLocalShareUrl &&
         normalizeUrl(message.payload.sharedVideo?.url) !== normalizeUrl(pendingLocalShareUrl)
@@ -151,15 +156,17 @@ async function handleServerMessage(message: ServerMessage): Promise<void> {
         const compensatedIgnoredState = compensateRoomState(roomState);
         await notifyContentScripts({
           type: "background:apply-room-state",
-          payload: compensatedIgnoredState
+          payload: compensatedIgnoredState,
+          shareToast: getPendingShareToastFor(message.payload)
         });
         notifyAll();
         return;
       }
 
-      if (roomState?.sharedVideo?.url !== message.payload.sharedVideo?.url) {
+      if (previousSharedUrl !== message.payload.sharedVideo?.url) {
         lastOpenedSharedUrl = null;
         log("background", `Shared video switched to ${message.payload.sharedVideo?.url ?? "none"}`);
+        pendingShareToast = createPendingShareToast(message.payload);
       }
       roomState = message.payload;
       roomCode = message.payload.roomCode;
@@ -176,7 +183,8 @@ async function handleServerMessage(message: ServerMessage): Promise<void> {
       const compensatedRoomState = compensateRoomState(roomState);
       await notifyContentScripts({
         type: "background:apply-room-state",
-        payload: compensatedRoomState
+        payload: compensatedRoomState,
+        shareToast: getPendingShareToastFor(message.payload)
       });
       notifyAll();
       return;
@@ -190,6 +198,42 @@ async function handleServerMessage(message: ServerMessage): Promise<void> {
       notifyAll();
       return;
   }
+}
+
+function createPendingShareToast(state: RoomState): (SharedVideoToastPayload & { expiresAt: number; roomCode: string }) | null {
+  if (!state.sharedVideo) {
+    return null;
+  }
+  return {
+    key: `${state.roomCode}:${normalizeUrl(state.sharedVideo.url) ?? state.sharedVideo.url}:${Date.now()}`,
+    actorId: state.playback?.actorId ?? null,
+    title: state.sharedVideo.title,
+    videoUrl: state.sharedVideo.url,
+    roomCode: state.roomCode,
+    expiresAt: Date.now() + SHARE_TOAST_TTL_MS
+  };
+}
+
+function getPendingShareToastFor(state: RoomState): SharedVideoToastPayload | null {
+  if (!pendingShareToast) {
+    return null;
+  }
+  if (pendingShareToast.expiresAt <= Date.now()) {
+    pendingShareToast = null;
+    return null;
+  }
+  if (pendingShareToast.roomCode !== state.roomCode) {
+    return null;
+  }
+  if (normalizeUrl(pendingShareToast.videoUrl) !== normalizeUrl(state.sharedVideo?.url)) {
+    return null;
+  }
+  return {
+    key: pendingShareToast.key,
+    actorId: pendingShareToast.actorId,
+    title: pendingShareToast.title,
+    videoUrl: pendingShareToast.videoUrl
+  };
 }
 
 function flushPendingShare(): void {
@@ -283,6 +327,7 @@ async function queueOrSendSharedVideo(
   roomCode = null;
   memberId = null;
   roomState = null;
+  pendingShareToast = null;
   await persistState();
   connect();
   if (connected) {
@@ -629,6 +674,7 @@ chrome.runtime.onMessage.addListener((message: PopupToBackgroundMessage | Conten
         roomCode = null;
         memberId = null;
         roomState = null;
+        pendingShareToast = null;
         pendingSharedVideo = null;
         pendingSharedPlayback = null;
         await persistState();
@@ -661,6 +707,7 @@ chrome.runtime.onMessage.addListener((message: PopupToBackgroundMessage | Conten
         roomCode = null;
         memberId = null;
         roomState = null;
+        pendingShareToast = null;
         lastOpenedSharedUrl = null;
         pendingSharedVideo = null;
         pendingSharedPlayback = null;

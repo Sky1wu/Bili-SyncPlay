@@ -47,7 +47,10 @@ function roomStateOf(room: Room): RoomState {
     roomCode: room.code,
     sharedVideo: room.sharedVideo,
     playback: room.playback,
-    members: Array.from(room.members.values()).map((member) => member.displayName)
+    members: Array.from(room.members.values()).map((member) => ({
+      id: member.id,
+      name: member.displayName
+    }))
   };
 }
 

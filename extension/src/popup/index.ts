@@ -1,3 +1,4 @@
+import type { RoomMember } from "@bili-syncplay/protocol";
 import type { BackgroundToPopupMessage } from "../shared/messages";
 
 const app = document.getElementById("app");
@@ -267,12 +268,12 @@ function renderLogs(container: HTMLElement, logs: BackgroundToPopupMessage["payl
     .join("");
 }
 
-function renderMemberList(container: HTMLElement, members: string[]): void {
+function renderMemberList(container: HTMLElement, members: RoomMember[]): void {
   if (members.length === 0) {
     container.innerHTML = `<span class="member-chip">暂无成员</span>`;
     return;
   }
-  container.innerHTML = members.map((member) => `<span class="member-chip">${escapeHtml(member)}</span>`).join("");
+  container.innerHTML = members.map((member) => `<span class="member-chip">${escapeHtml(member.name)}</span>`).join("");
 }
 
 function escapeHtml(value: string): string {
