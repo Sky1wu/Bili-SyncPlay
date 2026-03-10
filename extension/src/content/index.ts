@@ -74,10 +74,29 @@ let lastObservedPageUrl = window.location.href.split("#")[0];
 void init();
 
 function debugLog(message: string): void {
-  void chrome.runtime.sendMessage({
+  void runtimeSendMessage({
     type: "content:debug-log",
     payload: { message }
   }).catch(() => undefined);
+}
+
+async function runtimeSendMessage<T>(message: unknown): Promise<T | null> {
+  try {
+    return await chrome.runtime.sendMessage(message);
+  } catch (error) {
+    if (error instanceof Error && error.message.includes("Extension context invalidated")) {
+      return null;
+    }
+    throw error;
+  }
+}
+
+function resetPlaybackSyncState(reason: string): void {
+  lastAppliedVersionByActor.clear();
+  suppressedRemotePlayback = null;
+  recentRemotePlayingIntent = null;
+  pendingPlaybackApplication = null;
+  debugLog(`Reset playback sync state: ${reason}`);
 }
 
 function getToastMountTarget(): HTMLElement | null {
@@ -195,7 +214,7 @@ function notifyRoomStateToasts(state: RoomState): void {
   const previousState = lastToastRoomState;
   lastToastRoomState = state;
 
-  if (!localMemberId || !previousState || previousState.roomCode !== state.roomCode) {
+  if (!localMemberId || !previousState || previousState.roomCode !== state.roomCode || pendingRoomStateHydration) {
     return;
   }
 
@@ -308,6 +327,8 @@ async function init(): Promise<void> {
       const roomChanged = Boolean(previousRoomCode && message.payload.roomCode && previousRoomCode !== message.payload.roomCode);
 
       if (roomChanged) {
+        resetPlaybackSyncState(`room changed ${previousRoomCode} -> ${message.payload.roomCode}`);
+        lastToastRoomState = null;
         hasReceivedInitialRoomState = false;
         pendingRoomStateHydration = true;
       }
@@ -319,6 +340,11 @@ async function init(): Promise<void> {
       }
 
       if (!message.payload.roomCode) {
+        if (previousRoomCode) {
+          resetPlaybackSyncState(`room cleared from ${previousRoomCode}`);
+        }
+        activeSharedUrl = null;
+        lastToastRoomState = null;
         pendingRoomStateHydration = false;
         hasReceivedInitialRoomState = false;
       }
@@ -1049,10 +1075,13 @@ async function broadcastPlayback(video: HTMLVideoElement): Promise<void> {
     seq: seq++
   };
 
-  await chrome.runtime.sendMessage({
+  const response = await runtimeSendMessage({
     type: "content:playback-update",
     payload
   });
+  if (response === null) {
+    return;
+  }
   debugLog(`Broadcast playback ${playState} ${currentVideo.url} t=${payload.currentTime.toFixed(2)} seq=${payload.seq}`);
 }
 
@@ -1061,7 +1090,17 @@ async function applyRoomState(state: RoomState, shareToast: SharedVideoToastPayl
   maybeShowSharedVideoToast(shareToast, state);
 
   const currentVideo = getSharedVideo();
-  if (!state.sharedVideo || !state.playback || !currentVideo) {
+  if (!state.sharedVideo || !state.playback) {
+    activeSharedUrl = null;
+    if (pendingRoomStateHydration) {
+      debugLog(`Accepted empty room state for ${state.roomCode}`);
+      pendingRoomStateHydration = false;
+      hasReceivedInitialRoomState = true;
+    }
+    return;
+  }
+
+  if (!currentVideo) {
     return;
   }
 
@@ -1071,9 +1110,7 @@ async function applyRoomState(state: RoomState, shareToast: SharedVideoToastPayl
 
   if (activeSharedUrl !== normalizedSharedUrl) {
     activeSharedUrl = normalizedSharedUrl;
-    lastAppliedVersionByActor.clear();
-    suppressedRemotePlayback = null;
-    recentRemotePlayingIntent = null;
+    resetPlaybackSyncState(`shared url changed to ${state.sharedVideo.url}`);
     intendedPlayState = "paused";
     debugLog(`Reset local sync state for shared url ${state.sharedVideo.url}`);
   }
@@ -1162,7 +1199,13 @@ async function hydrateRoomState(): Promise<void> {
     hydrateRetryTimer = null;
   }
 
-  const response = await chrome.runtime.sendMessage({ type: "content:get-room-state" });
+  const response = await runtimeSendMessage<{ ok?: boolean; roomState?: RoomState; memberId?: string | null; roomCode?: string | null }>({
+    type: "content:get-room-state"
+  });
+  if (response === null) {
+    hydrationReady = true;
+    return;
+  }
   localMemberId = response?.memberId ?? null;
   activeRoomCode = response?.roomCode ?? activeRoomCode;
 
@@ -1261,10 +1304,13 @@ async function reportCurrentUser(): Promise<void> {
       return;
     }
 
-    await chrome.runtime.sendMessage({
+    const reportResponse = await runtimeSendMessage({
       type: "content:report-user",
       payload: { displayName: nextDisplayName }
     });
+    if (reportResponse === null) {
+      return;
+    }
   } catch {
     // Ignore lookup failures and keep guest naming.
   }

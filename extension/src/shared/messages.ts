@@ -11,6 +11,7 @@ export type PopupToBackgroundMessage =
   | { type: "popup:create-room" }
   | { type: "popup:join-room"; roomCode: string }
   | { type: "popup:leave-room" }
+  | { type: "popup:debug-log"; message: string }
   | { type: "popup:get-state" }
   | { type: "popup:get-active-video" }
   | { type: "popup:share-current-video" }
@@ -25,7 +26,7 @@ export type ContentToBackgroundMessage =
 
 export interface DebugLogEntry {
   at: number;
-  scope: "background" | "content" | "server";
+  scope: "background" | "content" | "server" | "popup";
   message: string;
 }
 
@@ -39,6 +40,8 @@ export type BackgroundToPopupMessage =
         roomState: RoomState | null;
         serverUrl: string;
         error: string | null;
+        pendingCreateRoom: boolean;
+        pendingJoinRoomCode: string | null;
         retryInMs: number | null;
         retryAttempt: number;
         retryAttemptMax: number;

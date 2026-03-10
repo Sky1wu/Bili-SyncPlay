@@ -31,6 +31,7 @@ let displayName: string | null = null;
 let roomState: RoomState | null = null;
 let sharedTabId: number | null = null;
 let pendingCreateRoom = false;
+let pendingJoinRoomCode: string | null = null;
 let reconnectTimer: number | null = null;
 let reconnectAttempt = 0;
 let reconnectDeadlineMs: number | null = null;
@@ -45,6 +46,7 @@ let openingSharedUrl: string | null = null;
 let pendingLocalShareUrl: string | null = null;
 let pendingShareToast: (SharedVideoToastPayload & { expiresAt: number; roomCode: string }) | null = null;
 let connectProbe: Promise<void> | null = null;
+let lastPopupStateLogKey: string | null = null;
 
 const SHARE_TOAST_TTL_MS = 8000;
 
@@ -121,12 +123,12 @@ async function openSocketWithProbe(): Promise<void> {
         type: "room:create",
         payload: { displayName: displayName ?? undefined }
       });
+    } else if (pendingJoinRoomCode) {
+      const targetRoomCode = pendingJoinRoomCode;
+      pendingJoinRoomCode = null;
+      sendJoinRequest(targetRoomCode);
     } else if (roomCode) {
-      sendToServer({
-        type: "room:join",
-        payload: { roomCode, displayName: displayName ?? undefined }
-      });
-      sendToServer({ type: "sync:request" });
+      sendJoinRequest(roomCode);
     }
     syncClock();
     startClockSyncTimer();
@@ -165,6 +167,13 @@ function sendToServer(message: ClientMessage): void {
   socket.send(JSON.stringify(message));
 }
 
+function sendJoinRequest(targetRoomCode: string): void {
+  sendToServer({
+    type: "room:join",
+    payload: { roomCode: targetRoomCode, displayName: displayName ?? undefined }
+  });
+}
+
 function toHealthcheckUrl(url: string): string | null {
   try {
     const parsed = new URL(url);
@@ -189,6 +198,7 @@ async function handleServerMessage(message: ServerMessage): Promise<void> {
   switch (message.type) {
     case "room:created":
     case "room:joined":
+      pendingJoinRoomCode = null;
       roomCode = message.payload.roomCode;
       memberId = message.payload.memberId;
       lastError = null;
@@ -244,6 +254,14 @@ async function handleServerMessage(message: ServerMessage): Promise<void> {
       return;
     case "error":
       lastError = message.payload.message;
+      if (pendingJoinRoomCode && message.payload.message === "Room not found.") {
+        log("background", `Join failed for room ${pendingJoinRoomCode}`);
+        pendingJoinRoomCode = null;
+        roomCode = null;
+        memberId = null;
+        roomState = null;
+        await persistState();
+      }
       log("server", `error: ${message.payload.message}`);
       notifyAll();
       return;
@@ -510,6 +528,31 @@ function log(scope: DebugLogEntry["scope"], message: string): void {
   logs = [{ at: Date.now(), scope, message }, ...logs].slice(0, MAX_LOGS);
 }
 
+function maybeLogPopupStateRequest(): void {
+  const key = `${roomCode ?? "none"}|${connected}|${pendingJoinRoomCode ?? "none"}`;
+  if (key === lastPopupStateLogKey) {
+    return;
+  }
+  lastPopupStateLogKey = key;
+  log("background", `Popup requested state room=${roomCode ?? "none"} connected=${connected} pendingJoin=${pendingJoinRoomCode ?? "none"}`);
+}
+
+function formatContentLogSource(sender: chrome.runtime.MessageSender): string {
+  const tabId = sender.tab?.id;
+  const rawUrl = sender.tab?.url ?? sender.url ?? null;
+  if (!rawUrl) {
+    return tabId !== undefined ? `tab=${tabId}` : "tab=unknown";
+  }
+
+  try {
+    const parsed = new URL(rawUrl);
+    const conciseUrl = `${parsed.origin}${parsed.pathname}`;
+    return tabId !== undefined ? `tab=${tabId} ${conciseUrl}` : conciseUrl;
+  } catch {
+    return tabId !== undefined ? `tab=${tabId} ${rawUrl}` : rawUrl;
+  }
+}
+
 function rememberSharedSourceTab(tabId: number | undefined, url: string): void {
   if (tabId !== undefined) {
     sharedTabId = tabId;
@@ -687,6 +730,8 @@ function popupState(): BackgroundToPopupMessage {
       roomState,
       serverUrl,
       error: lastError,
+      pendingCreateRoom,
+      pendingJoinRoomCode,
       retryInMs: getRetryInMs(),
       retryAttempt: reconnectAttempt,
       retryAttemptMax: MAX_RECONNECT_ATTEMPTS,
@@ -754,6 +799,7 @@ chrome.runtime.onMessage.addListener((message: PopupToBackgroundMessage | Conten
         roomCode = null;
         memberId = null;
         roomState = null;
+        pendingJoinRoomCode = null;
         pendingShareToast = null;
         pendingSharedVideo = null;
         pendingSharedPlayback = null;
@@ -771,22 +817,37 @@ chrome.runtime.onMessage.addListener((message: PopupToBackgroundMessage | Conten
         sendResponse(popupState());
         return;
       case "popup:join-room":
-        roomCode = message.roomCode.trim().toUpperCase();
+        resetReconnectState();
+        pendingCreateRoom = false;
+        pendingJoinRoomCode = message.roomCode.trim().toUpperCase();
+        log("background", `Popup requested join for ${pendingJoinRoomCode}`);
+        roomCode = pendingJoinRoomCode;
+        memberId = null;
+        roomState = null;
+        pendingShareToast = null;
+        pendingSharedVideo = null;
+        pendingSharedPlayback = null;
+        pendingLocalShareUrl = null;
+        lastOpenedSharedUrl = null;
+        lastError = null;
         await persistState();
-        connect();
-        sendToServer({
-          type: "room:join",
-          payload: { roomCode, displayName: displayName ?? undefined }
-        });
+        await connect();
+        if (connected && pendingJoinRoomCode) {
+          const targetRoomCode = pendingJoinRoomCode;
+          pendingJoinRoomCode = null;
+          sendJoinRequest(targetRoomCode);
+        }
         sendResponse(popupState());
         return;
       case "popup:leave-room":
+        log("background", `Popup requested leave for ${roomCode ?? "none"}`);
         if (connected) {
           sendToServer({ type: "room:leave" });
         }
         roomCode = null;
         memberId = null;
         roomState = null;
+        pendingJoinRoomCode = null;
         pendingShareToast = null;
         lastOpenedSharedUrl = null;
         pendingSharedVideo = null;
@@ -798,7 +859,12 @@ chrome.runtime.onMessage.addListener((message: PopupToBackgroundMessage | Conten
         notifyAll();
         sendResponse(popupState());
         return;
+      case "popup:debug-log":
+        log("popup", message.message);
+        sendResponse({ ok: true });
+        return;
       case "popup:get-state":
+        maybeLogPopupStateRequest();
         if (roomCode && !connected) {
           connect();
         }
@@ -878,7 +944,7 @@ chrome.runtime.onMessage.addListener((message: PopupToBackgroundMessage | Conten
         );
         return;
       case "content:debug-log":
-        log("content", message.payload.message);
+        log("content", `[${formatContentLogSource(sender)}] ${message.payload.message}`);
         sendResponse({ ok: true });
         return;
       default:

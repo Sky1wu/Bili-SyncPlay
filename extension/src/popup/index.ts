@@ -35,6 +35,14 @@ let refs: PopupRefs | null = null;
 let renderTimer: number | null = null;
 let copyRoomResetTimer: number | null = null;
 let copyLogsResetTimer: number | null = null;
+let roomActionPending = false;
+let lastKnownPendingCreateRoom = false;
+let lastKnownPendingJoinRoomCode: string | null = null;
+let lastKnownRoomCode: string | null = null;
+let lastRoomEnteredAt = 0;
+let roomCodeDraft = "";
+
+const LEAVE_GUARD_MS = 1500;
 
 void init();
 
@@ -219,6 +227,30 @@ async function queryState(): Promise<BackgroundToPopupMessage["payload"]> {
   return response.payload;
 }
 
+async function sendPopupLog(message: string): Promise<void> {
+  try {
+    await chrome.runtime.sendMessage({ type: "popup:debug-log", message });
+  } catch {
+    // Ignore popup debug logging failures.
+  }
+}
+
+function applyRoomActionControlState(nodes: PopupRefs): void {
+  const isRoomTransitioning =
+    roomActionPending || lastKnownPendingCreateRoom || Boolean(lastKnownPendingJoinRoomCode);
+  nodes.createRoomButton.disabled = isRoomTransitioning;
+  nodes.joinRoomButton.disabled = isRoomTransitioning || !nodes.roomCodeInput.value.trim();
+  nodes.leaveRoomButton.disabled = isRoomTransitioning;
+  nodes.roomCodeInput.disabled = isRoomTransitioning || Boolean(lastKnownRoomCode);
+}
+
+function setRoomActionPending(nextPending: boolean): void {
+  roomActionPending = nextPending;
+  if (refs) {
+    applyRoomActionControlState(refs);
+  }
+}
+
 async function render(): Promise<void> {
   if (!refs) {
     return;
@@ -227,6 +259,13 @@ async function render(): Promise<void> {
   const state = await queryState();
   const roomCodeFocused = document.activeElement === refs.roomCodeInput;
   const serverUrlFocused = document.activeElement === refs.serverUrlInput;
+  const previousRoomCode = lastKnownRoomCode;
+  lastKnownPendingCreateRoom = state.pendingCreateRoom;
+  lastKnownPendingJoinRoomCode = state.pendingJoinRoomCode;
+  lastKnownRoomCode = state.roomCode;
+  if (!previousRoomCode && state.roomCode) {
+    lastRoomEnteredAt = Date.now();
+  }
 
   refs.serverStatus.textContent = state.connected ? "已连接" : "未连接";
   refs.roomStatus.textContent = state.roomCode ?? "-";
@@ -241,7 +280,12 @@ async function render(): Promise<void> {
   refs.message.hidden = !state.error;
 
   if (!roomCodeFocused) {
-    refs.roomCodeInput.value = state.roomCode ?? "";
+    if (state.roomCode) {
+      roomCodeDraft = state.roomCode;
+      refs.roomCodeInput.value = state.roomCode;
+    } else {
+      refs.roomCodeInput.value = roomCodeDraft;
+    }
   }
   if (!serverUrlFocused) {
     refs.serverUrlInput.value = state.serverUrl;
@@ -250,6 +294,7 @@ async function render(): Promise<void> {
   refs.copyRoomButton.disabled = !state.roomCode;
   refs.roomPanelJoined.hidden = !state.roomCode;
   refs.roomPanelIdle.hidden = Boolean(state.roomCode);
+  applyRoomActionControlState(refs);
 
   refs.sharedVideoTitle.textContent = state.roomState?.sharedVideo?.title ?? "暂无共享视频";
   refs.sharedVideoMeta.textContent = formatVideoMeta(state.roomState?.sharedVideo?.url ?? null);
@@ -263,6 +308,12 @@ async function render(): Promise<void> {
 
   renderMemberList(refs.memberList, state.roomState?.members ?? []);
   renderLogs(refs.logs, state.logs);
+
+  if (state.pendingJoinRoomCode || roomActionPending) {
+    void sendPopupLog(
+      `Render room=${state.roomCode ?? "none"} connected=${state.connected} pendingJoin=${state.pendingJoinRoomCode ?? "none"} pendingAction=${roomActionPending}`
+    );
+  }
 }
 
 function formatVideoMeta(url: string | null): string {
@@ -372,23 +423,84 @@ function normalizeUrl(url: string | null | undefined): string | null {
 }
 
 function bindActions(nodes: PopupRefs): void {
+  nodes.joinRoomButton.addEventListener("pointerdown", () => {
+    void sendPopupLog(
+      `Join button pointerdown disabled=${nodes.joinRoomButton.disabled} pending=${roomActionPending} inputDisabled=${nodes.roomCodeInput.disabled}`
+    );
+  });
+
+  nodes.leaveRoomButton.addEventListener("pointerdown", () => {
+    void sendPopupLog(
+      `Leave button pointerdown disabled=${nodes.leaveRoomButton.disabled} pending=${roomActionPending} room=${lastKnownRoomCode ?? "none"}`
+    );
+  });
+
   nodes.createRoomButton.addEventListener("click", async () => {
-    await chrome.runtime.sendMessage({ type: "popup:create-room" });
-    await render();
+    if (roomActionPending) {
+      void sendPopupLog("Create room click ignored because room action is pending");
+      return;
+    }
+    void sendPopupLog("Create room button clicked");
+    setRoomActionPending(true);
+    try {
+      await chrome.runtime.sendMessage({ type: "popup:create-room" });
+      void sendPopupLog("Create room message resolved");
+      setRoomActionPending(false);
+      await render();
+    } finally {
+      if (roomActionPending) {
+        setRoomActionPending(false);
+      }
+    }
   });
 
   nodes.joinRoomButton.addEventListener("click", async () => {
-    const roomCode = nodes.roomCodeInput.value.trim();
-    if (!roomCode) {
+    if (roomActionPending) {
+      void sendPopupLog("Join click ignored because room action is pending");
       return;
     }
-    await chrome.runtime.sendMessage({ type: "popup:join-room", roomCode });
-    await render();
+    const roomCode = nodes.roomCodeInput.value.trim();
+    if (!roomCode) {
+      void sendPopupLog("Join click ignored because room code is empty");
+      return;
+    }
+    roomCodeDraft = roomCode.toUpperCase();
+    void sendPopupLog(`Join button clicked room=${roomCode.toUpperCase()}`);
+    setRoomActionPending(true);
+    try {
+      await chrome.runtime.sendMessage({ type: "popup:join-room", roomCode });
+      void sendPopupLog(`Join message resolved room=${roomCode.toUpperCase()}`);
+      setRoomActionPending(false);
+      await render();
+    } finally {
+      if (roomActionPending) {
+        setRoomActionPending(false);
+      }
+    }
   });
 
   nodes.leaveRoomButton.addEventListener("click", async () => {
-    await chrome.runtime.sendMessage({ type: "popup:leave-room" });
-    await render();
+    if (roomActionPending) {
+      void sendPopupLog("Leave click ignored because room action is pending");
+      return;
+    }
+    if (Date.now() - lastRoomEnteredAt < LEAVE_GUARD_MS) {
+      void sendPopupLog(`Leave click ignored by recent-join guard ${Date.now() - lastRoomEnteredAt}ms`);
+      return;
+    }
+    void sendPopupLog("Leave room button clicked");
+    roomCodeDraft = "";
+    setRoomActionPending(true);
+    try {
+      await chrome.runtime.sendMessage({ type: "popup:leave-room" });
+      void sendPopupLog("Leave room message resolved");
+      setRoomActionPending(false);
+      await render();
+    } finally {
+      if (roomActionPending) {
+        setRoomActionPending(false);
+      }
+    }
   });
 
   nodes.copyRoomButton.addEventListener("click", async () => {
@@ -440,15 +552,39 @@ function bindActions(nodes: PopupRefs): void {
   });
 
   nodes.roomCodeInput.addEventListener("keydown", async (event) => {
-    if (event.key !== "Enter") {
+    if (event.key !== "Enter" || roomActionPending) {
+      if (event.key === "Enter" && roomActionPending) {
+        void sendPopupLog("Join by Enter ignored because room action is pending");
+      }
       return;
     }
     const roomCode = nodes.roomCodeInput.value.trim();
     if (!roomCode) {
+      void sendPopupLog("Join by Enter ignored because room code is empty");
       return;
     }
-    await chrome.runtime.sendMessage({ type: "popup:join-room", roomCode });
-    await render();
+    roomCodeDraft = roomCode.toUpperCase();
+    void sendPopupLog(`Join by Enter room=${roomCode.toUpperCase()}`);
+    setRoomActionPending(true);
+    try {
+      await chrome.runtime.sendMessage({ type: "popup:join-room", roomCode });
+      void sendPopupLog(`Join by Enter resolved room=${roomCode.toUpperCase()}`);
+      setRoomActionPending(false);
+      await render();
+    } finally {
+      if (roomActionPending) {
+        setRoomActionPending(false);
+      }
+    }
+  });
+
+  nodes.roomCodeInput.addEventListener("input", () => {
+    applyRoomActionControlState(nodes);
+    const roomCode = nodes.roomCodeInput.value.trim();
+    roomCodeDraft = roomCode.toUpperCase();
+    if (roomCode) {
+      void sendPopupLog(`Room code input changed room=${roomCode.toUpperCase()}`);
+    }
   });
 
   const saveServerUrl = async () => {
@@ -477,7 +613,7 @@ function scheduleRefresh(): void {
   stopRefresh();
   renderTimer = window.setInterval(() => {
     void render();
-  }, 250);
+  }, 500);
 }
 
 function stopRefresh(): void {
