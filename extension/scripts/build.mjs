@@ -1,14 +1,21 @@
 import { build } from "esbuild";
-import { cp, mkdir, rm } from "node:fs/promises";
+import { cp, mkdir, readFile, rm, writeFile } from "node:fs/promises";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const rootDir = path.resolve(__dirname, "..");
+const workspaceRootDir = path.resolve(rootDir, "..");
 const distDir = path.join(rootDir, "dist");
+const packageJsonPath = path.join(workspaceRootDir, "package.json");
+const manifestPath = path.join(rootDir, "public", "manifest.json");
 
 await rm(distDir, { recursive: true, force: true });
 await mkdir(distDir, { recursive: true });
+
+const rootPackage = JSON.parse(await readFile(packageJsonPath, "utf8"));
+const manifest = JSON.parse(await readFile(manifestPath, "utf8"));
+manifest.version = rootPackage.version;
 
 await Promise.all([
   build({
@@ -24,7 +31,7 @@ await Promise.all([
     outdir: distDir,
     sourcemap: true
   }),
-  cp(path.join(rootDir, "public", "manifest.json"), path.join(distDir, "manifest.json")),
+  writeFile(path.join(distDir, "manifest.json"), JSON.stringify(manifest, null, 2)),
   cp(path.join(rootDir, "public", "popup.html"), path.join(distDir, "popup.html")),
   cp(path.join(rootDir, "public", "popup.css"), path.join(distDir, "popup.css")),
   cp(path.join(rootDir, "public", "icon-16.png"), path.join(distDir, "icon-16.png")),

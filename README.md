@@ -84,6 +84,9 @@ ws://localhost:8787
 4. Click `Load unpacked`
 5. Select `extension/dist`
 
+The extension version shown by Chrome comes from `extension/dist/manifest.json`.
+During build, that manifest version is generated automatically from the root `package.json`.
+
 ## Usage
 
 1. Open the extension popup
@@ -108,6 +111,19 @@ wss://sync.example.com
 
 ## Build a Release Package
 
+Update the workspace version first:
+
+```bash
+npm run release:version -- 0.5.4
+```
+
+This command updates:
+- the root `package.json`
+- `packages/protocol/package.json`
+- `server/package.json`
+- `extension/package.json`
+- `package-lock.json`
+
 Build the extension release zip:
 
 ```bash
@@ -131,8 +147,10 @@ The repository already includes a GitHub Actions workflow that:
 Example:
 
 ```bash
-git tag v0.4.1
-git push origin v0.4.1
+npm run release:version -- 0.5.4
+git push origin main
+git tag v0.5.4
+git push origin v0.5.4
 ```
 
 ## Notes
