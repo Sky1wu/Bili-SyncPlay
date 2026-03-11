@@ -5,3 +5,4 @@ coverage/
 *.log
 tmp-test-extension/
 release/
+docs/
