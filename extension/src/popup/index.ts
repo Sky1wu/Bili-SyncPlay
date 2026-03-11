@@ -1,5 +1,6 @@
 import type { RoomMember } from "@bili-syncplay/protocol";
 import type { BackgroundToPopupMessage } from "../shared/messages";
+import { escapeHtml } from "./helpers";
 
 const app = document.getElementById("app");
 
@@ -353,15 +354,6 @@ function renderMemberList(container: HTMLElement, members: RoomMember[]): void {
   }
 
   container.innerHTML = members.map((member) => `<span class="member-chip">${escapeHtml(member.name)}</span>`).join("");
-}
-
-function escapeHtml(value: string): string {
-  return value
-    .replaceAll("&", "&amp;")
-    .replaceAll("<", "&lt;")
-    .replaceAll(">", "&gt;")
-    .replaceAll("\"", "&quot;")
-    .replaceAll("'", "&#39;");
 }
 
 async function handleShareCurrentVideo(): Promise<void> {
