@@ -207,50 +207,7 @@ async function handleServerMessage(message: ServerMessage): Promise<void> {
       notifyAll();
       return;
     case "room:state":
-      const previousSharedUrl = roomState?.sharedVideo?.url ?? null;
-      if (
-        pendingLocalShareUrl &&
-        normalizeUrl(message.payload.sharedVideo?.url) !== normalizeUrl(pendingLocalShareUrl)
-      ) {
-        log("background", `Ignored stale room state while sharing ${pendingLocalShareUrl}`);
-        roomState = message.payload;
-        roomCode = message.payload.roomCode;
-        lastError = null;
-        await persistState();
-        const compensatedIgnoredState = compensateRoomState(roomState);
-        await notifyContentScripts({
-          type: "background:apply-room-state",
-          payload: compensatedIgnoredState,
-          shareToast: getPendingShareToastFor(message.payload)
-        });
-        notifyAll();
-        return;
-      }
-
-      if (previousSharedUrl !== message.payload.sharedVideo?.url) {
-        lastOpenedSharedUrl = null;
-        log("background", `Shared video switched to ${message.payload.sharedVideo?.url ?? "none"}`);
-        pendingShareToast = createPendingShareToast(message.payload);
-      }
-      roomState = message.payload;
-      roomCode = message.payload.roomCode;
-      lastError = null;
-      if (
-        pendingLocalShareUrl &&
-        normalizeUrl(message.payload.sharedVideo?.url) === normalizeUrl(pendingLocalShareUrl)
-      ) {
-        log("background", `Confirmed shared video switch to ${pendingLocalShareUrl}`);
-        pendingLocalShareUrl = null;
-      }
-      await persistState();
-      await ensureSharedVideoOpen(roomState);
-      const compensatedRoomState = compensateRoomState(roomState);
-      await notifyContentScripts({
-        type: "background:apply-room-state",
-        payload: compensatedRoomState,
-        shareToast: getPendingShareToastFor(message.payload)
-      });
-      notifyAll();
+      await handleRoomStateMessage(message.payload);
       return;
     case "error":
       lastError = message.payload.message;
@@ -270,6 +227,44 @@ async function handleServerMessage(message: ServerMessage): Promise<void> {
       notifyAll();
       return;
   }
+}
+
+async function handleRoomStateMessage(nextState: RoomState): Promise<void> {
+  const pendingShareUrl = normalizeUrl(pendingLocalShareUrl);
+  const nextSharedUrl = normalizeUrl(nextState.sharedVideo?.url);
+  if (pendingShareUrl && nextSharedUrl !== pendingShareUrl) {
+    log(
+      "background",
+      `Ignored stale room state while waiting for ${pendingLocalShareUrl}; received ${nextState.sharedVideo?.url ?? "none"}`
+    );
+    return;
+  }
+
+  const previousSharedUrl = roomState?.sharedVideo?.url ?? null;
+  if (previousSharedUrl !== nextState.sharedVideo?.url) {
+    lastOpenedSharedUrl = null;
+    log("background", `Shared video switched to ${nextState.sharedVideo?.url ?? "none"}`);
+    pendingShareToast = createPendingShareToast(nextState);
+  }
+
+  roomState = nextState;
+  roomCode = nextState.roomCode;
+  lastError = null;
+
+  if (pendingShareUrl && nextSharedUrl === pendingShareUrl) {
+    log("background", `Confirmed shared video switch to ${pendingLocalShareUrl}`);
+    pendingLocalShareUrl = null;
+  }
+
+  await persistState();
+  await ensureSharedVideoOpen(roomState);
+  const compensatedRoomState = compensateRoomState(roomState);
+  await notifyContentScripts({
+    type: "background:apply-room-state",
+    payload: compensatedRoomState,
+    shareToast: getPendingShareToastFor(nextState)
+  });
+  notifyAll();
 }
 
 function createPendingShareToast(state: RoomState): (SharedVideoToastPayload & { expiresAt: number; roomCode: string }) | null {
@@ -803,6 +798,8 @@ chrome.runtime.onMessage.addListener((message: PopupToBackgroundMessage | Conten
         pendingShareToast = null;
         pendingSharedVideo = null;
         pendingSharedPlayback = null;
+        pendingLocalShareUrl = null;
+        lastOpenedSharedUrl = null;
         await persistState();
         connect();
         if (connected) {
