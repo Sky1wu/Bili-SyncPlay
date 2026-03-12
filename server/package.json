@@ -6,6 +6,7 @@
   "scripts": {
     "build": "tsc -p tsconfig.json",
     "dev": "tsx watch src/index.ts",
+    "pretest": "npm --prefix ../packages/protocol run build",
     "test": "tsx test/message-validation.ts"
   },
   "dependencies": {
