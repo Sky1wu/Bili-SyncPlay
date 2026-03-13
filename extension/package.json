@@ -5,6 +5,7 @@
   "type": "module",
   "scripts": {
     "build": "node scripts/build.mjs",
+    "pretest": "npm --prefix ../packages/protocol run build",
     "test": "tsx --test test/**/*.test.ts"
   },
   "dependencies": {
