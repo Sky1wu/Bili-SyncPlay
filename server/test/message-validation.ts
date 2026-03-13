@@ -2,29 +2,40 @@ import assert from "node:assert/strict";
 import test from "node:test";
 import { once } from "node:events";
 import { WebSocket, type RawData } from "ws";
-import type { SecurityConfig } from "../src/app";
+import type { PersistenceConfig, SecurityConfig, SyncServerDependencies } from "../src/app";
 import {
   createSyncServer,
+  getDefaultPersistenceConfig,
   getDefaultSecurityConfig,
   INVALID_CLIENT_MESSAGE_MESSAGE,
   INVALID_JSON_MESSAGE
 } from "../src/app";
+import { createInMemoryRoomStore } from "../src/room-store";
 import type { ServerMessage } from "@bili-syncplay/protocol";
 
 const ALLOWED_ORIGIN = "chrome-extension://allowed-extension";
 
-async function startTestServer(overrides: Partial<SecurityConfig> = {}): Promise<{ url: string; close: () => Promise<void> }> {
+async function startTestServer(options: {
+  security?: Partial<SecurityConfig>;
+  persistence?: Partial<PersistenceConfig>;
+  dependencies?: SyncServerDependencies;
+} = {}): Promise<{ url: string; close: () => Promise<void> }> {
   const defaultConfig = getDefaultSecurityConfig();
   const config: SecurityConfig = {
     ...defaultConfig,
-    ...overrides,
+    ...options.security,
     rateLimits: {
       ...defaultConfig.rateLimits,
-      ...overrides.rateLimits
+      ...options.security?.rateLimits
     },
-    allowedOrigins: overrides.allowedOrigins ?? [ALLOWED_ORIGIN]
+    allowedOrigins: options.security?.allowedOrigins ?? [ALLOWED_ORIGIN]
   };
-  const server = createSyncServer(config);
+  const defaultPersistence = getDefaultPersistenceConfig();
+  const persistence: PersistenceConfig = {
+    ...defaultPersistence,
+    ...options.persistence
+  };
+  const server = await createSyncServer(config, persistence, options.dependencies);
   await new Promise<void>((resolve, reject) => {
     server.httpServer.listen(0, "127.0.0.1", () => resolve());
     server.httpServer.once("error", reject);
@@ -254,7 +265,7 @@ test("rejects non-whitelisted origins during the websocket handshake", async () 
 });
 
 test("rejects origins by default when ALLOWED_ORIGINS is not configured", async () => {
-  const server = await startTestServer({ allowedOrigins: [] });
+  const server = await startTestServer({ security: { allowedOrigins: [] } });
   try {
     await assert.rejects(
       connectClient(server.url, ALLOWED_ORIGIN),
@@ -273,7 +284,7 @@ test("rejects missing Origin headers by default and only allows them in explicit
     await secureServer.close();
   }
 
-  const devServer = await startTestServer({ allowMissingOriginInDev: true });
+  const devServer = await startTestServer({ security: { allowMissingOriginInDev: true } });
   try {
     const socket = await connectClient(devServer.url, "");
     await closeClient(socket);
@@ -284,7 +295,9 @@ test("rejects missing Origin headers by default and only allows them in explicit
 
 test("rate limits repeated invalid origin handshakes from the same IP", async () => {
   const server = await startTestServer({
-    connectionAttemptsPerMinute: 2
+    security: {
+      connectionAttemptsPerMinute: 2
+    }
   });
   try {
     await assert.rejects(connectClient(server.url, "https://malicious.example"), /Unexpected server response: 403/);
@@ -297,7 +310,9 @@ test("rate limits repeated invalid origin handshakes from the same IP", async ()
 
 test("rate limits repeated missing origin handshakes by default", async () => {
   const server = await startTestServer({
-    connectionAttemptsPerMinute: 1
+    security: {
+      connectionAttemptsPerMinute: 1
+    }
   });
   try {
     await assert.rejects(connectClient(server.url, ""), /Unexpected server response: 403/);
@@ -464,10 +479,12 @@ test("overwrites spoofed actorId in playback:update", async () => {
 
 test("rate limits sync:ping bursts by dropping extra requests", async () => {
   const server = await startTestServer({
-    rateLimits: {
-      ...getDefaultSecurityConfig().rateLimits,
-      syncPingPerSecond: 1,
-      syncPingBurst: 1
+    security: {
+      rateLimits: {
+        ...getDefaultSecurityConfig().rateLimits,
+        syncPingPerSecond: 1,
+        syncPingBurst: 1
+      }
     }
   });
   try {
@@ -493,10 +510,12 @@ test("rate limits sync:ping bursts by dropping extra requests", async () => {
 
 test("rate limits room:create and room:join requests", async () => {
   const server = await startTestServer({
-    rateLimits: {
-      ...getDefaultSecurityConfig().rateLimits,
-      roomCreatePerMinute: 1,
-      roomJoinPerMinute: 1
+    security: {
+      rateLimits: {
+        ...getDefaultSecurityConfig().rateLimits,
+        roomCreatePerMinute: 1,
+        roomJoinPerMinute: 1
+      }
     }
   });
   try {
@@ -558,7 +577,9 @@ test("rate limits room:create and room:join requests", async () => {
 
 test("does not trust X-Forwarded-For unless proxy trust is explicitly enabled", async () => {
   const server = await startTestServer({
-    maxConnectionsPerIp: 1
+    security: {
+      maxConnectionsPerIp: 1
+    }
   });
   try {
     const first = await connectClientWithHeaders(server.url, {
@@ -583,8 +604,10 @@ test("does not trust X-Forwarded-For unless proxy trust is explicitly enabled", 
 
 test("uses X-Forwarded-For for connection limiting only when proxy trust is enabled", async () => {
   const server = await startTestServer({
-    trustProxyHeaders: true,
-    maxConnectionsPerIp: 1
+    security: {
+      trustProxyHeaders: true,
+      maxConnectionsPerIp: 1
+    }
   });
   try {
     const first = await connectClientWithHeaders(server.url, {
@@ -671,6 +694,181 @@ test("records auth_failed logs when a client sends room messages before joining"
       logs.some((entry) => entry.event === "auth_failed" && entry.reason === "not_in_room" && entry.messageType === "sync:request"),
       true
     );
+  } finally {
+    await server.close();
+  }
+});
+
+test("restores persisted room state across server restart and issues a new memberToken", async () => {
+  const roomStore = createInMemoryRoomStore();
+  const persistence = {
+    ...getDefaultPersistenceConfig(),
+    emptyRoomTtlMs: 5_000
+  };
+
+  const firstServer = await startTestServer({
+    persistence,
+    dependencies: { roomStore }
+  });
+
+  let createdRoomCode = "";
+  let joinToken = "";
+  let firstMemberToken = "";
+
+  try {
+    const owner = await connectClient(firstServer.url);
+    const ownerCollector = createMessageCollector(owner);
+    try {
+      owner.send(JSON.stringify({ type: "room:create", payload: { displayName: "Alice" } }));
+      const created = await ownerCollector.next("room:created");
+      createdRoomCode = created.payload.roomCode;
+      joinToken = created.payload.joinToken;
+      firstMemberToken = created.payload.memberToken;
+      await ownerCollector.next("room:state");
+
+      owner.send(
+        JSON.stringify({
+          type: "video:share",
+          payload: {
+            memberToken: firstMemberToken,
+            video: {
+              videoId: "BV1xx411c7mD",
+              url: "https://www.bilibili.com/video/BV1xx411c7mD",
+              title: "Persisted Video"
+            }
+          }
+        })
+      );
+      await ownerCollector.next("room:state");
+    } finally {
+      await closeClient(owner);
+    }
+  } finally {
+    await firstServer.close();
+  }
+
+  const secondServer = await startTestServer({
+    persistence,
+    dependencies: { roomStore }
+  });
+
+  try {
+    const joiner = await connectClient(secondServer.url);
+    const collector = createMessageCollector(joiner);
+    try {
+      joiner.send(
+        JSON.stringify({
+          type: "room:join",
+          payload: {
+            roomCode: createdRoomCode,
+            joinToken,
+            displayName: "Bob"
+          }
+        })
+      );
+
+      const joined = await collector.next("room:joined");
+      const state = await collector.next("room:state");
+      assert.equal(joined.payload.memberToken === firstMemberToken, false);
+      assert.equal(state.payload.sharedVideo?.title, "Persisted Video");
+
+      joiner.send(
+        JSON.stringify({
+          type: "sync:request",
+          payload: {
+            memberToken: firstMemberToken
+          }
+        })
+      );
+      const invalidToken = await collector.next("error");
+      assert.deepEqual(invalidToken, {
+        type: "error",
+        payload: {
+          code: "member_token_invalid",
+          message: "Member token is invalid."
+        }
+      });
+    } finally {
+      await closeClient(joiner);
+    }
+  } finally {
+    await secondServer.close();
+  }
+});
+
+test("keeps empty rooms during TTL and rejects joins after expiry", async () => {
+  const roomStore = createInMemoryRoomStore();
+  const persistence = {
+    ...getDefaultPersistenceConfig(),
+    emptyRoomTtlMs: 200,
+    roomCleanupIntervalMs: 10_000
+  };
+
+  const server = await startTestServer({
+    persistence,
+    dependencies: { roomStore }
+  });
+
+  try {
+    const owner = await connectClient(server.url);
+    const collector = createMessageCollector(owner);
+    let roomCode = "";
+    let joinToken = "";
+    try {
+      owner.send(JSON.stringify({ type: "room:create", payload: { displayName: "Alice" } }));
+      const created = await collector.next("room:created");
+      roomCode = created.payload.roomCode;
+      joinToken = created.payload.joinToken;
+      await collector.next("room:state");
+    } finally {
+      await closeClient(owner);
+    }
+
+    const retainedJoiner = await connectClient(server.url);
+    const retainedCollector = createMessageCollector(retainedJoiner);
+    try {
+      retainedJoiner.send(
+        JSON.stringify({
+          type: "room:join",
+          payload: {
+            roomCode,
+            joinToken,
+            displayName: "Bob"
+          }
+        })
+      );
+      await retainedCollector.next("room:joined");
+      await retainedCollector.next("room:state");
+    } finally {
+      await closeClient(retainedJoiner);
+    }
+
+    await new Promise((resolve) => setTimeout(resolve, 250));
+
+    const lateJoiner = await connectClient(server.url);
+    const lateCollector = createMessageCollector(lateJoiner);
+    try {
+      lateJoiner.send(
+        JSON.stringify({
+          type: "room:join",
+          payload: {
+            roomCode,
+            joinToken,
+            displayName: "Charlie"
+          }
+        })
+      );
+      const error = await lateCollector.next("error");
+      assert.deepEqual(error, {
+        type: "error",
+        payload: {
+          code: "room_not_found",
+          message: "Room not found."
+        }
+      });
+    } finally {
+      await closeClient(lateJoiner);
+    }
   } finally {
     await server.close();
   }

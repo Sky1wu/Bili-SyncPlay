@@ -34,12 +34,19 @@ export type Session = {
   rateLimitState: SessionRateLimitState;
 };
 
-export type Room = {
+export type PersistedRoom = {
   code: string;
   joinToken: string;
   createdAt: number;
   sharedVideo: SharedVideo | null;
   playback: PlaybackState | null;
+  version: number;
+  lastActiveAt: number;
+  expiresAt: number | null;
+};
+
+export type ActiveRoom = {
+  code: string;
   members: Map<string, Session>;
   memberTokens: Map<string, string>;
 };
@@ -47,6 +54,13 @@ export type Room = {
 export type RequestContext = {
   remoteAddress: string | null;
   origin: string | null;
+};
+
+export type PersistenceConfig = {
+  provider: "memory" | "redis";
+  emptyRoomTtlMs: number;
+  roomCleanupIntervalMs: number;
+  redisUrl: string;
 };
 
 export type SecurityConfig = {

@@ -1,35 +1,46 @@
 import assert from "node:assert/strict";
 import test from "node:test";
 import { createInMemoryRoomStore, roomStateOf } from "../src/room-store";
-import type { Session } from "../src/types";
+import type { ActiveRoom, PersistedRoom, Session } from "../src/types";
 
-test("room store creates unique room codes and persists rooms", () => {
-  const roomCodes = ["AAAAAA", "AAAAAA", "BBBBBB"];
-  const joinTokens = ["join-1", "join-2"];
-  const store = createInMemoryRoomStore({
-    createRoomCode: () => roomCodes.shift() ?? "ZZZZZZ",
-    generateToken: () => joinTokens.shift() ?? "join-final",
-    now: () => 123
+test("room store persists create, update, delete, and expiry behaviors", async () => {
+  const store = createInMemoryRoomStore({ now: () => 123 });
+
+  const createdRoom = await store.createRoom({
+    code: "AAAAAA",
+    joinToken: "join-token-123456",
+    createdAt: 100
   });
+  assert.equal(createdRoom.code, "AAAAAA");
+  assert.equal(createdRoom.version, 0);
 
-  const firstRoom = store.createRoom();
-  const secondRoom = store.createRoom();
+  const updated = await store.updateRoom(createdRoom.code, createdRoom.version, {
+    expiresAt: 999,
+    lastActiveAt: 500
+  });
+  assert.equal(updated.ok, true);
+  if (!updated.ok) {
+    throw new Error("Expected update to succeed.");
+  }
+  assert.equal(updated.room.version, 1);
+  assert.equal(updated.room.expiresAt, 999);
 
-  assert.equal(firstRoom.code, "AAAAAA");
-  assert.equal(firstRoom.joinToken, "join-1");
-  assert.equal(secondRoom.code, "BBBBBB");
-  assert.equal(secondRoom.joinToken, "join-2");
-  assert.equal(store.getRoom("AAAAAA"), firstRoom);
-  assert.equal(store.getRoom("BBBBBB"), secondRoom);
-  assert.equal(store.hasRoom("CCCCCC"), false);
+  const conflict = await store.updateRoom(createdRoom.code, createdRoom.version, {
+    expiresAt: null
+  });
+  assert.deepEqual(conflict, { ok: false, reason: "version_conflict" });
+
+  assert.equal(await store.deleteExpiredRooms(500), 0);
+  assert.equal(await store.deleteExpiredRooms(999), 1);
+  assert.equal(await store.getRoom(createdRoom.code), null);
 });
 
-test("roomStateOf serializes room members and playback state", () => {
+test("roomStateOf serializes persisted room state with active members", () => {
   const session = {
     id: "member-1",
     displayName: "Alice"
   } as Session;
-  const room = {
+  const persistedRoom: PersistedRoom = {
     code: "ROOM01",
     joinToken: "join-token",
     createdAt: 1,
@@ -43,21 +54,27 @@ test("roomStateOf serializes room members and playback state", () => {
     playback: {
       url: "https://www.bilibili.com/video/BV1xx411c7mD",
       currentTime: 10,
-      playState: "paused" as const,
+      playState: "paused",
       playbackRate: 1,
       updatedAt: 1,
       serverTime: 1,
       actorId: "member-1",
       seq: 2
     },
+    version: 3,
+    lastActiveAt: 1,
+    expiresAt: null
+  };
+  const activeRoom: ActiveRoom = {
+    code: persistedRoom.code,
     members: new Map([[session.id, session]]),
     memberTokens: new Map([[session.id, "member-token"]])
   };
 
-  assert.deepEqual(roomStateOf(room), {
+  assert.deepEqual(roomStateOf(persistedRoom, activeRoom), {
     roomCode: "ROOM01",
-    sharedVideo: room.sharedVideo,
-    playback: room.playback,
+    sharedVideo: persistedRoom.sharedVideo,
+    playback: persistedRoom.playback,
     members: [{ id: "member-1", name: "Alice" }]
   });
 });

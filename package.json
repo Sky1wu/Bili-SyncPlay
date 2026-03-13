@@ -11,6 +11,7 @@
     "build": "npm run build -w @bili-syncplay/protocol && npm run build -w @bili-syncplay/server && npm run build -w @bili-syncplay/extension",
     "pretest": "npm run build -w @bili-syncplay/protocol",
     "test": "npm run --ignore-scripts test -w @bili-syncplay/protocol && npm run --ignore-scripts test -w @bili-syncplay/server && npm run --ignore-scripts test -w @bili-syncplay/extension",
+    "test:server:redis": "npm run --ignore-scripts test:redis -w @bili-syncplay/server",
     "dev:server": "npm run dev -w @bili-syncplay/server",
     "build:extension": "npm run build -w @bili-syncplay/extension",
     "build:release": "npm run build:extension && node scripts/package-release.mjs",

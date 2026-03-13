@@ -1,9 +1,16 @@
-import { createSyncServer, getDefaultSecurityConfig, type SecurityConfig } from "./app";
+import {
+  createSyncServer,
+  getDefaultPersistenceConfig,
+  getDefaultSecurityConfig,
+  type PersistenceConfig,
+  type SecurityConfig
+} from "./app";
 
 const port = parseIntegerEnv("PORT", 8787);
 const securityConfig = loadSecurityConfig();
+const persistenceConfig = loadPersistenceConfig();
 
-const { httpServer } = createSyncServer(securityConfig);
+const { httpServer } = await createSyncServer(securityConfig, persistenceConfig);
 httpServer.listen(port, () => {
   console.log(`Bili-SyncPlay server listening on http://localhost:${port}`);
 });
@@ -53,6 +60,29 @@ function loadSecurityConfig(): SecurityConfig {
       syncPingBurst: parsePositiveIntegerEnv("RATE_LIMIT_SYNC_PING_BURST", defaults.rateLimits.syncPingBurst)
     }
   };
+}
+
+function loadPersistenceConfig(): PersistenceConfig {
+  const defaults = getDefaultPersistenceConfig();
+  const provider = parseProviderEnv("ROOM_STORE_PROVIDER", defaults.provider);
+
+  return {
+    provider,
+    emptyRoomTtlMs: parsePositiveIntegerEnv("EMPTY_ROOM_TTL_MS", defaults.emptyRoomTtlMs),
+    roomCleanupIntervalMs: parsePositiveIntegerEnv("ROOM_CLEANUP_INTERVAL_MS", defaults.roomCleanupIntervalMs),
+    redisUrl: process.env.REDIS_URL?.trim() || defaults.redisUrl
+  };
+}
+
+function parseProviderEnv(name: string, fallback: PersistenceConfig["provider"]): PersistenceConfig["provider"] {
+  const rawValue = process.env[name];
+  if (rawValue === undefined || rawValue === "") {
+    return fallback;
+  }
+  if (rawValue === "memory" || rawValue === "redis") {
+    return rawValue;
+  }
+  throw new Error(`Environment variable ${name} must be "memory" or "redis".`);
 }
 
 function parseCsvEnv(name: string, fallback: string[]): string[] {

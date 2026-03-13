@@ -128,8 +128,15 @@ npm test
 ```bash
 npm run test -w @bili-syncplay/protocol
 npm run test -w @bili-syncplay/server
+npm run test:redis -w @bili-syncplay/server
 npm run test -w @bili-syncplay/extension
 ```
+
+Redis 集成测试说明：
+- `npm run test -w @bili-syncplay/server` 会保留 Redis 专项测试为可选项；未配置 `REDIS_URL` 时可能跳过
+- `npm run test:redis -w @bili-syncplay/server` 是显式的 Redis 回归测试入口
+- 在仓库根目录也可以运行 `npm run test:server:redis`
+- 这些显式 Redis 测试命令要求设置 `REDIS_URL`，缺失时会直接失败
 
 启动本地服务器：
 
@@ -182,6 +189,7 @@ Chrome 显示的扩展版本来自 `extension/dist/manifest.json`。
 
 推荐环境：
 - Node.js 20 或 22
+- Redis
 - Nginx 反向代理
 - 生产环境使用 `wss://` 服务器地址
 
@@ -199,8 +207,11 @@ wss://sync.example.com
 - 仅监听 `PORT`，默认值为 `8787`
 - 在同一个端口上同时提供 WebSocket 流量和简单健康检查
 - 对 `GET /` 返回 `{"ok":true,"service":"bili-syncplay-server"}`
-- 仅在内存中保存房间状态和 token
+- 支持 `memory` 和 `redis` 两种房间存储实现
+- 当 `ROOM_STORE_PROVIDER=redis` 时会持久化房间基础状态
 - 房间加入需要 `roomCode + joinToken`，房间消息需要 `memberToken`
+- 服务重连或服务端重启后会重新签发 `memberToken`
+- 最后一名成员离开后，房间不会立即删除，而是保留到 `EMPTY_ROOM_TTL_MS` 到期
 - 支持 Origin 白名单、连接限流、消息限流和结构化安全日志
 
 ### 安全相关环境变量
@@ -216,6 +227,10 @@ wss://sync.example.com
 - `MAX_MEMBERS_PER_ROOM`：房间成员上限
 - `MAX_MESSAGE_BYTES`：WebSocket 消息字节上限
 - `INVALID_MESSAGE_CLOSE_THRESHOLD`：在断开连接前允许的无效消息次数
+- `ROOM_STORE_PROVIDER`：`memory` 或 `redis`
+- `EMPTY_ROOM_TTL_MS`：空房保留时长，超时后删除
+- `ROOM_CLEANUP_INTERVAL_MS`：服务端扫描并清理过期房间的周期
+- `REDIS_URL`：当 `ROOM_STORE_PROVIDER=redis` 时使用的 Redis 连接地址
 - `RATE_LIMIT_ROOM_CREATE_PER_MINUTE`
 - `RATE_LIMIT_ROOM_JOIN_PER_MINUTE`
 - `RATE_LIMIT_VIDEO_SHARE_PER_10_SECONDS`
@@ -231,6 +246,10 @@ wss://sync.example.com
 PORT=8787 \
 ALLOWED_ORIGINS=chrome-extension://<extension-id>,https://sync.example.com,http://localhost:3000 \
 TRUST_PROXY_HEADERS=true \
+ROOM_STORE_PROVIDER=redis \
+REDIS_URL=redis://127.0.0.1:6379 \
+EMPTY_ROOM_TTL_MS=900000 \
+ROOM_CLEANUP_INTERVAL_MS=60000 \
 MAX_CONNECTIONS_PER_IP=10 \
 CONNECTION_ATTEMPTS_PER_MINUTE=20 \
 MAX_MEMBERS_PER_ROOM=8 \
@@ -247,7 +266,7 @@ node server/dist/index.js
 - 服务用户：`bili-syncplay`
 - 内部端口：`8787`
 
-先安装 Node.js 20 或 22 以及 Nginx，然后克隆仓库：
+先安装 Node.js 20 或 22、Redis 和 Nginx，然后克隆仓库：
 
 ```bash
 sudo mkdir -p /opt/bili-syncplay
@@ -282,7 +301,19 @@ server/dist/index.js
 
 ```bash
 cd /opt/bili-syncplay
-PORT=8787 node server/dist/index.js
+PORT=8787 ROOM_STORE_PROVIDER=memory node server/dist/index.js
+```
+
+如果你准备使用 Redis 持久化房间状态，建议先验证 Redis 连通性：
+
+```bash
+redis-cli -u redis://127.0.0.1:6379 ping
+```
+
+预期响应：
+
+```text
+PONG
 ```
 
 预期启动日志：
@@ -326,6 +357,10 @@ Group=bili-syncplay
 WorkingDirectory=/opt/bili-syncplay
 Environment=PORT=8787
 Environment=ALLOWED_ORIGINS=chrome-extension://<extension-id>,https://sync.example.com
+Environment=ROOM_STORE_PROVIDER=redis
+Environment=REDIS_URL=redis://127.0.0.1:6379
+Environment=EMPTY_ROOM_TTL_MS=900000
+Environment=ROOM_CLEANUP_INTERVAL_MS=60000
 ExecStart=/usr/bin/node /opt/bili-syncplay/server/dist/index.js
 Restart=always
 RestartSec=3
@@ -445,17 +480,19 @@ npm run build -w @bili-syncplay/server
 
 ### 8. 运维说明
 
-- 服务器没有数据库；进程重启后所有房间都会被清空。
-- 最后一个成员离开后，房间会立即删除。
+- 当 `ROOM_STORE_PROVIDER=memory` 时，进程重启后房间仍会全部丢失。
+- 当 `ROOM_STORE_PROVIDER=redis` 时，房间基础状态会在重启后保留，直到过期或被删除。
+- 最后一名成员离开后，房间不会立刻删除；服务端会写入 `expiresAt`，并在 `EMPTY_ROOM_TTL_MS` 到期后清理。
 - 加入房间需要同时提供 `roomCode` 和 `joinToken`；发送房间消息需要有效的 `memberToken`。
-- `memberToken` 绑定到会话，并会在重连后重新签发。
+- `memberToken` 是会话态，不会从持久层恢复；重连或重启后都需要重新加入并重新签发。
 - 握手阶段的 Origin 检查默认拒绝，除非你在开发环境中显式允许缺失 `Origin`。
 - 只有在 `TRUST_PROXY_HEADERS=true` 时才会读取 `X-Forwarded-For`。
 - 健康检查为 `GET /`；目前没有单独的 `/healthz` 路由。
 - 如果你使用云防火墙，请放行入站 `80` 和 `443`，并将 `8787` 仅暴露给 localhost。
 - 如果你不想使用 Nginx，也可以直接暴露 Node 服务，但浏览器和扩展仍应通过带有效 TLS 证书的 `wss://` 连接。
-- 房间状态只存在于单个 Node.js 进程内。如果在负载均衡后运行多个服务器实例，房间会被拆分，除非你补充共享状态和路由亲和性。
-- 目前依然没有持久化。当前服务器应被视为一个小型、单实例部署，带有最基础的内建认证和限流能力。
+- 当 `ROOM_STORE_PROVIDER=redis` 时，房间基础状态可在多个服务实例之间共享。
+- 在线成员关系、`memberToken` 以及实时房间状态广播仍然是进程内会话态。
+- 多实例部署时，仍需要路由亲和性，或额外补充跨实例广播机制，否则成员视图和实时更新可能不完整。
 
 ### 故障排查
 
@@ -463,8 +500,9 @@ npm run build -w @bili-syncplay/server
 - `Cannot connect to sync server.`：扩展无法访问配置的服务器地址，或由该地址推导出的 HTTP 健康检查失败。
 - 服务端日志反复出现 `origin_not_allowed`：`ALLOWED_ORIGINS` 没有包含当前 `chrome-extension://<extension-id>`
 - `Room not found.`：请求的房间号在当前服务器实例上不存在。
+- 服务重启后如果看到 `Room not found.`，也可能表示该房间已经超过空房保留期并被清理。
 - `Join token is invalid.`：邀请串错误、已失效，或来自其他房间。
-- `Member token is invalid.`：当前会话丢失了房间绑定，需要重新加入。
+- `Member token is invalid.`：当前会话丢失了房间绑定、服务端已经重启，或客户端需要重新加入以获取新 token。
 - `Too many requests.`：某个房间操作或同步消息触发了配置的限流。
 - 握手阶段返回 `403`：请求的 `Origin` 不在 `ALLOWED_ORIGINS` 中，或者在 `ALLOW_MISSING_ORIGIN_IN_DEV` 关闭时缺少 `Origin`。
 - 连接级 IP 限制看起来未生效：检查你是否真的想启用 `TRUST_PROXY_HEADERS`；默认情况下服务器只使用真实 socket 地址。
@@ -480,6 +518,9 @@ curl http://127.0.0.1:8787/
 
 # 服务器测试
 npm run test -w @bili-syncplay/server
+
+# Redis 集成回归
+REDIS_URL=redis://127.0.0.1:6379 npm run test:redis -w @bili-syncplay/server
 
 # 协议测试
 npm run test -w @bili-syncplay/protocol

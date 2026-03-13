@@ -128,8 +128,15 @@ Workspace-level test commands are also available:
 ```bash
 npm run test -w @bili-syncplay/protocol
 npm run test -w @bili-syncplay/server
+npm run test:redis -w @bili-syncplay/server
 npm run test -w @bili-syncplay/extension
 ```
+
+Redis integration test notes:
+- `npm run test -w @bili-syncplay/server` keeps Redis-specific tests optional and may skip them when `REDIS_URL` is not configured
+- `npm run test:redis -w @bili-syncplay/server` is the explicit Redis regression entry point
+- `npm run test:server:redis` runs the same Redis regression from the workspace root
+- `REDIS_URL` is required for those explicit Redis test commands and they fail fast when it is missing
 
 Start the local server:
 
@@ -182,6 +189,7 @@ Practical consequences:
 
 Recommended setup:
 - Node.js 20 or 22
+- Redis
 - Nginx reverse proxy
 - `wss://` server URL for production
 
@@ -199,8 +207,11 @@ The current server implementation:
 - listens on `PORT` only, defaulting to `8787`
 - serves WebSocket traffic and a simple health check on the same port
 - returns `{"ok":true,"service":"bili-syncplay-server"}` on `GET /`
-- stores room state and tokens in memory only
+- supports `memory` and `redis` room storage providers
+- persists room base state when `ROOM_STORE_PROVIDER=redis`
 - requires `roomCode + joinToken` for room join and `memberToken` for room messages
+- reissues `memberToken` after reconnect or server restart
+- keeps empty rooms until `EMPTY_ROOM_TTL_MS` expires instead of deleting them immediately
 - supports origin allowlists, connection throttling, message throttling, and structured security logs
 
 ### Security Environment Variables
@@ -216,6 +227,10 @@ The server accepts the following environment variables. Safe defaults are built 
 - `MAX_MEMBERS_PER_ROOM`: room member cap
 - `MAX_MESSAGE_BYTES`: WebSocket message size cap in bytes
 - `INVALID_MESSAGE_CLOSE_THRESHOLD`: number of invalid messages before disconnect
+- `ROOM_STORE_PROVIDER`: `memory` or `redis`
+- `EMPTY_ROOM_TTL_MS`: how long an empty room is retained before deletion
+- `ROOM_CLEANUP_INTERVAL_MS`: how often the server deletes expired rooms
+- `REDIS_URL`: Redis connection URL when `ROOM_STORE_PROVIDER=redis`
 - `RATE_LIMIT_ROOM_CREATE_PER_MINUTE`
 - `RATE_LIMIT_ROOM_JOIN_PER_MINUTE`
 - `RATE_LIMIT_VIDEO_SHARE_PER_10_SECONDS`
@@ -231,6 +246,10 @@ Example:
 PORT=8787 \
 ALLOWED_ORIGINS=chrome-extension://<extension-id>,https://sync.example.com,http://localhost:3000 \
 TRUST_PROXY_HEADERS=true \
+ROOM_STORE_PROVIDER=redis \
+REDIS_URL=redis://127.0.0.1:6379 \
+EMPTY_ROOM_TTL_MS=900000 \
+ROOM_CLEANUP_INTERVAL_MS=60000 \
 MAX_CONNECTIONS_PER_IP=10 \
 CONNECTION_ATTEMPTS_PER_MINUTE=20 \
 MAX_MEMBERS_PER_ROOM=8 \
@@ -247,7 +266,7 @@ Example environment:
 - service user: `bili-syncplay`
 - internal port: `8787`
 
-Install Node.js 20 or 22 and Nginx first, then clone the repository:
+Install Node.js 20 or 22, Redis, and Nginx first, then clone the repository:
 
 ```bash
 sudo mkdir -p /opt/bili-syncplay
@@ -282,7 +301,19 @@ You can start it manually first to verify the build:
 
 ```bash
 cd /opt/bili-syncplay
-PORT=8787 node server/dist/index.js
+PORT=8787 ROOM_STORE_PROVIDER=memory node server/dist/index.js
+```
+
+If you plan to use Redis-backed room persistence, verify Redis connectivity first:
+
+```bash
+redis-cli -u redis://127.0.0.1:6379 ping
+```
+
+Expected response:
+
+```text
+PONG
 ```
 
 Expected startup log:
@@ -326,6 +357,10 @@ Group=bili-syncplay
 WorkingDirectory=/opt/bili-syncplay
 Environment=PORT=8787
 Environment=ALLOWED_ORIGINS=chrome-extension://<extension-id>,https://sync.example.com
+Environment=ROOM_STORE_PROVIDER=redis
+Environment=REDIS_URL=redis://127.0.0.1:6379
+Environment=EMPTY_ROOM_TTL_MS=900000
+Environment=ROOM_CLEANUP_INTERVAL_MS=60000
 ExecStart=/usr/bin/node /opt/bili-syncplay/server/dist/index.js
 Restart=always
 RestartSec=3
@@ -445,17 +480,19 @@ npm run build -w @bili-syncplay/server
 
 ### 8. Operational notes
 
-- The server has no database; restarting the process clears all rooms.
-- Rooms are removed as soon as the last member leaves.
+- With `ROOM_STORE_PROVIDER=memory`, restarting the process still clears all rooms.
+- With `ROOM_STORE_PROVIDER=redis`, room base state survives restart until it expires or is deleted.
+- Rooms are not deleted immediately when the last member leaves; the server writes `expiresAt` and retains the room until `EMPTY_ROOM_TTL_MS` elapses.
 - Room join requires both `roomCode` and `joinToken`; room messages require a valid `memberToken`.
-- `memberToken` is session-bound and is re-issued after reconnect.
+- `memberToken` is session-bound, never restored from persistence, and is re-issued after reconnect or restart.
 - Handshake origin checks are deny-by-default unless you explicitly allow missing `Origin` in development.
 - `X-Forwarded-For` is ignored unless `TRUST_PROXY_HEADERS=true`.
 - The health check is `GET /`; there is no separate `/healthz` route right now.
 - If you use a cloud firewall, allow inbound `80` and `443`, but keep `8787` private to localhost.
 - If you do not want Nginx, you can expose Node directly, but browsers and extensions should still connect over `wss://` with a valid TLS certificate.
-- Room state exists only inside one Node.js process. Running multiple server instances behind a load balancer will split rooms unless you add shared state and routing affinity.
-- Persistence still does not exist. Treat the current server as a small single-instance deployment with minimal built-in auth and rate limiting.
+- With `ROOM_STORE_PROVIDER=redis`, persisted room base state is shared across server instances.
+- Online members, `memberToken` values, and real-time room-state fanout remain process-local session state.
+- Multi-instance deployment still needs routing affinity or an added cross-instance broadcast mechanism to avoid incomplete member views and missed live updates.
 
 ### Troubleshooting
 
@@ -463,8 +500,9 @@ Common developer-facing failure cases:
 - `Cannot connect to sync server.`: the extension could not reach the configured server URL, or the HTTP health probe derived from that URL failed.
 - repeated server logs with `origin_not_allowed`: `ALLOWED_ORIGINS` does not include the current `chrome-extension://<extension-id>`
 - `Room not found.`: the requested room code does not exist on the current server instance.
+- `Room not found.` after a restart can also mean the room expired during the empty-room retention window.
 - `Join token is invalid.`: the invite string is wrong, stale, or from another room.
-- `Member token is invalid.`: the current session lost its room binding and must rejoin.
+- `Member token is invalid.`: the current session lost its room binding, the server restarted, or the client must rejoin to obtain a fresh token.
 - `Too many requests.`: a room action or sync message hit the configured rate limit.
 - handshake rejected with `403`: the request `Origin` is not in `ALLOWED_ORIGINS`, or `Origin` is missing while `ALLOW_MISSING_ORIGIN_IN_DEV` is disabled.
 - connection-level IP limits appear ineffective: verify whether you intended to enable `TRUST_PROXY_HEADERS`; by default the server uses the real socket address only.
@@ -480,6 +518,9 @@ curl http://127.0.0.1:8787/
 
 # Server tests
 npm run test -w @bili-syncplay/server
+
+# Redis integration regression
+REDIS_URL=redis://127.0.0.1:6379 npm run test:redis -w @bili-syncplay/server
 
 # Protocol tests
 npm run test -w @bili-syncplay/protocol

@@ -2,14 +2,18 @@ import { createServer, type Server as HttpServer } from "node:http";
 import { randomBytes, randomUUID } from "node:crypto";
 import { WebSocketServer, type RawData, type WebSocket } from "ws";
 import { isClientMessage, type ErrorCode, type ServerMessage } from "@bili-syncplay/protocol";
+import { createActiveRoomRegistry } from "./active-room-registry";
 import { createStructuredLogger } from "./logger";
 import { createMessageHandler } from "./message-handler";
 import { createSessionRateLimitState } from "./rate-limit";
-import { createInMemoryRoomStore } from "./room-store";
+import { createInMemoryRoomStore, type RoomStore } from "./room-store";
+import { createRoomReaper } from "./room-reaper";
+import { createRoomService } from "./room-service";
+import { createRedisRoomStore } from "./redis-room-store";
 import { createSecurityPolicy } from "./security";
-import type { SecurityConfig, Session } from "./types";
+import type { LogEvent, PersistenceConfig, SecurityConfig, Session } from "./types";
 
-export type { SecurityConfig } from "./types";
+export type { PersistenceConfig, SecurityConfig } from "./types";
 
 export const INVALID_JSON_MESSAGE = "Invalid JSON message.";
 export const INVALID_CLIENT_MESSAGE_MESSAGE = "Invalid client message payload.";
@@ -20,6 +24,13 @@ const CLOSE_CODE_POLICY_VIOLATION = 1008;
 export type SyncServer = {
   httpServer: HttpServer;
   close: () => Promise<void>;
+};
+
+export type SyncServerDependencies = {
+  roomStore?: RoomStore;
+  logEvent?: LogEvent;
+  generateToken?: () => string;
+  now?: () => number;
 };
 
 export function getDefaultSecurityConfig(): SecurityConfig {
@@ -45,10 +56,56 @@ export function getDefaultSecurityConfig(): SecurityConfig {
   };
 }
 
-export function createSyncServer(config: SecurityConfig = getDefaultSecurityConfig()): SyncServer {
-  const roomStore = createInMemoryRoomStore({ generateToken });
-  const logEvent = createStructuredLogger();
-  const securityPolicy = createSecurityPolicy(config);
+export function getDefaultPersistenceConfig(): PersistenceConfig {
+  return {
+    provider: "memory",
+    emptyRoomTtlMs: 15 * 60 * 1000,
+    roomCleanupIntervalMs: 60 * 1000,
+    redisUrl: "redis://localhost:6379"
+  };
+}
+
+export async function createSyncServer(
+  securityConfig: SecurityConfig = getDefaultSecurityConfig(),
+  persistenceConfig: PersistenceConfig = getDefaultPersistenceConfig(),
+  dependencies: SyncServerDependencies = {}
+): Promise<SyncServer> {
+  const now = dependencies.now ?? Date.now;
+  const logEvent = dependencies.logEvent ?? createStructuredLogger();
+  const generateToken = dependencies.generateToken ?? (() => randomBytes(24).toString("base64url"));
+  const roomStore =
+    dependencies.roomStore ??
+    (persistenceConfig.provider === "redis"
+      ? await createRedisRoomStore(persistenceConfig.redisUrl)
+      : createInMemoryRoomStore({ now }));
+  const activeRooms = createActiveRoomRegistry();
+  const securityPolicy = createSecurityPolicy(securityConfig);
+
+  const roomService = createRoomService({
+    config: securityConfig,
+    persistence: persistenceConfig,
+    roomStore,
+    activeRooms,
+    generateToken,
+    logEvent,
+    now
+  });
+
+  const messageHandler = createMessageHandler({
+    config: securityConfig,
+    roomService,
+    logEvent,
+    send,
+    sendError,
+    now
+  });
+
+  const roomReaper = createRoomReaper({
+    intervalMs: persistenceConfig.roomCleanupIntervalMs,
+    deleteExpiredRooms: roomService.deleteExpiredRooms,
+    logEvent,
+    now
+  });
 
   const httpServer = createServer((_, response) => {
     response.writeHead(200, { "content-type": "application/json" });
@@ -57,21 +114,8 @@ export function createSyncServer(config: SecurityConfig = getDefaultSecurityConf
 
   const wss = new WebSocketServer({
     noServer: true,
-    maxPayload: config.maxMessageBytes
+    maxPayload: securityConfig.maxMessageBytes
   });
-
-  const messageHandler = createMessageHandler({
-    config,
-    roomStore,
-    logEvent,
-    send,
-    sendError,
-    generateToken
-  });
-
-  function generateToken(): string {
-    return randomBytes(24).toString("base64url");
-  }
 
   function send(socket: WebSocket, message: ServerMessage): void {
     if (socket.readyState === socket.OPEN) {
@@ -102,7 +146,7 @@ export function createSyncServer(config: SecurityConfig = getDefaultSecurityConf
       invalidMessageCount: session.invalidMessageCount
     });
 
-    if (session.invalidMessageCount >= config.invalidMessageCloseThreshold) {
+    if (session.invalidMessageCount >= securityConfig.invalidMessageCloseThreshold) {
       session.socket.close(CLOSE_CODE_POLICY_VIOLATION, "Too many invalid messages");
     }
   }
@@ -151,7 +195,7 @@ export function createSyncServer(config: SecurityConfig = getDefaultSecurityConf
       memberToken: null,
       joinedAt: null,
       invalidMessageCount: 0,
-      rateLimitState: createSessionRateLimitState(config)
+      rateLimitState: createSessionRateLimitState(securityConfig)
     };
 
     securityPolicy.incrementConnectionCount(session.remoteAddress);
@@ -163,49 +207,54 @@ export function createSyncServer(config: SecurityConfig = getDefaultSecurityConf
     });
 
     socket.on("message", (raw) => {
-      let parsed: unknown;
-      try {
-        parsed = parseIncomingMessage(raw);
-      } catch {
-        sendError(socket, "invalid_message", INVALID_JSON_MESSAGE);
-        countInvalidMessage(session, "invalid_json");
-        return;
-      }
+      void (async () => {
+        let parsed: unknown;
+        try {
+          parsed = parseIncomingMessage(raw);
+        } catch {
+          sendError(socket, "invalid_message", INVALID_JSON_MESSAGE);
+          countInvalidMessage(session, "invalid_json");
+          return;
+        }
 
-      if (!isClientMessage(parsed)) {
-        sendError(socket, "invalid_message", INVALID_CLIENT_MESSAGE_MESSAGE);
-        countInvalidMessage(session, "invalid_client_message");
-        return;
-      }
+        if (!isClientMessage(parsed)) {
+          sendError(socket, "invalid_message", INVALID_CLIENT_MESSAGE_MESSAGE);
+          countInvalidMessage(session, "invalid_client_message");
+          return;
+        }
 
-      try {
-        messageHandler.handleClientMessage(session, parsed);
-      } catch (error) {
-        console.error("Unhandled client message error", error);
-        sendError(socket, "internal_error", INTERNAL_SERVER_ERROR_MESSAGE);
-      }
+        try {
+          await messageHandler.handleClientMessage(session, parsed);
+        } catch (error) {
+          console.error("Unhandled client message error", error);
+          sendError(socket, "internal_error", INTERNAL_SERVER_ERROR_MESSAGE);
+        }
+      })();
     });
 
     socket.on("close", () => {
-      securityPolicy.decrementConnectionCount(session.remoteAddress);
-      messageHandler.leaveRoom(session);
-      logEvent("ws_connection_closed", {
-        sessionId: session.id,
-        remoteAddress: session.remoteAddress,
-        origin: session.origin,
-        roomCode: session.roomCode,
-        result: "closed"
-      });
+      void (async () => {
+        securityPolicy.decrementConnectionCount(session.remoteAddress);
+        await messageHandler.leaveRoom(session);
+        logEvent("ws_connection_closed", {
+          sessionId: session.id,
+          remoteAddress: session.remoteAddress,
+          origin: session.origin,
+          roomCode: session.roomCode,
+          result: "closed"
+        });
+      })();
     });
   });
 
   return {
     httpServer,
-    close: () =>
-      new Promise((resolve, reject) => {
-        for (const client of wss.clients) {
-          client.terminate();
-        }
+    close: async () => {
+      roomReaper.stop();
+      for (const client of wss.clients) {
+        client.terminate();
+      }
+      await new Promise<void>((resolve, reject) => {
         wss.close((wsError) => {
           if (wsError) {
             reject(wsError);
@@ -219,6 +268,11 @@ export function createSyncServer(config: SecurityConfig = getDefaultSecurityConf
             resolve();
           });
         });
-      })
+      });
+      const maybeClosableStore = roomStore as RoomStore & { close?: () => Promise<void> };
+      if (typeof maybeClosableStore.close === "function") {
+        await maybeClosableStore.close();
+      }
+    }
   };
 }
