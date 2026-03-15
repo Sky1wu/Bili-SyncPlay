@@ -506,18 +506,18 @@ npm run build -w @bili-syncplay/server
 ### 故障排查
 
 常见的开发侧失败场景：
-- `Cannot connect to sync server.`：扩展无法访问配置的服务器地址，或由该地址推导出的 HTTP 健康检查失败。
+- `无法连接到同步服务器。`：扩展无法访问配置的服务器地址，或由该地址推导出的 HTTP 健康检查失败。
 - 服务端日志反复出现 `origin_not_allowed`：`ALLOWED_ORIGINS` 没有包含当前 `chrome-extension://<extension-id>`
-- `Room not found.`：请求的房间号在当前服务器实例上不存在。
-- 服务重启后如果看到 `Room not found.`，也可能表示该房间已经超过空房保留期并被清理。
-- `Join token is invalid.`：邀请串错误、已失效，或来自其他房间。
-- `Member token is invalid.`：当前会话丢失了房间绑定、服务端已经重启，或客户端需要重新加入以获取新 token。
-- `Too many requests.`：某个房间操作或同步消息触发了配置的限流。
+- `房间不存在。`：请求的房间号在当前服务器实例上不存在。
+- 服务重启后如果看到 `房间不存在。`，也可能表示该房间已经超过空房保留期并被清理。
+- `加入码无效。`：邀请串错误、已失效，或来自其他房间。
+- `成员令牌无效。`：当前会话丢失了房间绑定、服务端已经重启，或客户端需要重新加入以获取新 token。
+- `请求过于频繁。`：某个房间操作或同步消息触发了配置的限流。
 - 握手阶段返回 `403`：请求的 `Origin` 不在 `ALLOWED_ORIGINS` 中，或者在 `ALLOW_MISSING_ORIGIN_IN_DEV` 关闭时缺少 `Origin`。
 - 连接级 IP 限制看起来未生效：检查你是否真的想启用 `TRUST_PROXY_HEADERS`；默认情况下服务器只使用真实 socket 地址。
-- `Please open a Bilibili video page first.`：当前活动标签页 URL 不匹配扩展内容脚本的目标页面。
-- `Current page does not have a playable video.`：内容脚本已加载，但页面没有暴露可用的视频载荷。
-- `Cannot access the current page.`：Chrome 无法把消息传给内容脚本，通常是因为加载未打包扩展后没有刷新页面，或当前标签页 URL 不受支持。
+- `请先打开一个哔哩哔哩视频页面。`：当前活动标签页 URL 不匹配扩展内容脚本的目标页面。
+- `当前页面没有可播放的视频。`：内容脚本已加载，但页面没有暴露可用的视频载荷。
+- `无法访问当前页面。`：Chrome 无法把消息传给内容脚本，通常是因为加载未打包扩展后没有刷新页面，或当前标签页 URL 不受支持。
 
 常用检查：
 
