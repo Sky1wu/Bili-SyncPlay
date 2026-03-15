@@ -286,6 +286,13 @@ function setLocalStatusMessage(message: string | null): void {
   }
 }
 
+function formatInviteDraft(roomCode: string | null, joinToken: string | null): string {
+  if (!roomCode) {
+    return "";
+  }
+  return joinToken ? `${roomCode}:${joinToken}` : roomCode;
+}
+
 function applyState(state: BackgroundToPopupMessage["payload"], source: "port" | "query" = "port"): boolean {
   if (!applyIncomingPopupState(popupStateSync, state, source)) {
     return false;
@@ -324,8 +331,8 @@ function render(): void {
 
   if (!roomCodeFocused) {
     if (state.roomCode) {
-      roomCodeDraft = state.roomCode;
-      refs.roomCodeInput.value = state.roomCode;
+      roomCodeDraft = formatInviteDraft(state.roomCode, state.joinToken);
+      refs.roomCodeInput.value = roomCodeDraft;
     } else {
       refs.roomCodeInput.value = roomCodeDraft;
     }
@@ -516,7 +523,7 @@ function bindActions(nodes: PopupRefs): void {
     }
     void sendPopupLog("Leave room button clicked");
     setLocalStatusMessage(null);
-    roomCodeDraft = "";
+    roomCodeDraft = formatInviteDraft(lastKnownRoomCode, popupStateSync.popupState?.joinToken ?? null);
     setRoomActionPending(true);
     try {
       const response = (await chrome.runtime.sendMessage({ type: "popup:leave-room" })) as BackgroundToPopupMessage;
