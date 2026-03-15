@@ -281,19 +281,30 @@ node server/dist/index.js
 The server now includes a P0 admin backend on the same HTTP port.
 
 Implemented endpoints:
+- `GET /metrics`
 - `GET /healthz`
 - `GET /readyz`
 - `POST /api/admin/auth/login`
 - `POST /api/admin/auth/logout`
 - `GET /api/admin/me`
 - `GET /api/admin/overview`
+- `GET /api/admin/config`
 - `GET /api/admin/rooms`
 - `GET /api/admin/rooms/:roomCode`
 - `GET /api/admin/events`
+- `GET /api/admin/audit-logs`
+- `POST /api/admin/rooms/:roomCode/close`
+- `POST /api/admin/rooms/:roomCode/expire`
+- `POST /api/admin/rooms/:roomCode/clear-video`
+- `POST /api/admin/rooms/:roomCode/members/:memberId/kick`
+- `POST /api/admin/sessions/:sessionId/disconnect`
 
 Authentication model:
 - management APIs use `Authorization: Bearer <token>`
 - login returns a server-issued session token
+- `ADMIN_ROLE` controls the single configured admin account role: `viewer`, `operator`, or `admin`
+- `INSTANCE_ID` controls the current server instance identifier, used by overview, room detail, and audit logs
+- write actions require `operator` or higher
 - if admin environment variables are not configured, admin auth endpoints return unavailable / unauthorized responses
 
 ### 1. Prepare the server

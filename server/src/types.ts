@@ -63,6 +63,7 @@ export type PersistenceConfig = {
   emptyRoomTtlMs: number;
   roomCleanupIntervalMs: number;
   redisUrl: string;
+  instanceId: string;
 };
 
 export type AdminConfig = {

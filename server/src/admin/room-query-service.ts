@@ -18,6 +18,7 @@ function toSummary(room: PersistedRoom, activeSessions: Session[]): RoomSummary 
 }
 
 export function createAdminRoomQueryService(options: {
+  instanceId: string;
   roomStore: RoomStore;
   runtimeRegistry: RuntimeRegistry;
   eventStore: EventStore;
@@ -51,7 +52,10 @@ export function createAdminRoomQueryService(options: {
       const selected = query.status === "all" ? baseRooms : baseRooms.slice(start, start + query.pageSize);
 
       return {
-        items: selected.map((room) => toSummary(room, options.runtimeRegistry.listSessionsByRoom(room.code))),
+        items: selected.map((room) => ({
+          ...toSummary(room, options.runtimeRegistry.listSessionsByRoom(room.code)),
+          instanceId: options.instanceId
+        })),
         pagination: {
           page: query.page,
           pageSize: query.pageSize,
@@ -67,7 +71,11 @@ export function createAdminRoomQueryService(options: {
 
       const sessions = options.runtimeRegistry.listSessionsByRoom(roomCode);
       return {
-        room: toSummary(room, sessions),
+        instanceId: options.instanceId,
+        room: {
+          ...toSummary(room, sessions),
+          instanceId: options.instanceId
+        },
         members: sessions.map((session) => ({
           sessionId: session.id,
           memberId: session.memberId ?? session.id,

@@ -281,19 +281,30 @@ node server/dist/index.js
 服务端现在已经内置 P0 管理后台，只读接口与主服务复用同一个 HTTP 端口。
 
 当前已实现接口：
+- `GET /metrics`
 - `GET /healthz`
 - `GET /readyz`
 - `POST /api/admin/auth/login`
 - `POST /api/admin/auth/logout`
 - `GET /api/admin/me`
 - `GET /api/admin/overview`
+- `GET /api/admin/config`
 - `GET /api/admin/rooms`
 - `GET /api/admin/rooms/:roomCode`
 - `GET /api/admin/events`
+- `GET /api/admin/audit-logs`
+- `POST /api/admin/rooms/:roomCode/close`
+- `POST /api/admin/rooms/:roomCode/expire`
+- `POST /api/admin/rooms/:roomCode/clear-video`
+- `POST /api/admin/rooms/:roomCode/members/:memberId/kick`
+- `POST /api/admin/sessions/:sessionId/disconnect`
 
 鉴权方式：
 - 管理接口使用 `Authorization: Bearer <token>`
 - 登录成功后返回服务端签发的 session token
+- `ADMIN_ROLE` 用于控制当前唯一后台账号的角色，可选 `viewer`、`operator`、`admin`
+- `INSTANCE_ID` 用于标识当前服务实例，并会出现在 overview、room detail 和 audit log 中
+- 写操作要求 `operator` 及以上权限
 - 如果未配置管理后台环境变量，管理认证接口会返回 unavailable / unauthorized
 
 ### 1. 准备服务器

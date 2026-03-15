@@ -20,6 +20,7 @@ export type RuntimeRegistry = {
   getActiveMemberCount: () => number;
   getStartedAt: () => number;
   getRecentEventCounts: (now?: number) => Record<string, number>;
+  getLifetimeEventCounts: () => Record<string, number>;
   getActiveRoomCodes: () => Set<string>;
 };
 
@@ -29,6 +30,7 @@ export function createRuntimeRegistry(now: () => number = Date.now): RuntimeRegi
   const sessionIdsByRemoteAddress = new Map<string, Set<string>>();
   const roomSessionIds = new Map<string, Set<string>>();
   const timedEvents: TimedEvent[] = [];
+  const lifetimeEventCounts: Record<string, number> = {};
 
   function pruneEvents(currentTime: number): void {
     while (timedEvents.length > 0 && timedEvents[0] && currentTime - timedEvents[0].timestamp > COUNTER_WINDOW_MS) {
@@ -92,6 +94,7 @@ export function createRuntimeRegistry(now: () => number = Date.now): RuntimeRegi
     },
     recordEvent(event, timestamp = now()) {
       timedEvents.push({ event, timestamp });
+      lifetimeEventCounts[event] = (lifetimeEventCounts[event] ?? 0) + 1;
       pruneEvents(timestamp);
     },
     getSession(sessionId) {
@@ -129,6 +132,9 @@ export function createRuntimeRegistry(now: () => number = Date.now): RuntimeRegi
         counts[item.event] = (counts[item.event] ?? 0) + 1;
       }
       return counts;
+    },
+    getLifetimeEventCounts() {
+      return { ...lifetimeEventCounts };
     },
     getActiveRoomCodes() {
       return new Set(roomSessionIds.keys());

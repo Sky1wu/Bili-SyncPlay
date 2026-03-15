@@ -81,7 +81,20 @@ export type EventListQuery = {
   pageSize: number;
 };
 
+export type AuditLogQuery = {
+  actor?: string;
+  action?: string;
+  targetId?: string;
+  targetType?: AuditLogRecord["targetType"];
+  result?: AuditLogRecord["result"];
+  from?: number;
+  to?: number;
+  page: number;
+  pageSize: number;
+};
+
 export type RoomSummary = {
+  instanceId?: string;
   roomCode: string;
   createdAt: number;
   lastActiveAt: number;
@@ -102,6 +115,7 @@ export type RoomDetailMember = {
 };
 
 export type RoomDetail = {
+  instanceId?: string;
   room: RoomSummary;
   members: RoomDetailMember[];
   recentEvents: RuntimeEvent[];

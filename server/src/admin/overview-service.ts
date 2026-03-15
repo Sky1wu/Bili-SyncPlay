@@ -4,6 +4,7 @@ import type { RoomStore } from "../room-store.js";
 import type { PersistenceConfig } from "../types.js";
 
 export function createAdminOverviewService(options: {
+  instanceId: string;
   serviceName: string;
   serviceVersion: string;
   persistenceConfig: PersistenceConfig;
@@ -26,6 +27,7 @@ export function createAdminOverviewService(options: {
 
       return {
         service: {
+          instanceId: options.instanceId,
           name: options.serviceName,
           version: options.serviceVersion,
           startedAt: options.runtimeRegistry.getStartedAt(),
@@ -53,6 +55,13 @@ export function createAdminOverviewService(options: {
             ws_connection_rejected: 0,
             error: 0,
             ...options.runtimeRegistry.getRecentEventCounts(currentTime)
+          },
+          totals: {
+            room_created: 0,
+            room_joined: 0,
+            ws_connection_rejected: 0,
+            rate_limited: 0,
+            ...options.runtimeRegistry.getLifetimeEventCounts()
           }
         }
       };

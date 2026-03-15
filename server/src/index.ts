@@ -74,7 +74,8 @@ function loadPersistenceConfig(): PersistenceConfig {
     provider,
     emptyRoomTtlMs: parsePositiveIntegerEnv("EMPTY_ROOM_TTL_MS", defaults.emptyRoomTtlMs),
     roomCleanupIntervalMs: parsePositiveIntegerEnv("ROOM_CLEANUP_INTERVAL_MS", defaults.roomCleanupIntervalMs),
-    redisUrl: process.env.REDIS_URL?.trim() || defaults.redisUrl
+    redisUrl: process.env.REDIS_URL?.trim() || defaults.redisUrl,
+    instanceId: process.env.INSTANCE_ID?.trim() || defaults.instanceId
   };
 }
 

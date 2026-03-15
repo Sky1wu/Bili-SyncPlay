@@ -2,9 +2,13 @@ import { createServer, type Server as HttpServer } from "node:http";
 import { randomBytes, randomUUID } from "node:crypto";
 import { WebSocketServer, type RawData, type WebSocket } from "ws";
 import { isClientMessage, type ErrorCode, type ServerMessage } from "@bili-syncplay/protocol";
+import { createAdminActionService } from "./admin/action-service.js";
+import { createAuditLogService } from "./admin/audit-log.js";
 import { createInMemoryAuthStore } from "./admin/auth-store.js";
 import { createAdminAuthService } from "./admin/auth-service.js";
+import { createAdminConfigService } from "./admin/config-service.js";
 import { createEventStore } from "./admin/event-store.js";
+import { createMetricsService } from "./admin/metrics.js";
 import { createAdminOverviewService } from "./admin/overview-service.js";
 import { createAdminRoomQueryService } from "./admin/room-query-service.js";
 import { createAdminRouter } from "./admin/router.js";
@@ -70,7 +74,8 @@ export function getDefaultPersistenceConfig(): PersistenceConfig {
     provider: "memory",
     emptyRoomTtlMs: 15 * 60 * 1000,
     roomCleanupIntervalMs: 60 * 1000,
-    redisUrl: "redis://localhost:6379"
+    redisUrl: "redis://localhost:6379",
+    instanceId: "instance-1"
   };
 }
 
@@ -94,6 +99,7 @@ export async function createSyncServer(
   const authService = dependencies.adminConfig
     ? createAdminAuthService(dependencies.adminConfig, createInMemoryAuthStore(), now)
     : undefined;
+  const auditLogService = createAuditLogService();
 
   const roomService = createRoomService({
     config: securityConfig,
@@ -128,6 +134,7 @@ export async function createSyncServer(
   });
 
   const overviewService = createAdminOverviewService({
+    instanceId: persistenceConfig.instanceId,
     serviceName: "bili-syncplay-server",
     serviceVersion: dependencies.serviceVersion ?? process.env.npm_package_version ?? "0.0.0",
     persistenceConfig,
@@ -137,16 +144,65 @@ export async function createSyncServer(
     now
   });
   const roomQueryService = createAdminRoomQueryService({
+    instanceId: persistenceConfig.instanceId,
     roomStore,
     runtimeRegistry,
     eventStore
   });
+  const metricsService = createMetricsService({
+    runtimeRegistry,
+    roomStore
+  });
+  const configService = createAdminConfigService({
+    adminConfig: dependencies.adminConfig ?? null,
+    persistenceConfig,
+    securityConfig
+  });
+  async function broadcastRoomState(roomCode: string): Promise<void> {
+    const state = await roomService.getRoomStateByCode(roomCode);
+    if (!state) {
+      return;
+    }
+    for (const session of runtimeRegistry.listSessionsByRoom(roomCode)) {
+      send(session.socket, {
+        type: "room:state",
+        payload: state
+      });
+    }
+  }
+  function disconnectSessionSocket(session: Session, reason: string): void {
+    if (session.socket.readyState === session.socket.OPEN) {
+      session.socket.close(1000, reason);
+      return;
+    }
+    session.socket.terminate();
+  }
+  const actionService = createAdminActionService({
+    instanceId: persistenceConfig.instanceId,
+    roomStore,
+    runtimeRegistry,
+    auditLogService,
+    getRoomStateByCode: (roomCode) => roomService.getRoomStateByCode(roomCode),
+    broadcastRoomState,
+    disconnectSessionSocket,
+    logEvent,
+    now
+  });
   const adminRouter = createAdminRouter({
+    getConfigSummary: () => configService.getSummary(),
+    getMetrics: () => metricsService.render(),
     authService,
     roomStoreReady: () => roomStore.isReady(),
     getOverview: () => overviewService.getOverview(),
     listRooms: (query) => roomQueryService.listRooms(query),
     getRoomDetail: (roomCode) => roomQueryService.getRoomDetail(roomCode),
+    auditLogService,
+    listAuditLogs: (query) => auditLogService.query(query),
+    closeRoom: (actor, roomCode, reason) => actionService.closeRoom(actor, roomCode, reason),
+    expireRoom: (actor, roomCode, reason) => actionService.expireRoom(actor, roomCode, reason),
+    clearRoomVideo: (actor, roomCode, reason) => actionService.clearRoomVideo(actor, roomCode, reason),
+    kickMember: (actor, roomCode, memberId, reason) => actionService.kickMember(actor, roomCode, memberId, reason),
+    disconnectSession: (actor, sessionId, reason) => actionService.disconnectSession(actor, sessionId, reason),
     eventStore,
     serviceName: "bili-syncplay-server",
     now
