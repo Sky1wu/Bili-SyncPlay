@@ -1,4 +1,4 @@
-import type { ActiveRoom, Session } from "./types";
+import type { ActiveRoom, Session } from "./types.js";
 
 export type ActiveRoomRegistry = {
   getRoom: (code: string) => ActiveRoom | null;

@@ -1,7 +1,7 @@
 import assert from "node:assert/strict";
 import test from "node:test";
 import Redis from "ioredis";
-import { createRedisRoomStore } from "../src/redis-room-store";
+import { createRedisRoomStore } from "../src/redis-room-store.js";
 
 const REDIS_URL = process.env.REDIS_URL;
 

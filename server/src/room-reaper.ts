@@ -1,4 +1,4 @@
-import type { LogEvent } from "./types";
+import type { LogEvent } from "./types.js";
 
 export type RoomReaper = {
   stop: () => void;

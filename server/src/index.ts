@@ -4,7 +4,7 @@ import {
   getDefaultSecurityConfig,
   type PersistenceConfig,
   type SecurityConfig
-} from "./app";
+} from "./app.js";
 
 const port = parseIntegerEnv("PORT", 8787);
 const securityConfig = loadSecurityConfig();

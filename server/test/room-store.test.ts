@@ -1,7 +1,7 @@
 import assert from "node:assert/strict";
 import test from "node:test";
-import { createInMemoryRoomStore, roomStateOf } from "../src/room-store";
-import type { ActiveRoom, PersistedRoom, Session } from "../src/types";
+import { createInMemoryRoomStore, roomStateOf } from "../src/room-store.js";
+import type { ActiveRoom, PersistedRoom, Session } from "../src/types.js";
 
 test("room store persists create, update, delete, and expiry behaviors", async () => {
   const store = createInMemoryRoomStore({ now: () => 123 });

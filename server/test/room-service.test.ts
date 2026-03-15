@@ -1,12 +1,12 @@
 import assert from "node:assert/strict";
 import test from "node:test";
 import type { WebSocket } from "ws";
-import { createActiveRoomRegistry } from "../src/active-room-registry";
-import { getDefaultPersistenceConfig, getDefaultSecurityConfig } from "../src/app";
-import { createSessionRateLimitState } from "../src/rate-limit";
-import { createInMemoryRoomStore } from "../src/room-store";
-import { createRoomService } from "../src/room-service";
-import type { LogEvent, Session } from "../src/types";
+import { createActiveRoomRegistry } from "../src/active-room-registry.js";
+import { getDefaultPersistenceConfig, getDefaultSecurityConfig } from "../src/app.js";
+import { createSessionRateLimitState } from "../src/rate-limit.js";
+import { createInMemoryRoomStore } from "../src/room-store.js";
+import { createRoomService } from "../src/room-service.js";
+import type { LogEvent, Session } from "../src/types.js";
 
 function createSession(id: string): Session {
   const config = getDefaultSecurityConfig();

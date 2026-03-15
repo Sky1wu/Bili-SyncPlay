@@ -1,8 +1,8 @@
 import assert from "node:assert/strict";
 import test from "node:test";
 import type { IncomingMessage } from "node:http";
-import { createSecurityPolicy } from "../src/security";
-import { getDefaultSecurityConfig } from "../src/app";
+import { createSecurityPolicy } from "../src/security.js";
+import { getDefaultSecurityConfig } from "../src/app.js";
 
 function createRequest(options: {
   origin?: string;

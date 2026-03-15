@@ -1,6 +1,6 @@
-import Redis from "ioredis";
-import { createPersistedRoom, type RoomStore, type RoomUpdateResult } from "./room-store";
-import type { PersistedRoom } from "./types";
+import { Redis } from "ioredis";
+import { createPersistedRoom, type RoomStore, type RoomUpdateResult } from "./room-store.js";
+import type { PersistedRoom } from "./types.js";
 
 const ROOM_KEY_PREFIX = "bsp:room:";
 const ROOM_EXPIRY_KEY = "bsp:room-expiry";

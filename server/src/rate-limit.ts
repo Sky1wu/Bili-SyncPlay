@@ -1,4 +1,4 @@
-import type { SecurityConfig, SessionRateLimitState, TokenBucket, WindowCounter } from "./types";
+import type { SecurityConfig, SessionRateLimitState, TokenBucket, WindowCounter } from "./types.js";
 
 export const WINDOW_MINUTE_MS = 60_000;
 export const WINDOW_10_SECONDS_MS = 10_000;

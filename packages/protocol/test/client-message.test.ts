@@ -1,6 +1,6 @@
 import test from "node:test";
 import assert from "node:assert/strict";
-import { isClientMessage } from "../src/index";
+import { isClientMessage } from "../src/index.js";
 
 const VALID_TOKEN = "valid-member-token-123";
 

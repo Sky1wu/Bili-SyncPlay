@@ -1,4 +1,4 @@
-export { normalizeBilibiliUrl, parseBilibiliVideoRef, type BilibiliVideoRef } from "./video-ref";
+export { normalizeBilibiliUrl, parseBilibiliVideoRef, type BilibiliVideoRef } from "./video-ref.js";
 
 export type RoomCode = string;
 export type PlaybackPlayState = "playing" | "paused" | "buffering";

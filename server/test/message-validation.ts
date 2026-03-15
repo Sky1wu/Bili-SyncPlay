@@ -2,15 +2,15 @@ import assert from "node:assert/strict";
 import test from "node:test";
 import { once } from "node:events";
 import { WebSocket, type RawData } from "ws";
-import type { PersistenceConfig, SecurityConfig, SyncServerDependencies } from "../src/app";
+import type { PersistenceConfig, SecurityConfig, SyncServerDependencies } from "../src/app.js";
 import {
   createSyncServer,
   getDefaultPersistenceConfig,
   getDefaultSecurityConfig,
   INVALID_CLIENT_MESSAGE_MESSAGE,
   INVALID_JSON_MESSAGE
-} from "../src/app";
-import { createInMemoryRoomStore } from "../src/room-store";
+} from "../src/app.js";
+import { createInMemoryRoomStore } from "../src/room-store.js";
 import type { ServerMessage } from "@bili-syncplay/protocol";
 
 const ALLOWED_ORIGIN = "chrome-extension://allowed-extension";

@@ -1,7 +1,7 @@
 import { normalizeBilibiliUrl, type ClientMessage, type ErrorCode, type PlaybackState, type SharedVideo } from "@bili-syncplay/protocol";
-import type { ActiveRoomRegistry } from "./active-room-registry";
-import { createRoomCode, roomStateOf, type RoomStore } from "./room-store";
-import type { LogEvent, PersistenceConfig, PersistedRoom, SecurityConfig, Session } from "./types";
+import type { ActiveRoomRegistry } from "./active-room-registry.js";
+import { createRoomCode, roomStateOf, type RoomStore } from "./room-store.js";
+import type { LogEvent, PersistenceConfig, PersistedRoom, SecurityConfig, Session } from "./types.js";
 
 const PAUSE_DOMINANCE_WINDOW_MS = 400;
 const MAX_VERSION_RETRIES = 3;

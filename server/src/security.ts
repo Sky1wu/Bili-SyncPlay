@@ -1,6 +1,6 @@
 import type { IncomingMessage } from "node:http";
-import { consumeFixedWindow, createWindowCounter, WINDOW_MINUTE_MS } from "./rate-limit";
-import type { SecurityConfig, UpgradeDecision } from "./types";
+import { consumeFixedWindow, createWindowCounter, WINDOW_MINUTE_MS } from "./rate-limit.js";
+import type { SecurityConfig, UpgradeDecision } from "./types.js";
 
 export function createSecurityPolicy(config: SecurityConfig): {
   evaluateUpgrade: (request: IncomingMessage) => UpgradeDecision;

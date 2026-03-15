@@ -1,5 +1,5 @@
 import type { PlaybackState, SharedVideo } from "@bili-syncplay/protocol";
-import type { ActiveRoom, PersistedRoom, RoomStoreRoomState } from "./types";
+import type { ActiveRoom, PersistedRoom, RoomStoreRoomState } from "./types.js";
 
 const ROOM_CODE_ALPHABET = "ABCDEFGHJKLMNPQRSTUVWXYZ23456789";
 

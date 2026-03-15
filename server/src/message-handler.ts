@@ -1,8 +1,8 @@
 import type { ClientMessage } from "@bili-syncplay/protocol";
-import { consumeFixedWindow, consumeTokenBucket, WINDOW_10_SECONDS_MS, WINDOW_MINUTE_MS } from "./rate-limit";
-import { roomStateOf } from "./room-store";
-import { RoomServiceError } from "./room-service";
-import type { LogEvent, SendError, SendMessage, Session } from "./types";
+import { consumeFixedWindow, consumeTokenBucket, WINDOW_10_SECONDS_MS, WINDOW_MINUTE_MS } from "./rate-limit.js";
+import { roomStateOf } from "./room-store.js";
+import { RoomServiceError } from "./room-service.js";
+import type { LogEvent, SendError, SendMessage, Session } from "./types.js";
 
 export function createMessageHandler(options: {
   config: {

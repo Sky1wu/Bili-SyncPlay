@@ -1,7 +1,7 @@
 import assert from "node:assert/strict";
 import test from "node:test";
-import { consumeFixedWindow, consumeTokenBucket, createSessionRateLimitState, createTokenBucket, createWindowCounter } from "../src/rate-limit";
-import { getDefaultSecurityConfig } from "../src/app";
+import { consumeFixedWindow, consumeTokenBucket, createSessionRateLimitState, createTokenBucket, createWindowCounter } from "../src/rate-limit.js";
+import { getDefaultSecurityConfig } from "../src/app.js";
 
 test("fixed window counters reset after the window elapses", () => {
   const counter = createWindowCounter(0);

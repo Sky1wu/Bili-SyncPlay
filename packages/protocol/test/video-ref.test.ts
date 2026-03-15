@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import test from "node:test";
-import { normalizeBilibiliUrl, parseBilibiliVideoRef } from "../src/index";
+import { normalizeBilibiliUrl, parseBilibiliVideoRef } from "../src/index.js";
 
 test("parses a standard video URL", () => {
   assert.deepEqual(parseBilibiliVideoRef("https://www.bilibili.com/video/BV1xx411c7mD"), {

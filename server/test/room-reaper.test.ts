@@ -1,7 +1,7 @@
 import assert from "node:assert/strict";
 import test from "node:test";
-import { createInMemoryRoomStore } from "../src/room-store";
-import { createRoomReaper } from "../src/room-reaper";
+import { createInMemoryRoomStore } from "../src/room-store.js";
+import { createRoomReaper } from "../src/room-reaper.js";
 
 test("room reaper deletes expired rooms through the store interface", async () => {
   const store = createInMemoryRoomStore();

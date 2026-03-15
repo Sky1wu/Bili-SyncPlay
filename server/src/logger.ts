@@ -1,4 +1,4 @@
-import type { LogEvent } from "./types";
+import type { LogEvent } from "./types.js";
 
 export function createStructuredLogger(writeLine?: (line: string) => void): LogEvent {
   return (event, data) => {
