@@ -13,6 +13,8 @@ const state = {
   overviewAutoRefresh: true
 }
 
+let dialogEventsBound = false
+
 const routeMeta = {
   "/overview": { title: "概览", description: "服务、存储、运行态与近期事件的快速视图。" },
   "/rooms": { title: "房间管理", description: "筛选房间、查看详情并执行治理动作。" },
@@ -24,6 +26,7 @@ const routeMeta = {
 const appRoot = document.querySelector("#app")
 
 async function bootstrap() {
+  bindDialogEvents()
   state.currentRoute = normalizePath(location.pathname)
 
   if (state.token) {
@@ -217,12 +220,58 @@ async function openReasonDialog(config) {
   })
 }
 
+function syncDialogDom() {
+  const dialogRoot = document.querySelector(".dialog-root")
+  if (!dialogRoot) {
+    return
+  }
+
+  if (!state.dialog) {
+    dialogRoot.hidden = true
+    dialogRoot.replaceChildren()
+    return
+  }
+
+  dialogRoot.outerHTML = renderDialog()
+}
+
 function closeDialog(result = null) {
   const resolver = state.dialog?.resolve
   state.dialog = null
+  syncDialogDom()
   if (resolver) {
     resolver(result)
   }
+  render().catch(handleFatalRenderError)
+}
+
+function bindDialogEvents() {
+  if (dialogEventsBound) {
+    return
+  }
+
+  dialogEventsBound = true
+
+  document.addEventListener("click", (event) => {
+    const closeButton = event.target.closest("[data-dialog-close]")
+    if (!closeButton) {
+      return
+    }
+
+    event.preventDefault()
+    closeDialog(null)
+  })
+
+  document.addEventListener("submit", (event) => {
+    const form = event.target.closest("#confirm-dialog")
+    if (!form) {
+      return
+    }
+
+    event.preventDefault()
+    const reason = new FormData(form).get("reason")?.toString().trim() || ""
+    closeDialog({ reason })
+  })
 }
 
 async function confirmAction(config) {
@@ -374,13 +423,6 @@ function bindCommonEvents(page) {
     }
     clearAuth()
     navigate("/login", true)
-  })
-
-  document.querySelector("[data-dialog-close]")?.addEventListener("click", () => closeDialog(null))
-  document.querySelector("#confirm-dialog")?.addEventListener("submit", (event) => {
-    event.preventDefault()
-    const reason = new FormData(event.currentTarget).get("reason")?.toString().trim() || ""
-    closeDialog({ reason })
   })
 
   document.querySelectorAll("[data-copy]").forEach((button) => {
