@@ -90,6 +90,21 @@ test("rejects room:join when joinToken is too short", () => {
   );
 });
 
+test("accepts room:join with an optional memberToken for reconnect", () => {
+  assert.equal(
+    isClientMessage({
+      type: "room:join",
+      payload: {
+        roomCode: "ABC123",
+        joinToken: VALID_TOKEN,
+        memberToken: VALID_TOKEN,
+        displayName: "Alice"
+      }
+    }),
+    true
+  );
+});
+
 test("rejects video:share when required fields are missing", () => {
   assert.equal(
     isClientMessage({

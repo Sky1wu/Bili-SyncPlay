@@ -16,6 +16,7 @@ function createSession(id: string): Session {
     remoteAddress: "127.0.0.1",
     origin: "chrome-extension://allowed-extension",
     roomCode: null,
+    memberId: null,
     displayName: `User-${id}`,
     memberToken: null,
     joinedAt: null,
@@ -114,4 +115,41 @@ test("room service rejects expired rooms and old member tokens after restart sem
     restartedService.joinRoomForSession(expiredJoiner, created.room.code, created.room.joinToken, "Late"),
     /房间不存在/
   );
+});
+
+test("room service reuses member identity when reconnecting with the same member token", async () => {
+  const roomStore = createInMemoryRoomStore({ now: () => 1_000 });
+  const service = createRoomService({
+    config: getDefaultSecurityConfig(),
+    persistence: getDefaultPersistenceConfig(),
+    roomStore,
+    activeRooms: createActiveRoomRegistry(),
+    generateToken: (() => {
+      let id = 0;
+      return () => `token-${++id}`.padEnd(16, "x");
+    })(),
+    logEvent: (() => undefined) satisfies LogEvent,
+    now: () => 1_000,
+    createRoomCode: () => "ROOM03"
+  });
+
+  const owner = createSession("owner");
+  const created = await service.createRoomForSession(owner, "Alice");
+  const originalMemberId = owner.memberId;
+
+  const reconnectingOwner = createSession("owner-reconnect");
+  const joined = await service.joinRoomForSession(
+    reconnectingOwner,
+    created.room.code,
+    created.room.joinToken,
+    "Alice",
+    created.memberToken
+  );
+
+  assert.equal(joined.memberToken, created.memberToken);
+  assert.equal(reconnectingOwner.memberId, originalMemberId);
+
+  await service.leaveRoomForSession(owner);
+  const state = await service.getRoomStateForSession(reconnectingOwner, joined.memberToken, "sync:request");
+  assert.deepEqual(state.members, [{ id: originalMemberId, name: "Alice" }]);
 });

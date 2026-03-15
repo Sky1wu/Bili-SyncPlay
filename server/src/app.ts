@@ -134,6 +134,11 @@ export async function createSyncServer(
     return JSON.parse(raw.toString()) as unknown;
   }
 
+  function decodeCloseReason(reason: Buffer): string {
+    const decoded = reason.toString("utf8");
+    return decoded.length > 0 ? decoded : "";
+  }
+
   function countInvalidMessage(session: Session, reason: string): void {
     session.invalidMessageCount += 1;
     logEvent("invalid_message", {
@@ -191,6 +196,7 @@ export async function createSyncServer(
       remoteAddress: context.remoteAddress,
       origin: context.origin,
       roomCode: null,
+      memberId: null,
       displayName: `Guest-${Math.floor(Math.random() * 900 + 100)}`,
       memberToken: null,
       joinedAt: null,
@@ -235,7 +241,18 @@ export async function createSyncServer(
         });
     });
 
-    socket.on("close", () => {
+    socket.on("error", (error) => {
+      logEvent("ws_connection_error", {
+        sessionId: session.id,
+        remoteAddress: session.remoteAddress,
+        origin: session.origin,
+        roomCode: session.roomCode,
+        result: "error",
+        error: error.message
+      });
+    });
+
+    socket.on("close", (code, reason) => {
       void (async () => {
         securityPolicy.decrementConnectionCount(session.remoteAddress);
         await messageHandler.leaveRoom(session);
@@ -244,7 +261,9 @@ export async function createSyncServer(
           remoteAddress: session.remoteAddress,
           origin: session.origin,
           roomCode: session.roomCode,
-          result: "closed"
+          result: "closed",
+          code,
+          reason: decodeCloseReason(reason)
         });
       })();
     });

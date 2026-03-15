@@ -38,6 +38,7 @@ test("room store persists create, update, delete, and expiry behaviors", async (
 test("roomStateOf serializes persisted room state with active members", () => {
   const session = {
     id: "member-1",
+    memberId: "member-1",
     displayName: "Alice"
   } as Session;
   const persistedRoom: PersistedRoom = {

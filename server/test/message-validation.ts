@@ -887,6 +887,50 @@ test("restores persisted room state across server restart and issues a new membe
   }
 });
 
+test("reconnect join reuses the same member identity and does not emit a leave for the replaced socket", async () => {
+  const server = await startTestServer();
+
+  try {
+    const owner = await connectClient(server.url);
+    const ownerCollector = createMessageCollector(owner);
+
+    owner.send(JSON.stringify({ type: "room:create", payload: { displayName: "Alice" } }));
+    const created = await ownerCollector.next("room:created");
+    await ownerCollector.next("room:state");
+
+    const reconnectingOwner = await connectClient(server.url);
+    const reconnectingCollector = createMessageCollector(reconnectingOwner);
+    reconnectingOwner.send(
+      JSON.stringify({
+        type: "room:join",
+        payload: {
+          roomCode: created.payload.roomCode,
+          joinToken: created.payload.joinToken,
+          memberToken: created.payload.memberToken,
+          displayName: "Alice"
+        }
+      })
+    );
+
+    const joined = await reconnectingCollector.next("room:joined");
+    assert.equal(joined.payload.memberId, created.payload.memberId);
+    assert.equal(joined.payload.memberToken, created.payload.memberToken);
+
+    const firstState = await reconnectingCollector.next("room:state");
+    assert.deepEqual(firstState.payload.members, [{ id: created.payload.memberId, name: "Alice" }]);
+
+    await once(owner, "close");
+    const postReplaceState = await maybeWaitForMessageType(reconnectingOwner, "room:state", 500);
+    if (postReplaceState) {
+      assert.deepEqual(postReplaceState.payload.members, [{ id: created.payload.memberId, name: "Alice" }]);
+    }
+
+    await closeClient(reconnectingOwner);
+  } finally {
+    await server.close();
+  }
+});
+
 test("keeps empty rooms during TTL and rejects joins after expiry", async () => {
   const roomStore = createInMemoryRoomStore();
   const persistence = {

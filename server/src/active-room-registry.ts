@@ -3,8 +3,9 @@ import type { ActiveRoom, Session } from "./types.js";
 export type ActiveRoomRegistry = {
   getRoom: (code: string) => ActiveRoom | null;
   getOrCreateRoom: (code: string) => ActiveRoom;
-  addMember: (code: string, session: Session, memberToken: string) => ActiveRoom;
-  removeMember: (code: string, sessionId: string) => { room: ActiveRoom | null; roomEmpty: boolean };
+  addMember: (code: string, memberId: string, session: Session, memberToken: string) => ActiveRoom;
+  findMemberIdByToken: (code: string, memberToken: string) => string | null;
+  removeMember: (code: string, memberId: string, session?: Session) => { room: ActiveRoom | null; roomEmpty: boolean };
   deleteRoom: (code: string) => void;
 };
 
@@ -31,20 +32,40 @@ export function createActiveRoomRegistry(): ActiveRoomRegistry {
       return rooms.get(code) ?? null;
     },
     getOrCreateRoom,
-    addMember(code, session, memberToken) {
+    addMember(code, memberId, session, memberToken) {
       const room = getOrCreateRoom(code);
-      room.members.set(session.id, session);
-      room.memberTokens.set(session.id, memberToken);
+      room.members.set(memberId, session);
+      room.memberTokens.set(memberId, memberToken);
       return room;
     },
-    removeMember(code, sessionId) {
+    findMemberIdByToken(code, memberToken) {
+      const room = rooms.get(code) ?? null;
+      if (!room) {
+        return null;
+      }
+
+      for (const [memberId, token] of room.memberTokens.entries()) {
+        if (token === memberToken) {
+          return memberId;
+        }
+      }
+      return null;
+    },
+    removeMember(code, memberId, session) {
       const room = rooms.get(code) ?? null;
       if (!room) {
         return { room: null, roomEmpty: true };
       }
 
-      room.members.delete(sessionId);
-      room.memberTokens.delete(sessionId);
+      if (session) {
+        const currentSession = room.members.get(memberId);
+        if (currentSession && currentSession !== session) {
+          return { room, roomEmpty: false };
+        }
+      }
+
+      room.members.delete(memberId);
+      room.memberTokens.delete(memberId);
       const roomEmpty = room.members.size === 0;
       if (roomEmpty) {
         rooms.delete(code);

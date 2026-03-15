@@ -58,6 +58,7 @@ export interface JoinRoomMessage {
   payload: {
     roomCode: RoomCode;
     joinToken: string;
+    memberToken?: string;
     displayName?: string;
   };
 }
@@ -242,6 +243,7 @@ function isJoinRoomPayload(value: unknown): value is JoinRoomMessage["payload"] 
     isRecord(value) &&
     isRoomCode(value.roomCode) &&
     isToken(value.joinToken) &&
+    (value.memberToken === undefined || isToken(value.memberToken)) &&
     isOptionalBoundedString(value.displayName, DISPLAY_NAME_MAX_LENGTH)
   );
 }

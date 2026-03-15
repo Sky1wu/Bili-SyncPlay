@@ -27,6 +27,7 @@ export type Session = {
   remoteAddress: string | null;
   origin: string | null;
   roomCode: string | null;
+  memberId: string | null;
   displayName: string;
   memberToken: string | null;
   joinedAt: number | null;

@@ -230,7 +230,6 @@ async function openSocketWithProbe(targetServerUrl: string): Promise<void> {
       const targetJoinToken = pendingJoinToken;
       sendJoinRequest(targetRoomCode, targetJoinToken);
     } else if (roomCode) {
-      memberToken = null;
       if (joinToken) {
         sendJoinRequest(roomCode, joinToken);
       }
@@ -245,11 +244,12 @@ async function openSocketWithProbe(targetServerUrl: string): Promise<void> {
     void handleServerMessage(message);
   });
 
-  socket.addEventListener("close", () => {
+  socket.addEventListener("close", (event) => {
     connected = false;
     stopClockSyncTimer();
     clearPendingLocalShare("socket closed before share confirmation");
-    log("background", "Socket closed");
+    const closeReason = event.reason ? ` reason=${JSON.stringify(event.reason)}` : "";
+    log("background", `Socket closed code=${event.code} clean=${event.wasClean}${closeReason}`);
     scheduleReconnect();
     notifyAll();
   });
@@ -259,6 +259,7 @@ async function openSocketWithProbe(targetServerUrl: string): Promise<void> {
     connected = false;
     stopClockSyncTimer();
     clearPendingLocalShare("socket error before share confirmation");
+    log("background", `Socket error readyState=${socket?.readyState ?? -1}`);
     log("background", lastError);
     notifyAll();
   });
@@ -281,6 +282,7 @@ function sendJoinRequest(targetRoomCode: string, targetJoinToken: string): void 
     payload: {
       roomCode: targetRoomCode,
       joinToken: targetJoinToken,
+      ...(memberToken ? { memberToken } : {}),
       displayName: displayName ?? undefined
     }
   });

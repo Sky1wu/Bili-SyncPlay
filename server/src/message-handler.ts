@@ -20,7 +20,13 @@ export function createMessageHandler(options: {
   };
   roomService: {
     createRoomForSession: (session: Session, displayName?: string) => Promise<{ room: { code: string; joinToken: string }; memberToken: string }>;
-    joinRoomForSession: (session: Session, roomCode: string, joinToken: string, displayName?: string) => Promise<{ room: { code: string }; memberToken: string }>;
+    joinRoomForSession: (
+      session: Session,
+      roomCode: string,
+      joinToken: string,
+      displayName?: string,
+      previousMemberToken?: string
+    ) => Promise<{ room: { code: string }; memberToken: string }>;
     leaveRoomForSession: (session: Session) => Promise<{ room: { code: string } | null }>;
     shareVideoForSession: (
       session: Session,
@@ -105,7 +111,7 @@ export function createMessageHandler(options: {
             type: "room:created",
             payload: {
               roomCode: room.code,
-              memberId: session.id,
+              memberId: session.memberId ?? session.id,
               joinToken: room.joinToken,
               memberToken
             }
@@ -131,13 +137,14 @@ export function createMessageHandler(options: {
             session,
             message.payload.roomCode,
             message.payload.joinToken,
-            message.payload.displayName
+            message.payload.displayName,
+            message.payload.memberToken
           );
           send(session.socket, {
             type: "room:joined",
             payload: {
               roomCode: room.code,
-              memberId: session.id,
+              memberId: session.memberId ?? session.id,
               memberToken
             }
           });

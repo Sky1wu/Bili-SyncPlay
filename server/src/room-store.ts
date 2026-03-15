@@ -121,7 +121,7 @@ export function roomStateOf(room: PersistedRoom, activeRoom: ActiveRoom | null):
     sharedVideo: room.sharedVideo,
     playback: room.playback,
     members: Array.from(activeRoom?.members.values() ?? []).map((member) => ({
-      id: member.id,
+      id: member.memberId ?? member.id,
       name: member.displayName
     }))
   };

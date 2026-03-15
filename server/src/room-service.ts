@@ -43,7 +43,13 @@ export function createRoomService(options: {
   now?: () => number;
 }): {
   createRoomForSession: (session: Session, displayName?: string) => Promise<{ room: PersistedRoom; memberToken: string }>;
-  joinRoomForSession: (session: Session, roomCode: string, joinToken: string, displayName?: string) => Promise<{ room: PersistedRoom; memberToken: string }>;
+  joinRoomForSession: (
+    session: Session,
+    roomCode: string,
+    joinToken: string,
+    displayName?: string,
+    previousMemberToken?: string
+  ) => Promise<{ room: PersistedRoom; memberToken: string }>;
   leaveRoomForSession: (session: Session) => Promise<{ room: PersistedRoom | null }>;
   shareVideoForSession: (
     session: Session,
@@ -71,6 +77,7 @@ export function createRoomService(options: {
 
   function clearSessionRoom(session: Session): void {
     session.roomCode = null;
+    session.memberId = null;
     session.memberToken = null;
     session.joinedAt = null;
   }
@@ -94,7 +101,13 @@ export function createRoomService(options: {
     memberToken: string,
     messageType: ClientMessage["type"]
   ): void {
-    if (!session.memberToken || memberToken !== session.memberToken || activeRoom.memberTokens.get(session.id) !== session.memberToken) {
+    const memberId = session.memberId;
+    if (
+      !memberId ||
+      !session.memberToken ||
+      memberToken !== session.memberToken ||
+      activeRoom.memberTokens.get(memberId) !== session.memberToken
+    ) {
       logEvent("auth_failed", {
         sessionId: session.id,
         roomCode: session.roomCode,
@@ -142,7 +155,7 @@ export function createRoomService(options: {
     }
 
     const activeRoom = activeRooms.getRoom(persistedRoom.code);
-    if (!activeRoom || !activeRoom.members.has(session.id)) {
+    if (!activeRoom || !session.memberId || activeRoom.members.get(session.memberId) !== session) {
       clearSessionRoom(session);
       logEvent("auth_failed", {
         sessionId: session.id,
@@ -206,7 +219,9 @@ export function createRoomService(options: {
     }
 
     const roomCode = session.roomCode;
-    const removal = activeRooms.removeMember(roomCode, session.id);
+    const removal = session.memberId
+      ? activeRooms.removeMember(roomCode, session.memberId, session)
+      : { room: activeRooms.getRoom(roomCode), roomEmpty: false };
     clearSessionRoom(session);
 
     const persistedRoom = await resolveRoom(roomCode);
@@ -287,7 +302,8 @@ export function createRoomService(options: {
       }
 
       const memberToken = generateToken();
-      activeRooms.addMember(room.code, session, memberToken);
+      session.memberId = session.id;
+      activeRooms.addMember(room.code, session.memberId, session, memberToken);
       session.roomCode = room.code;
       session.memberToken = memberToken;
       session.joinedAt = createdAt;
@@ -303,7 +319,7 @@ export function createRoomService(options: {
       return { room, memberToken };
     },
 
-    async joinRoomForSession(session, roomCode, joinToken, displayName) {
+    async joinRoomForSession(session, roomCode, joinToken, displayName, previousMemberToken) {
       setSessionDisplayName(session, displayName);
       await leaveCurrentRoom(session);
 
@@ -322,8 +338,10 @@ export function createRoomService(options: {
         }
 
         const activeRoom = activeRooms.getRoom(roomCode);
+        const reconnectMemberId =
+          previousMemberToken && activeRoom ? activeRooms.findMemberIdByToken(roomCode, previousMemberToken) : null;
         const activeMemberCount = activeRoom?.members.size ?? 0;
-        if (activeMemberCount >= config.maxMembersPerRoom) {
+        if (activeMemberCount >= config.maxMembersPerRoom && reconnectMemberId === null) {
           throw new RoomServiceError("room_full", "房间已满。", "room_full");
         }
 
@@ -341,11 +359,25 @@ export function createRoomService(options: {
         throw new RoomServiceError("room_not_found", "房间不存在。", "room_not_found");
       }
 
-      const memberToken = generateToken();
-      activeRooms.addMember(joinedRoom.code, session, memberToken);
+      const reconnectMemberId =
+        previousMemberToken ? activeRooms.findMemberIdByToken(joinedRoom.code, previousMemberToken) : null;
+      const memberId = reconnectMemberId ?? session.id;
+      const memberToken = reconnectMemberId && previousMemberToken ? previousMemberToken : generateToken();
+      const previousSession =
+        reconnectMemberId !== null ? activeRooms.getRoom(joinedRoom.code)?.members.get(reconnectMemberId) ?? null : null;
+      session.memberId = memberId;
+      activeRooms.addMember(joinedRoom.code, memberId, session, memberToken);
       session.roomCode = joinedRoom.code;
       session.memberToken = memberToken;
       session.joinedAt = now();
+      if (
+        previousSession &&
+        previousSession !== session &&
+        typeof previousSession.socket.close === "function" &&
+        previousSession.socket.readyState === previousSession.socket.OPEN
+      ) {
+        previousSession.socket.close(1000, "Session replaced");
+      }
 
       logEvent("room_restored", {
         roomCode: joinedRoom.code,
@@ -369,7 +401,7 @@ export function createRoomService(options: {
           ? {
               ...playback,
               url: video.url,
-              actorId: session.id,
+              actorId: session.memberId ?? session.id,
               serverTime: currentTime
             }
           : {
@@ -379,13 +411,13 @@ export function createRoomService(options: {
               playbackRate: 1,
               updatedAt: currentTime,
               serverTime: currentTime,
-              actorId: session.id,
+              actorId: session.memberId ?? session.id,
               seq: 0
             };
         const result = await roomStore.updateRoom(currentRoom.code, currentRoom.version, {
           sharedVideo: {
             ...video,
-            sharedByMemberId: session.id
+            sharedByMemberId: session.memberId ?? session.id
           },
           playback: nextPlayback,
           expiresAt: null,
@@ -426,7 +458,7 @@ export function createRoomService(options: {
       const currentTime = now();
       const nextPlayback: PlaybackState = {
         ...playback,
-        actorId: session.id,
+        actorId: session.memberId ?? session.id,
         serverTime: currentTime
       };
       if (shouldIgnorePlaybackUpdate(access.persistedRoom, nextPlayback, currentTime)) {
