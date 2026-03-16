@@ -100,28 +100,23 @@ export function createAdminActionService(options: {
 
     async expireRoom(actor: AdminSession, roomCode: string, reason?: string) {
       const sessions = options.runtimeRegistry.listSessionsByRoom(roomCode);
-      if (sessions.length === 0) {
-        await getRoomOrThrow(roomCode);
-        await options.roomStore.deleteRoom(roomCode);
-      } else {
-        await updateRoomWithRetry(roomCode, async (room) =>
-          await options.roomStore.updateRoom(room.code, room.version, {
-            expiresAt: now(),
-            lastActiveAt: now()
-          })
-        );
+      if (sessions.length > 0) {
+        throw new AdminActionError(409, "room_active", "房间仍有在线成员，不能提前过期。请改用关闭房间。");
       }
+
+      await getRoomOrThrow(roomCode);
+      await options.roomStore.deleteRoom(roomCode);
 
       options.logEvent("admin_room_expired", {
         roomCode,
-        activeSessionCount: sessions.length,
+        activeSessionCount: 0,
         result: "ok",
         actor: actor.username
       });
       writeAudit(actor, "expire_room", "room", roomCode, { reason }, "ok");
       return {
         roomCode,
-        activeSessionCount: sessions.length
+        activeSessionCount: 0
       };
     },
 

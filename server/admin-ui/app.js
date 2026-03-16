@@ -828,7 +828,7 @@ async function renderRoomsPage() {
                     <td>${renderTimeBlock(item.createdAt, "创建")}</td>
                     <td>${renderTimeBlock(item.lastActiveAt, "活跃")}</td>
                     <td>${renderTimeBlock(item.expiresAt, "过期")}</td>
-                    <td>${roomActionButtons(item.roomCode)}</td>
+                    <td>${roomActionButtons(item.roomCode, item.isActive)}</td>
                   </tr>
                 `).join("")}
               </tbody>
@@ -858,17 +858,20 @@ function roomsQueryFromLocation() {
   }
 }
 
-function roomActionButtons(roomCode) {
+function roomActionButtons(roomCode, isActive = false) {
   const view = `<button class="button link" type="button" data-open-room="${escapeHtml(roomCode)}">查看详情</button>`
   if (!canManage()) {
     return `<div class="table-actions">${view}</div>`
   }
 
+  const expireDisabled = isActive ? "disabled" : ""
+  const expireHint = isActive ? `title="房间仍有在线成员，仅空闲房间可提前过期"` : ""
+
   return `
     <div class="table-actions">
       ${view}
       <button class="button link" type="button" data-room-action="close" data-room-code="${escapeHtml(roomCode)}">关闭房间</button>
-      <button class="button link" type="button" data-room-action="expire" data-room-code="${escapeHtml(roomCode)}">提前过期</button>
+      <button class="button link" type="button" data-room-action="expire" data-room-code="${escapeHtml(roomCode)}" ${expireDisabled} ${expireHint}>提前过期</button>
       <button class="button link" type="button" data-room-action="clear-video" data-room-code="${escapeHtml(roomCode)}">清空共享视频</button>
     </div>
   `
@@ -958,9 +961,9 @@ function bindRoomActionButtons(onDone) {
         },
         expire: {
           title: `提前过期房间 ${roomCode}`,
-          description: "无在线成员时会直接清理，有在线成员时会标记为尽快过期。",
+          description: "仅空闲房间可提前过期并立即清理；仍有在线成员时请改用关闭房间。",
           confirmLabel: "确认过期",
-          successMessage: `房间 ${roomCode} 已处理为提前过期。`,
+          successMessage: `房间 ${roomCode} 已提前过期并清理。`,
           onConfirm: (reason) => api.expireRoom(roomCode, reason)
         },
         "clear-video": {
@@ -1017,7 +1020,7 @@ async function renderRoomDetailPage(roomCode) {
             ${canManage() ? `
               <div class="actions">
                 <button class="button danger" data-room-action="close" data-room-code="${escapeHtml(roomCode)}">关闭房间</button>
-                <button class="button" data-room-action="expire" data-room-code="${escapeHtml(roomCode)}">提前过期</button>
+                <button class="button" data-room-action="expire" data-room-code="${escapeHtml(roomCode)}" ${detail.room.isActive ? 'disabled title="房间仍有在线成员，仅空闲房间可提前过期"' : ""}>提前过期</button>
                 <button class="button" data-room-action="clear-video" data-room-code="${escapeHtml(roomCode)}">清空共享视频</button>
               </div>
             ` : ""}

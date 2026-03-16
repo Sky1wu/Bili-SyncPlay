@@ -450,6 +450,68 @@ test("operator can execute admin actions and query audit logs", async () => {
   }
 });
 
+test("expire room rejects active rooms and only deletes idle rooms", async () => {
+  const server = await startAdminServer(adminDependencies("operator"));
+
+  try {
+    const token = await login(server.httpBaseUrl);
+    const owner = await connectClient(server.wsUrl);
+    const collector = createMessageCollector(owner);
+
+    try {
+      owner.send(JSON.stringify({ type: "room:create", payload: { displayName: "Alice" } }));
+      const created = await collector.next("room:created");
+      await collector.next("room:state");
+      const roomCode = (created.payload as { roomCode: string }).roomCode;
+
+      const activeExpire = await requestJson(server.httpBaseUrl, `/api/admin/rooms/${roomCode}/expire`, {
+        method: "POST",
+        token,
+        body: { reason: "should not expire active room" }
+      });
+      assert.equal(activeExpire.status, 409);
+      assert.deepEqual(activeExpire.body.error, {
+        code: "room_active",
+        message: "房间仍有在线成员，不能提前过期。请改用关闭房间。"
+      });
+
+      const stillExists = await requestJson(server.httpBaseUrl, `/api/admin/rooms/${roomCode}`, { token });
+      assert.equal(stillExists.status, 200);
+
+      owner.close();
+      await once(owner, "close");
+
+      let roomBecameIdle = false;
+      for (let attempt = 0; attempt < 20; attempt += 1) {
+        const detail = await requestJson(server.httpBaseUrl, `/api/admin/rooms/${roomCode}`, { token });
+        if (
+          detail.status === 200 &&
+          ((detail.body.data as { members: Array<unknown> }).members.length === 0)
+        ) {
+          roomBecameIdle = true;
+          break;
+        }
+        await new Promise((resolve) => setTimeout(resolve, 10));
+      }
+      assert.equal(roomBecameIdle, true);
+
+      const idleExpire = await requestJson(server.httpBaseUrl, `/api/admin/rooms/${roomCode}/expire`, {
+        method: "POST",
+        token,
+        body: { reason: "cleanup idle room" }
+      });
+      assert.equal(idleExpire.status, 200);
+
+      const missingRoom = await requestJson(server.httpBaseUrl, `/api/admin/rooms/${roomCode}`, { token });
+      assert.equal(missingRoom.status, 404);
+    } finally {
+      await closeClient(owner);
+    }
+  } finally {
+    await server.close();
+  }
+});
+
 test("admin exposes metrics and config summary", async () => {
   const server = await startAdminServer(adminDependencies("admin"));
 
