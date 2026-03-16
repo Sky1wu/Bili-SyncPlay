@@ -511,10 +511,28 @@ map $http_upgrade $connection_upgrade {
 
 limit_conn_zone $binary_remote_addr zone=conn_per_ip:10m;
 limit_req_zone $binary_remote_addr zone=req_per_ip:10m rate=20r/m;
+limit_req_zone $binary_remote_addr zone=admin_req_per_ip:10m rate=5r/s;
 
 server {
     listen 80;
     server_name sync.example.com;
+
+    location ^~ /admin {
+        proxy_pass http://127.0.0.1:8787;
+        proxy_http_version 1.1;
+        proxy_set_header Host $host;
+        proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
+        proxy_set_header X-Forwarded-Proto $scheme;
+    }
+
+    location ^~ /api/admin/ {
+        limit_req zone=admin_req_per_ip burst=20 nodelay;
+        proxy_pass http://127.0.0.1:8787;
+        proxy_http_version 1.1;
+        proxy_set_header Host $host;
+        proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
+        proxy_set_header X-Forwarded-Proto $scheme;
+    }
 
     location / {
         limit_conn conn_per_ip 10;
@@ -530,6 +548,8 @@ server {
     }
 }
 ```
+
+建议把更严格的请求频率限制保留在默认的 WebSocket 入口上，不要直接复用到 `/admin` 和 `/api/admin/*`。管理后台在首屏加载和执行操作时会并发请求多个接口，而服务端本身已经对认证和房间相关操作做了限流控制。
 
 启用站点并校验配置：
 
