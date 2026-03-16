@@ -55,7 +55,7 @@ export async function tryHandleAdminPanel(
     const contentType = assetTypes.get(path.extname(filePath)) ?? "application/octet-stream";
     response.writeHead(200, {
       "content-type": contentType,
-      "cache-control": shouldServeIndex ? "no-cache" : "public, max-age=300"
+      "cache-control": "no-cache, no-store, must-revalidate"
     });
 
     if (request.method === "HEAD") {
