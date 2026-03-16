@@ -21,6 +21,25 @@ export function toHealthcheckUrl(url: string): string | null {
   }
 }
 
+export function toConnectionCheckUrl(url: string): string | null {
+  try {
+    const parsed = new URL(url);
+    if (parsed.protocol === "ws:") {
+      parsed.protocol = "http:";
+    } else if (parsed.protocol === "wss:") {
+      parsed.protocol = "https:";
+    } else {
+      return null;
+    }
+    parsed.pathname = "/api/connection-check";
+    parsed.search = "";
+    parsed.hash = "";
+    return parsed.toString();
+  } catch {
+    return null;
+  }
+}
+
 export function updateClockSample(args: {
   clientSendTime: number;
   serverReceiveTime: number;

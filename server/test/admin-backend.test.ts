@@ -162,6 +162,21 @@ test("admin endpoints support auth, overview, rooms, and events without breaking
     assert.equal(root.status, 200);
     assert.equal(root.body.ok, true);
 
+    const connectionCheck = await fetch(`${server.httpBaseUrl}/api/connection-check`, {
+      headers: {
+        Origin: ALLOWED_ORIGIN
+      }
+    });
+    assert.equal(connectionCheck.status, 200);
+    assert.equal(connectionCheck.headers.get("access-control-allow-origin"), "*");
+    assert.deepEqual(await connectionCheck.json(), {
+      ok: true,
+      data: {
+        websocketAllowed: true,
+        reason: null
+      }
+    });
+
     const health = await requestJson(server.httpBaseUrl, "/healthz");
     assert.equal(health.status, 200);
     assert.equal((health.body.data as { status: string }).status, "healthy");

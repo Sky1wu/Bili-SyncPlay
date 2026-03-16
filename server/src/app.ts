@@ -212,6 +212,49 @@ export async function createSyncServer(
   });
 
   const httpServer = createServer((request, response) => {
+    const pathname = new URL(request.url ?? "/", "http://localhost").pathname;
+    if (pathname === "/api/connection-check") {
+      const originHeader = request.headers.origin;
+      const origin = typeof originHeader === "string" ? originHeader : null;
+      const originCheck = securityPolicy.isOriginAllowed(origin);
+      const corsHeaders = {
+        "content-type": "application/json; charset=utf-8",
+        "access-control-allow-origin": "*",
+        "access-control-allow-methods": "GET, OPTIONS",
+        "access-control-allow-headers": "content-type",
+        "cache-control": "no-store"
+      };
+      if (request.method === "OPTIONS") {
+        response.writeHead(204, corsHeaders);
+        response.end();
+        return;
+      }
+      if (request.method !== "GET") {
+        response.writeHead(405, corsHeaders);
+        response.end(
+          JSON.stringify({
+            ok: false,
+            error: {
+              code: "method_not_allowed",
+              message: "Method not allowed."
+            }
+          })
+        );
+        return;
+      }
+      response.writeHead(200, corsHeaders);
+      response.end(
+        JSON.stringify({
+          ok: true,
+          data: {
+            websocketAllowed: originCheck.ok,
+            reason: originCheck.ok ? null : originCheck.reason
+          }
+        })
+      );
+      return;
+    }
+
     void adminRouter.handle(request, response).then((handled) => {
       if (handled) {
         return;

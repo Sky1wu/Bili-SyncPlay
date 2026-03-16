@@ -26,10 +26,17 @@ import {
   type RoomLifecycleAction,
   shouldClearPendingLocalShareOnServerUrlChange
 } from "./room-state";
-import { compensateRoomStateForClock, CLOCK_SYNC_INTERVAL_MS, toHealthcheckUrl as buildHealthcheckUrl, updateClockSample } from "./clock-sync";
+import {
+  compensateRoomStateForClock,
+  CLOCK_SYNC_INTERVAL_MS,
+  toConnectionCheckUrl as buildConnectionCheckUrl,
+  toHealthcheckUrl as buildHealthcheckUrl,
+  updateClockSample
+} from "./clock-sync";
 import { notifyContentTabs } from "./content-bus";
 import { appendLog, formatContentLogSource } from "./logger";
 import { bootstrapBackground } from "./bootstrap";
+import { getConnectionErrorMessage } from "./connection-error";
 import { createPopupStateSnapshot } from "./popup-bus";
 import { createPendingShareToast as createRoomPendingShareToast, flushPendingShare as getPendingShareFlushPlan, getPendingShareToastFor as getRoomPendingShareToastFor } from "./room-manager";
 import {
@@ -213,7 +220,46 @@ async function openSocketWithProbe(targetServerUrl: string): Promise<void> {
     return;
   }
 
+  const extensionOrigin = `chrome-extension://${chrome.runtime.id}`;
+  const connectionCheckUrl = buildConnectionCheckUrl(serverUrlResult.normalizedUrl);
   const healthUrl = buildHealthcheckUrl(serverUrlResult.normalizedUrl);
+  let healthcheckReachable = false;
+  if (connectionCheckUrl) {
+    try {
+      const response = await fetch(connectionCheckUrl, {
+        method: "GET",
+        cache: "no-store"
+      });
+      if (response.ok) {
+        type ConnectionCheckResponse = {
+          ok?: boolean;
+          data?: {
+            websocketAllowed?: boolean;
+            reason?: string | null;
+          };
+        };
+
+        const payload = (await response.json()) as ConnectionCheckResponse;
+        healthcheckReachable = true;
+        if (payload.data?.websocketAllowed === false) {
+          lastError = getConnectionErrorMessage({
+            healthcheckReachable: true,
+            extensionOrigin,
+            reason: payload.data.reason
+          });
+          connected = false;
+          stopClockSyncTimer();
+          log("background", lastError);
+          scheduleReconnect();
+          notifyAll();
+          return;
+        }
+      }
+    } catch {
+      // Fall back to the healthcheck probe for older servers that do not expose the preflight endpoint.
+    }
+  }
+
   if (healthUrl) {
     try {
       await fetch(healthUrl, {
@@ -221,8 +267,12 @@ async function openSocketWithProbe(targetServerUrl: string): Promise<void> {
         cache: "no-store",
         mode: "no-cors"
       });
+      healthcheckReachable = true;
     } catch {
-      lastError = "无法连接到同步服务器。";
+      lastError = getConnectionErrorMessage({
+        healthcheckReachable: false,
+        extensionOrigin
+      });
       connected = false;
       stopClockSyncTimer();
       log("background", lastError);
@@ -280,7 +330,10 @@ async function openSocketWithProbe(targetServerUrl: string): Promise<void> {
   });
 
   socket.addEventListener("error", () => {
-    lastError = "无法连接到同步服务器。";
+    lastError = getConnectionErrorMessage({
+      healthcheckReachable,
+      extensionOrigin
+    });
     connected = false;
     stopClockSyncTimer();
     clearPendingLocalShare("socket error before share confirmation");
