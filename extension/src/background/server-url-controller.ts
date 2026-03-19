@@ -1,5 +1,9 @@
 import { DEFAULT_SERVER_URL } from "./runtime-state";
-import type { ConnectionState, RoomSessionState, ShareState } from "./runtime-state";
+import type {
+  ConnectionState,
+  RoomSessionState,
+  ShareState,
+} from "./runtime-state";
 import { validateServerUrl } from "./server-url";
 import { shouldClearPendingLocalShareOnServerUrlChange } from "./room-state";
 
@@ -61,7 +65,10 @@ export function createServerUrlController(args: {
         currentSocket.close();
       }
 
-      if (args.roomSessionState.roomCode || args.roomSessionState.pendingCreateRoom) {
+      if (
+        args.roomSessionState.roomCode ||
+        args.roomSessionState.pendingCreateRoom
+      ) {
         await args.connect();
       }
       args.notifyAll();

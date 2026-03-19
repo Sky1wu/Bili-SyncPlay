@@ -76,7 +76,9 @@ export function createHttpRequestHandler(args: {
       }
 
       response.writeHead(200, { "content-type": "application/json" });
-      response.end(JSON.stringify({ ok: true, service: "bili-syncplay-server" }));
+      response.end(
+        JSON.stringify({ ok: true, service: "bili-syncplay-server" }),
+      );
     } catch {
       response.writeHead(500, { "content-type": "application/json" });
       response.end(

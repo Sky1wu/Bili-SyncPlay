@@ -107,7 +107,8 @@ const roomSessionController = createRoomSessionController({
   ensureSharedVideoOpen: () => tabController.ensureSharedVideoOpen(),
   notifyContentScripts,
   compensateRoomState: (state) => clockController.compensateRoomState(state),
-  clearPendingLocalShare: (reason) => shareController.clearPendingLocalShare(reason),
+  clearPendingLocalShare: (reason) =>
+    shareController.clearPendingLocalShare(reason),
   expirePendingLocalShareIfNeeded: () =>
     shareController.expirePendingLocalShareIfNeeded(),
   normalizeUrl,
@@ -125,7 +126,8 @@ const socketController = createSocketController({
   stopClockSyncTimer: () => clockController.stopClockSyncTimer(),
   syncClock: () => clockController.syncClock(),
   startClockSyncTimer: () => clockController.startClockSyncTimer(),
-  clearPendingLocalShare: (reason) => shareController.clearPendingLocalShare(reason),
+  clearPendingLocalShare: (reason) =>
+    shareController.clearPendingLocalShare(reason),
   sendJoinRequest: (...args) => roomSessionController.sendJoinRequest(...args),
   sendToServer,
   handleServerMessage,
@@ -153,7 +155,8 @@ const serverUrlController = createServerUrlController({
   connect: () => socketController.connect(),
   resetReconnectState: () => socketController.resetReconnectState(),
   stopClockSyncTimer: () => clockController.stopClockSyncTimer(),
-  clearPendingLocalShare: (reason) => shareController.clearPendingLocalShare(reason),
+  clearPendingLocalShare: (reason) =>
+    shareController.clearPendingLocalShare(reason),
   log: (scope, message) => diagnosticsController.log(scope, message),
   logInvalidServerUrl,
 });

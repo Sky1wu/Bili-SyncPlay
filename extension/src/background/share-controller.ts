@@ -63,7 +63,10 @@ export function createShareController(args: {
   }
 
   async function getActiveTab(): Promise<chrome.tabs.Tab | null> {
-    const [tab] = await chrome.tabs.query({ active: true, currentWindow: true });
+    const [tab] = await chrome.tabs.query({
+      active: true,
+      currentWindow: true,
+    });
     return tab ?? null;
   }
 
@@ -174,7 +177,9 @@ export function createShareController(args: {
       args.roomSessionState.pendingCreateRoom = false;
       args.sendToServer({
         type: "room:create",
-        payload: { displayName: args.roomSessionState.displayName ?? undefined },
+        payload: {
+          displayName: args.roomSessionState.displayName ?? undefined,
+        },
       });
     } else {
       args.roomSessionState.pendingCreateRoom = true;

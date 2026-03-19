@@ -3,7 +3,11 @@ import type {
   PopupToBackgroundMessage,
 } from "../shared/messages";
 import { t } from "../shared/i18n";
-import type { PlaybackState, RoomState, SharedVideo } from "@bili-syncplay/protocol";
+import type {
+  PlaybackState,
+  RoomState,
+  SharedVideo,
+} from "@bili-syncplay/protocol";
 
 type RuntimeMessage = PopupToBackgroundMessage | ContentToBackgroundMessage;
 
@@ -167,7 +171,10 @@ export function createMessageController(args: {
         if (
           args.connectionState.connected &&
           args.roomSessionState.memberToken &&
-          args.tabController.isActiveSharedTab(sender.tab?.id, message.payload.url)
+          args.tabController.isActiveSharedTab(
+            sender.tab?.id,
+            message.payload.url,
+          )
         ) {
           args.sendToServer({
             type: "playback:update",
@@ -176,7 +183,8 @@ export function createMessageController(args: {
               playback: {
                 ...message.payload,
                 serverTime: 0,
-                actorId: args.roomSessionState.memberId ?? message.payload.actorId,
+                actorId:
+                  args.roomSessionState.memberId ?? message.payload.actorId,
               },
             },
           });
