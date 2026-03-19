@@ -63,14 +63,11 @@ import {
 import { localizeServerError, t } from "../shared/i18n";
 
 const stateStore = createBackgroundStateStore();
+const connectionState = stateStore.getState().connection;
 const shareState = stateStore.getState().share;
 const clockState = stateStore.getState().clock;
 const diagnosticsState = stateStore.getState().diagnostics;
 
-let socket: WebSocket | null = null;
-let serverUrl = DEFAULT_SERVER_URL;
-let connected = false;
-let lastError: string | null = null;
 let roomCode: string | null = null;
 let joinToken: string | null = null;
 let memberToken: string | null = null;
@@ -81,12 +78,8 @@ let pendingCreateRoom = false;
 let pendingJoinRoomCode: string | null = null;
 let pendingJoinToken: string | null = null;
 let pendingJoinRequestSent = false;
-let reconnectTimer: number | null = null;
-let reconnectAttempt = 0;
-let reconnectDeadlineMs: number | null = null;
 let pendingSharedVideo: SharedVideo | null = null;
 let pendingSharedPlayback: PlaybackState | null = null;
-let connectProbe: Promise<void> | null = null;
 let pendingJoinAttemptResolvers: Array<
   (result: "joined" | "failed" | "timeout") => void
 > = [];
@@ -142,16 +135,16 @@ async function bootstrap(): Promise<void> {
         roomState = value;
       },
       get serverUrl() {
-        return serverUrl;
+        return connectionState.serverUrl;
       },
       set serverUrl(value) {
-        serverUrl = value;
+        connectionState.serverUrl = value;
       },
       get lastError() {
-        return lastError;
+        return connectionState.lastError;
       },
       set lastError(value) {
-        lastError = value;
+        connectionState.lastError = value;
       },
       get sharedTabId() {
         return shareState.sharedTabId;
@@ -221,41 +214,43 @@ function logServerError(code: string, message: string): void {
 
 async function connect(): Promise<void> {
   if (
-    socket &&
-    (socket.readyState === WebSocket.OPEN ||
-      socket.readyState === WebSocket.CONNECTING)
+    connectionState.socket &&
+    (connectionState.socket.readyState === WebSocket.OPEN ||
+      connectionState.socket.readyState === WebSocket.CONNECTING)
   ) {
     return;
   }
-  if (connectProbe) {
-    return connectProbe;
+  if (connectionState.connectProbe) {
+    return connectionState.connectProbe;
   }
 
-  const serverUrlResult = validateServerUrl(serverUrl);
+  const serverUrlResult = validateServerUrl(connectionState.serverUrl);
   if (!serverUrlResult.ok) {
-    lastError = serverUrlResult.message;
-    connected = false;
+    connectionState.lastError = serverUrlResult.message;
+    connectionState.connected = false;
     stopClockSyncTimer();
-    logInvalidServerUrl("connect", serverUrl);
+    logInvalidServerUrl("connect", connectionState.serverUrl);
     notifyAll();
     return;
   }
 
   clearReconnectTimer();
   log("background", `Connecting to ${serverUrlResult.normalizedUrl}`);
-  connectProbe = openSocketWithProbe(serverUrlResult.normalizedUrl);
+  connectionState.connectProbe = openSocketWithProbe(
+    serverUrlResult.normalizedUrl,
+  );
   try {
-    await connectProbe;
+    await connectionState.connectProbe;
   } finally {
-    connectProbe = null;
+    connectionState.connectProbe = null;
   }
 }
 
 async function openSocketWithProbe(targetServerUrl: string): Promise<void> {
   const serverUrlResult = validateServerUrl(targetServerUrl);
   if (!serverUrlResult.ok) {
-    lastError = serverUrlResult.message;
-    connected = false;
+    connectionState.lastError = serverUrlResult.message;
+    connectionState.connected = false;
     stopClockSyncTimer();
     logInvalidServerUrl("open-socket", targetServerUrl);
     notifyAll();
@@ -286,12 +281,12 @@ async function openSocketWithProbe(targetServerUrl: string): Promise<void> {
         const payload = (await response.json()) as ConnectionCheckResponse;
         healthcheckReachable = true;
         if (payload.data?.websocketAllowed === false) {
-          lastError = getConnectionErrorMessage({
+          connectionState.lastError = getConnectionErrorMessage({
             healthcheckReachable: true,
             extensionOrigin,
             reason: payload.data.reason,
           });
-          connected = false;
+          connectionState.connected = false;
           stopClockSyncTimer();
           logConnectionProbeFailure({
             stage: "connection-check",
@@ -318,11 +313,11 @@ async function openSocketWithProbe(targetServerUrl: string): Promise<void> {
       });
       healthcheckReachable = true;
     } catch {
-      lastError = getConnectionErrorMessage({
+      connectionState.lastError = getConnectionErrorMessage({
         healthcheckReachable: false,
         extensionOrigin,
       });
-      connected = false;
+      connectionState.connected = false;
       stopClockSyncTimer();
       logConnectionProbeFailure({
         stage: "healthcheck",
@@ -335,13 +330,13 @@ async function openSocketWithProbe(targetServerUrl: string): Promise<void> {
     }
   }
 
-  socket = new WebSocket(serverUrlResult.normalizedUrl);
+  connectionState.socket = new WebSocket(serverUrlResult.normalizedUrl);
 
-  socket.addEventListener("open", () => {
-    connected = true;
-    lastError = null;
-    reconnectAttempt = 0;
-    reconnectDeadlineMs = null;
+  connectionState.socket.addEventListener("open", () => {
+    connectionState.connected = true;
+    connectionState.lastError = null;
+    connectionState.reconnectAttempt = 0;
+    connectionState.reconnectDeadlineMs = null;
     log("background", "Socket connected");
     if (pendingCreateRoom) {
       pendingCreateRoom = false;
@@ -367,13 +362,13 @@ async function openSocketWithProbe(targetServerUrl: string): Promise<void> {
     notifyAll();
   });
 
-  socket.addEventListener("message", (event) => {
+  connectionState.socket.addEventListener("message", (event) => {
     const message = JSON.parse(event.data) as ServerMessage;
     void handleServerMessage(message);
   });
 
-  socket.addEventListener("close", (event) => {
-    connected = false;
+  connectionState.socket.addEventListener("close", (event) => {
+    connectionState.connected = false;
     stopClockSyncTimer();
     clearPendingLocalShare("socket closed before share confirmation");
     const closeReason = event.reason
@@ -394,26 +389,29 @@ async function openSocketWithProbe(targetServerUrl: string): Promise<void> {
     notifyAll();
   });
 
-  socket.addEventListener("error", () => {
-    lastError = getConnectionErrorMessage({
+  connectionState.socket.addEventListener("error", () => {
+    connectionState.lastError = getConnectionErrorMessage({
       healthcheckReachable,
       extensionOrigin,
     });
-    connected = false;
+    connectionState.connected = false;
     stopClockSyncTimer();
     clearPendingLocalShare("socket error before share confirmation");
     logConnectionProbeFailure({
       stage: "websocket",
       serverUrl: serverUrlResult.normalizedUrl,
       extensionOrigin,
-      readyState: socket?.readyState ?? -1,
+      readyState: connectionState.socket?.readyState ?? -1,
     });
     notifyAll();
   });
 }
 
 function sendToServer(message: ClientMessage): void {
-  if (!socket || socket.readyState !== WebSocket.OPEN) {
+  if (
+    !connectionState.socket ||
+    connectionState.socket.readyState !== WebSocket.OPEN
+  ) {
     log("background", `Socket not ready for ${message.type}`);
     void connect();
     return;
@@ -421,7 +419,7 @@ function sendToServer(message: ClientMessage): void {
   if (shouldLogHeartbeatMessage(outgoingMessageLogState, message.type)) {
     log("background", `-> ${message.type}`);
   }
-  socket.send(JSON.stringify(message));
+  connectionState.socket.send(JSON.stringify(message));
 }
 
 function sendJoinRequest(
@@ -486,7 +484,7 @@ async function handleServerMessage(message: ServerMessage): Promise<void> {
       joinToken = message.payload.joinToken;
       memberToken = message.payload.memberToken;
       memberId = message.payload.memberId;
-      lastError = null;
+      connectionState.lastError = null;
       await persistState();
       flushPendingShare();
       notifyAll();
@@ -499,7 +497,7 @@ async function handleServerMessage(message: ServerMessage): Promise<void> {
       pendingJoinRequestSent = false;
       pendingJoinRoomCode = null;
       pendingJoinToken = null;
-      lastError = null;
+      connectionState.lastError = null;
       settlePendingJoinAttempt("joined");
       await persistState();
       flushPendingShare();
@@ -509,7 +507,7 @@ async function handleServerMessage(message: ServerMessage): Promise<void> {
       await handleRoomStateMessage(message.payload);
       return;
     case "error":
-      lastError = localizeServerError(
+      connectionState.lastError = localizeServerError(
         message.payload.code,
         message.payload.message,
       );
@@ -595,7 +593,7 @@ async function handleRoomStateMessage(nextState: RoomState): Promise<void> {
 
   roomState = nextState;
   roomCode = nextState.roomCode;
-  lastError = null;
+  connectionState.lastError = null;
 
   if (decision.confirmedPendingLocalShare) {
     log(
@@ -647,7 +645,7 @@ function flushPendingShare(): void {
   const plan = getPendingShareFlushPlan({
     pendingSharedVideo,
     pendingSharedPlayback,
-    connected,
+    connected: connectionState.connected,
     roomCode,
     memberToken,
   });
@@ -730,9 +728,9 @@ async function queueOrSendSharedVideo(
   rememberSharedSourceTab(tabId ?? undefined, payload.video.url);
   setPendingLocalShare(payload.video.url);
 
-  if (connected && roomCode) {
+  if (connectionState.connected && roomCode) {
     if (!memberToken) {
-      lastError = t("popupErrorMemberTokenMissing");
+      connectionState.lastError = t("popupErrorMemberTokenMissing");
       notifyAll();
       return;
     }
@@ -778,7 +776,7 @@ async function queueOrSendSharedVideo(
   shareState.pendingShareToast = null;
   await persistState();
   connect();
-  if (connected) {
+  if (connectionState.connected) {
     pendingCreateRoom = false;
     sendToServer({
       type: "room:create",
@@ -790,7 +788,7 @@ async function queueOrSendSharedVideo(
 }
 
 function syncClock(): void {
-  if (!connected) {
+  if (!connectionState.connected) {
     return;
   }
   sendToServer({
@@ -843,17 +841,17 @@ function compensateRoomState(state: RoomState): RoomState {
 function scheduleReconnect(): void {
   if (
     !shouldReconnect({
-      connected,
-      reconnectTimer,
+      connected: connectionState.connected,
+      reconnectTimer: connectionState.reconnectTimer,
       roomCode,
       pendingCreateRoom,
-      reconnectAttempt,
+      reconnectAttempt: connectionState.reconnectAttempt,
       maxReconnectAttempts: MAX_RECONNECT_ATTEMPTS,
     })
   ) {
-    if (reconnectAttempt >= MAX_RECONNECT_ATTEMPTS) {
-      reconnectDeadlineMs = null;
-      lastError = t("popupErrorReconnectFailed", {
+    if (connectionState.reconnectAttempt >= MAX_RECONNECT_ATTEMPTS) {
+      connectionState.reconnectDeadlineMs = null;
+      connectionState.lastError = t("popupErrorReconnectFailed", {
         attempts: MAX_RECONNECT_ATTEMPTS,
       });
       log(
@@ -864,35 +862,35 @@ function scheduleReconnect(): void {
     return;
   }
 
-  reconnectAttempt += 1;
-  const retryDelayMs = getReconnectDelayMs(reconnectAttempt);
-  reconnectDeadlineMs = Date.now() + retryDelayMs;
+  connectionState.reconnectAttempt += 1;
+  const retryDelayMs = getReconnectDelayMs(connectionState.reconnectAttempt);
+  connectionState.reconnectDeadlineMs = Date.now() + retryDelayMs;
   log("background", `Reconnect scheduled in ${retryDelayMs}ms`);
-  reconnectTimer = self.setTimeout(() => {
-    reconnectDeadlineMs = null;
-    reconnectTimer = null;
+  connectionState.reconnectTimer = self.setTimeout(() => {
+    connectionState.reconnectDeadlineMs = null;
+    connectionState.reconnectTimer = null;
     connect();
   }, retryDelayMs);
 }
 
 function clearReconnectTimer(): void {
-  if (reconnectTimer !== null) {
-    clearTimeout(reconnectTimer);
-    reconnectTimer = null;
+  if (connectionState.reconnectTimer !== null) {
+    clearTimeout(connectionState.reconnectTimer);
+    connectionState.reconnectTimer = null;
   }
-  reconnectDeadlineMs = null;
+  connectionState.reconnectDeadlineMs = null;
 }
 
 function getRetryInMs(): number | null {
-  if (reconnectDeadlineMs === null) {
+  if (connectionState.reconnectDeadlineMs === null) {
     return null;
   }
-  return Math.max(0, reconnectDeadlineMs - Date.now());
+  return Math.max(0, connectionState.reconnectDeadlineMs - Date.now());
 }
 
 function resetReconnectState(): void {
   clearReconnectTimer();
-  reconnectAttempt = 0;
+  connectionState.reconnectAttempt = 0;
 }
 
 async function clearCurrentRoomContext(
@@ -910,7 +908,7 @@ async function clearCurrentRoomContext(
   pendingJoinToken = null;
   pendingJoinRequestSent = false;
   shareState.lastOpenedSharedUrl = null;
-  lastError = errorMessage;
+  connectionState.lastError = errorMessage;
   resetReconnectState();
   resetRoomLifecycleTransientState("leave-room", reason);
   await persistState();
@@ -978,14 +976,14 @@ function disconnectSocket(): void {
   stopClockSyncTimer();
   clearPendingLocalShare("socket disconnected");
   memberToken = null;
-  if (!socket) {
-    connected = false;
+  if (!connectionState.socket) {
+    connectionState.connected = false;
     return;
   }
 
-  const currentSocket = socket;
-  socket = null;
-  connected = false;
+  const currentSocket = connectionState.socket;
+  connectionState.socket = null;
+  connectionState.connected = false;
   currentSocket.close();
 }
 
@@ -1039,14 +1037,14 @@ function shouldLogHeartbeatMessage(
 }
 
 function maybeLogPopupStateRequest(): void {
-  const key = `${roomCode ?? "none"}|${connected}|${pendingJoinRoomCode ?? "none"}`;
+  const key = `${roomCode ?? "none"}|${connectionState.connected}|${pendingJoinRoomCode ?? "none"}`;
   if (key === diagnosticsState.lastPopupStateLogKey) {
     return;
   }
   diagnosticsState.lastPopupStateLogKey = key;
   log(
     "background",
-    `Popup requested state room=${roomCode ?? "none"} connected=${connected} pendingJoin=${pendingJoinRoomCode ?? "none"}`,
+    `Popup requested state room=${roomCode ?? "none"} connected=${connectionState.connected} pendingJoin=${pendingJoinRoomCode ?? "none"}`,
   );
 }
 
@@ -1216,7 +1214,7 @@ function notifyAll(): void {
     type: "background:sync-status",
     payload: {
       roomCode,
-      connected,
+      connected: connectionState.connected,
       memberId,
     },
   });
@@ -1229,14 +1227,14 @@ async function persistState(): Promise<void> {
 function syncRuntimeStateStore() {
   return stateStore.patch({
     connection: {
-      socket,
-      serverUrl,
-      connected,
-      lastError,
-      connectProbe,
-      reconnectTimer,
-      reconnectAttempt,
-      reconnectDeadlineMs,
+      socket: connectionState.socket,
+      serverUrl: connectionState.serverUrl,
+      connected: connectionState.connected,
+      lastError: connectionState.lastError,
+      connectProbe: connectionState.connectProbe,
+      reconnectTimer: connectionState.reconnectTimer,
+      reconnectAttempt: connectionState.reconnectAttempt,
+      reconnectDeadlineMs: connectionState.reconnectDeadlineMs,
     },
     room: {
       roomCode,
@@ -1276,7 +1274,7 @@ function syncRuntimeStateStore() {
 async function updateServerUrl(nextServerUrl: string): Promise<void> {
   const serverUrlResult = validateServerUrl(nextServerUrl);
   if (!serverUrlResult.ok) {
-    lastError = serverUrlResult.message;
+    connectionState.lastError = serverUrlResult.message;
     logInvalidServerUrl(
       "update-server-url",
       nextServerUrl.trim() || DEFAULT_SERVER_URL,
@@ -1286,13 +1284,13 @@ async function updateServerUrl(nextServerUrl: string): Promise<void> {
   }
 
   const normalized = serverUrlResult.normalizedUrl;
-  if (normalized === serverUrl) {
+  if (normalized === connectionState.serverUrl) {
     return;
   }
 
   if (
     shouldClearPendingLocalShareOnServerUrlChange({
-      currentServerUrl: serverUrl,
+      currentServerUrl: connectionState.serverUrl,
       nextServerUrl: normalized,
       pendingLocalShareUrl: shareState.pendingLocalShareUrl,
     })
@@ -1300,17 +1298,17 @@ async function updateServerUrl(nextServerUrl: string): Promise<void> {
     clearPendingLocalShare("server URL changed");
   }
 
-  serverUrl = normalized;
-  lastError = null;
+  connectionState.serverUrl = normalized;
+  connectionState.lastError = null;
   await persistState();
-  log("background", `Server URL updated to ${serverUrl}`);
+  log("background", `Server URL updated to ${connectionState.serverUrl}`);
 
-  if (socket) {
+  if (connectionState.socket) {
     resetReconnectState();
     stopClockSyncTimer();
-    const currentSocket = socket;
-    socket = null;
-    connected = false;
+    const currentSocket = connectionState.socket;
+    connectionState.socket = null;
+    connectionState.connected = false;
     currentSocket.close();
   }
 
@@ -1344,7 +1342,7 @@ chrome.runtime.onMessage.addListener(
           shareState.lastOpenedSharedUrl = null;
           await persistState();
           connect();
-          if (connected) {
+          if (connectionState.connected) {
             pendingCreateRoom = false;
             sendToServer({
               type: "room:create",
@@ -1369,14 +1367,18 @@ chrome.runtime.onMessage.addListener(
           roomState = null;
           resetRoomLifecycleTransientState("join-room", "join room requested");
           shareState.lastOpenedSharedUrl = null;
-          lastError = null;
+          connectionState.lastError = null;
           await persistState();
           await connect();
-          if (!connected) {
+          if (!connectionState.connected) {
             sendResponse(popupState());
             return;
           }
-          if (connected && pendingJoinRoomCode && pendingJoinToken) {
+          if (
+            connectionState.connected &&
+            pendingJoinRoomCode &&
+            pendingJoinToken
+          ) {
             const targetRoomCode = pendingJoinRoomCode;
             const targetJoinToken = pendingJoinToken;
             if (!pendingJoinRequestSent) {
@@ -1388,7 +1390,7 @@ chrome.runtime.onMessage.addListener(
           return;
         case "popup:leave-room":
           log("background", `Popup requested leave for ${roomCode ?? "none"}`);
-          if (connected) {
+          if (connectionState.connected) {
             sendToServer({
               type: "room:leave",
               payload: memberToken ? { memberToken } : undefined,
@@ -1419,7 +1421,7 @@ chrome.runtime.onMessage.addListener(
           return;
         case "popup:get-state":
           maybeLogPopupStateRequest();
-          if (roomCode && !connected) {
+          if (roomCode && !connectionState.connected) {
             connect();
           }
           sendResponse(popupState());
@@ -1427,9 +1429,9 @@ chrome.runtime.onMessage.addListener(
         case "popup:get-active-video": {
           const response = await getActiveVideoPayload();
           if (!response.ok && response.error) {
-            lastError = response.error;
+            connectionState.lastError = response.error;
           } else {
-            lastError = null;
+            connectionState.lastError = null;
           }
           notifyAll();
           sendResponse(response);
@@ -1438,12 +1440,13 @@ chrome.runtime.onMessage.addListener(
         case "popup:share-current-video": {
           const response = await getActiveVideoPayload();
           if (!response.ok || !response.payload) {
-            lastError = response.error ?? t("popupErrorCannotReadCurrentVideo");
+            connectionState.lastError =
+              response.error ?? t("popupErrorCannotReadCurrentVideo");
             notifyAll();
-            sendResponse({ ok: false, error: lastError });
+            sendResponse({ ok: false, error: connectionState.lastError });
             return;
           }
-          lastError = null;
+          connectionState.lastError = null;
           await queueOrSendSharedVideo(response.payload, response.tabId);
           await persistState();
           notifyAll();
@@ -1462,7 +1465,7 @@ chrome.runtime.onMessage.addListener(
           if (displayName !== message.payload.displayName) {
             displayName = message.payload.displayName;
             await persistState();
-            if (connected && roomCode && memberToken) {
+            if (connectionState.connected && roomCode && memberToken) {
               sendToServer({
                 type: "profile:update",
                 payload: {
@@ -1476,7 +1479,7 @@ chrome.runtime.onMessage.addListener(
           return;
         case "content:playback-update":
           if (
-            connected &&
+            connectionState.connected &&
             memberToken &&
             isActiveSharedTab(sender.tab?.id, message.payload.url)
           ) {
@@ -1495,10 +1498,10 @@ chrome.runtime.onMessage.addListener(
           sendResponse({ ok: true });
           return;
         case "content:get-room-state":
-          if (roomCode && !connected) {
+          if (roomCode && !connectionState.connected) {
             connect();
           }
-          if (connected && roomCode && memberToken) {
+          if (connectionState.connected && roomCode && memberToken) {
             sendToServer({ type: "sync:request", payload: { memberToken } });
           }
           sendResponse(
