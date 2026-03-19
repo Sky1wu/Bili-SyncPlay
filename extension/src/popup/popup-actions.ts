@@ -1,6 +1,6 @@
-import { normalizeBilibiliUrl } from "@bili-syncplay/protocol";
 import type { BackgroundToPopupMessage } from "../shared/messages";
 import { getUiLanguage, t } from "../shared/i18n";
+import { areSharedVideoUrlsEqual } from "../shared/url";
 import { parseInviteValue } from "./helpers";
 import { formatInviteDraft } from "./popup-render";
 import type { PopupUiStateStore } from "./popup-store";
@@ -238,8 +238,10 @@ export function bindPopupActions(args: {
       }
     } else if (
       state.roomState?.sharedVideo?.url &&
-      normalizeUrl(state.roomState.sharedVideo.url) !==
-        normalizeUrl(currentVideo.url)
+      !areSharedVideoUrlsEqual(
+        state.roomState.sharedVideo.url,
+        currentVideo.url,
+      )
     ) {
       const shouldReplace = window.confirm(
         t("confirmReplaceSharedVideo", {
@@ -334,7 +336,3 @@ const copyResetTimers = new Map<
   "copyRoomSuccess" | "copyLogsSuccess",
   number
 >();
-
-function normalizeUrl(url: string | null | undefined): string | null {
-  return normalizeBilibiliUrl(url);
-}

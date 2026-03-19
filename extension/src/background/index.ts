@@ -1,5 +1,4 @@
 import {
-  normalizeBilibiliUrl,
   parseBilibiliVideoRef,
   type ClientMessage,
   type PlaybackState,
@@ -12,6 +11,7 @@ import type {
   ContentToBackgroundMessage,
   PopupToBackgroundMessage,
 } from "../shared/messages";
+import { normalizeSharedVideoUrl } from "../shared/url";
 import {
   createPendingLocalShareExpiry,
   PENDING_LOCAL_SHARE_TIMEOUT_MS,
@@ -592,9 +592,7 @@ function resetRoomLifecycleTransientState(
   roomSessionState.pendingSharedPlayback = null;
 }
 
-function normalizeUrl(url: string | undefined | null): string | null {
-  return normalizeBilibiliUrl(url);
-}
+const normalizeUrl = normalizeSharedVideoUrl;
 
 async function notifyContentScripts(
   message: BackgroundToContentMessage,

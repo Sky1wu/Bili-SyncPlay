@@ -1,5 +1,5 @@
-import { normalizeBilibiliUrl } from "@bili-syncplay/protocol";
 import type { BackgroundToContentMessage } from "../shared/messages";
+import { normalizeSharedVideoUrl } from "../shared/url";
 import { createFestivalBridgeController } from "./festival-bridge";
 import { getVideoElement, pauseVideo } from "./player-binding";
 import { createContentStateStore } from "./content-store";
@@ -108,7 +108,7 @@ const navigationController = createNavigationController({
   userGestureGraceMs: USER_GESTURE_GRACE_MS,
   initialRoomStatePauseHoldMs: INITIAL_ROOM_STATE_PAUSE_HOLD_MS,
   getCurrentPageUrl: () => window.location.href.split("#")[0],
-  isSupportedVideoPage: (url) => Boolean(normalizeBilibiliUrl(url)),
+  isSupportedVideoPage: (url) => Boolean(normalizeSharedVideoUrl(url)),
   clearFestivalSnapshot: () => {
     festivalBridge.clearSnapshot();
   },
@@ -211,9 +211,7 @@ function activatePauseHold(durationMs = PAUSE_HOLD_MS): void {
   runtimeState.pauseHoldUntil = Date.now() + durationMs;
 }
 
-function normalizeUrl(url: string | undefined | null): string | null {
-  return normalizeBilibiliUrl(url);
-}
+const normalizeUrl = normalizeSharedVideoUrl;
 
 async function reportCurrentUser(): Promise<void> {
   try {
