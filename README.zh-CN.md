@@ -216,6 +216,12 @@ npm test
 - `npm test`：执行 protocol、server、extension 的全仓测试
 - `npm run test:server:redis`：显式执行 server 的 Redis 持久化回归测试
 
+开发约定：
+
+- 保持入口文件轻量化，并且让共享规则维持单一来源。
+- 涉及结构调整的改动在合并前必须执行 `npm run lint`、`npm run format:check`、`npm run build`、`npm test`。
+- 完整贡献约束见 [CONTRIBUTING.md](./CONTRIBUTING.md)。
+
 构建全部内容：
 
 ```bash

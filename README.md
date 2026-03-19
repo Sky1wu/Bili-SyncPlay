@@ -216,6 +216,12 @@ Useful command matrix:
 - `npm test`: run repository-wide protocol, server, and extension tests
 - `npm run test:server:redis`: run the explicit Redis regression entry point for server persistence
 
+Development constraints:
+
+- Keep entry files thin and keep shared rules in a single source of truth.
+- Run `npm run lint`, `npm run format:check`, `npm run build`, and `npm test` before merging structural changes.
+- See [CONTRIBUTING.md](./CONTRIBUTING.md) for the full contribution and refactoring constraints.
+
 Build everything:
 
 ```bash
