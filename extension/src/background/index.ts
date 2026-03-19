@@ -64,22 +64,10 @@ import { localizeServerError, t } from "../shared/i18n";
 
 const stateStore = createBackgroundStateStore();
 const connectionState = stateStore.getState().connection;
+const roomSessionState = stateStore.getState().room;
 const shareState = stateStore.getState().share;
 const clockState = stateStore.getState().clock;
 const diagnosticsState = stateStore.getState().diagnostics;
-
-let roomCode: string | null = null;
-let joinToken: string | null = null;
-let memberToken: string | null = null;
-let memberId: string | null = null;
-let displayName: string | null = null;
-let roomState: RoomState | null = null;
-let pendingCreateRoom = false;
-let pendingJoinRoomCode: string | null = null;
-let pendingJoinToken: string | null = null;
-let pendingJoinRequestSent = false;
-let pendingSharedVideo: SharedVideo | null = null;
-let pendingSharedPlayback: PlaybackState | null = null;
 let pendingJoinAttemptResolvers: Array<
   (result: "joined" | "failed" | "timeout") => void
 > = [];
@@ -99,40 +87,40 @@ async function bootstrap(): Promise<void> {
   await bootstrapBackground({
     state: {
       get roomCode() {
-        return roomCode;
+        return roomSessionState.roomCode;
       },
       set roomCode(value) {
-        roomCode = value;
+        roomSessionState.roomCode = value;
       },
       get joinToken() {
-        return joinToken;
+        return roomSessionState.joinToken;
       },
       set joinToken(value) {
-        joinToken = value;
+        roomSessionState.joinToken = value;
       },
       get memberToken() {
-        return memberToken;
+        return roomSessionState.memberToken;
       },
       set memberToken(value) {
-        memberToken = value;
+        roomSessionState.memberToken = value;
       },
       get memberId() {
-        return memberId;
+        return roomSessionState.memberId;
       },
       set memberId(value) {
-        memberId = value;
+        roomSessionState.memberId = value;
       },
       get displayName() {
-        return displayName;
+        return roomSessionState.displayName;
       },
       set displayName(value) {
-        displayName = value;
+        roomSessionState.displayName = value;
       },
       get roomState() {
-        return roomState;
+        return roomSessionState.roomState;
       },
       set roomState(value) {
-        roomState = value;
+        roomSessionState.roomState = value;
       },
       get serverUrl() {
         return connectionState.serverUrl;
@@ -338,23 +326,23 @@ async function openSocketWithProbe(targetServerUrl: string): Promise<void> {
     connectionState.reconnectAttempt = 0;
     connectionState.reconnectDeadlineMs = null;
     log("background", "Socket connected");
-    if (pendingCreateRoom) {
-      pendingCreateRoom = false;
+    if (roomSessionState.pendingCreateRoom) {
+      roomSessionState.pendingCreateRoom = false;
       sendToServer({
         type: "room:create",
-        payload: { displayName: displayName ?? undefined },
+        payload: { displayName: roomSessionState.displayName ?? undefined },
       });
     } else if (
-      pendingJoinRoomCode &&
-      pendingJoinToken &&
-      !pendingJoinRequestSent
+      roomSessionState.pendingJoinRoomCode &&
+      roomSessionState.pendingJoinToken &&
+      !roomSessionState.pendingJoinRequestSent
     ) {
-      const targetRoomCode = pendingJoinRoomCode;
-      const targetJoinToken = pendingJoinToken;
+      const targetRoomCode = roomSessionState.pendingJoinRoomCode;
+      const targetJoinToken = roomSessionState.pendingJoinToken;
       sendJoinRequest(targetRoomCode, targetJoinToken);
-    } else if (roomCode) {
-      if (joinToken) {
-        sendJoinRequest(roomCode, joinToken);
+    } else if (roomSessionState.roomCode) {
+      if (roomSessionState.joinToken) {
+        sendJoinRequest(roomSessionState.roomCode, roomSessionState.joinToken);
       }
     }
     syncClock();
@@ -426,14 +414,16 @@ function sendJoinRequest(
   targetRoomCode: string,
   targetJoinToken: string,
 ): void {
-  pendingJoinRequestSent = true;
+  roomSessionState.pendingJoinRequestSent = true;
   sendToServer({
     type: "room:join",
     payload: {
       roomCode: targetRoomCode,
       joinToken: targetJoinToken,
-      ...(memberToken ? { memberToken } : {}),
-      displayName: displayName ?? undefined,
+      ...(roomSessionState.memberToken
+        ? { memberToken: roomSessionState.memberToken }
+        : {}),
+      displayName: roomSessionState.displayName ?? undefined,
     },
   });
 }
@@ -478,25 +468,26 @@ async function handleServerMessage(message: ServerMessage): Promise<void> {
   }
   switch (message.type) {
     case "room:created":
-      pendingJoinRoomCode = null;
-      pendingJoinToken = null;
-      roomCode = message.payload.roomCode;
-      joinToken = message.payload.joinToken;
-      memberToken = message.payload.memberToken;
-      memberId = message.payload.memberId;
+      roomSessionState.pendingJoinRoomCode = null;
+      roomSessionState.pendingJoinToken = null;
+      roomSessionState.roomCode = message.payload.roomCode;
+      roomSessionState.joinToken = message.payload.joinToken;
+      roomSessionState.memberToken = message.payload.memberToken;
+      roomSessionState.memberId = message.payload.memberId;
       connectionState.lastError = null;
       await persistState();
       flushPendingShare();
       notifyAll();
       return;
     case "room:joined":
-      roomCode = message.payload.roomCode;
-      joinToken = pendingJoinToken ?? joinToken;
-      memberToken = message.payload.memberToken;
-      memberId = message.payload.memberId;
-      pendingJoinRequestSent = false;
-      pendingJoinRoomCode = null;
-      pendingJoinToken = null;
+      roomSessionState.roomCode = message.payload.roomCode;
+      roomSessionState.joinToken =
+        roomSessionState.pendingJoinToken ?? roomSessionState.joinToken;
+      roomSessionState.memberToken = message.payload.memberToken;
+      roomSessionState.memberId = message.payload.memberId;
+      roomSessionState.pendingJoinRequestSent = false;
+      roomSessionState.pendingJoinRoomCode = null;
+      roomSessionState.pendingJoinToken = null;
       connectionState.lastError = null;
       settlePendingJoinAttempt("joined");
       await persistState();
@@ -512,26 +503,29 @@ async function handleServerMessage(message: ServerMessage): Promise<void> {
         message.payload.message,
       );
       if (
-        pendingJoinRoomCode &&
+        roomSessionState.pendingJoinRoomCode &&
         (message.payload.code === "room_not_found" ||
           message.payload.code === "join_token_invalid" ||
           message.payload.code === "invalid_message")
       ) {
-        log("background", `Join failed for room ${pendingJoinRoomCode}`);
+        log(
+          "background",
+          `Join failed for room ${roomSessionState.pendingJoinRoomCode}`,
+        );
         settlePendingJoinAttempt("failed");
-        pendingJoinRequestSent = false;
-        pendingJoinRoomCode = null;
-        pendingJoinToken = null;
-        roomCode = null;
-        joinToken = null;
-        memberToken = null;
-        memberId = null;
-        roomState = null;
+        roomSessionState.pendingJoinRequestSent = false;
+        roomSessionState.pendingJoinRoomCode = null;
+        roomSessionState.pendingJoinToken = null;
+        roomSessionState.roomCode = null;
+        roomSessionState.joinToken = null;
+        roomSessionState.memberToken = null;
+        roomSessionState.memberId = null;
+        roomSessionState.roomState = null;
         await persistState();
       }
       if (
-        roomCode &&
-        !pendingJoinRoomCode &&
+        roomSessionState.roomCode &&
+        !roomSessionState.pendingJoinRoomCode &&
         (message.payload.code === "room_not_found" ||
           message.payload.code === "join_token_invalid")
       ) {
@@ -543,7 +537,7 @@ async function handleServerMessage(message: ServerMessage): Promise<void> {
         return;
       }
       if (message.payload.code === "member_token_invalid") {
-        memberToken = null;
+        roomSessionState.memberToken = null;
         await persistState();
       }
       logServerError(message.payload.code, message.payload.message);
@@ -563,7 +557,7 @@ async function handleServerMessage(message: ServerMessage): Promise<void> {
 async function handleRoomStateMessage(nextState: RoomState): Promise<void> {
   expirePendingLocalShareIfNeeded();
   const decision = decideIncomingRoomState({
-    currentRoomState: roomState,
+    currentRoomState: roomSessionState.roomState,
     normalizedPendingLocalShareUrl: normalizeUrl(
       getActivePendingLocalShareUrl({
         pendingLocalShareUrl: shareState.pendingLocalShareUrl,
@@ -591,8 +585,8 @@ async function handleRoomStateMessage(nextState: RoomState): Promise<void> {
     shareState.pendingShareToast = createPendingShareToast(nextState);
   }
 
-  roomState = nextState;
-  roomCode = nextState.roomCode;
+  roomSessionState.roomState = nextState;
+  roomSessionState.roomCode = nextState.roomCode;
   connectionState.lastError = null;
 
   if (decision.confirmedPendingLocalShare) {
@@ -604,8 +598,8 @@ async function handleRoomStateMessage(nextState: RoomState): Promise<void> {
   }
 
   await persistState();
-  await ensureSharedVideoOpen(roomState);
-  const compensatedRoomState = compensateRoomState(roomState);
+  await ensureSharedVideoOpen(roomSessionState.roomState);
+  const compensatedRoomState = compensateRoomState(roomSessionState.roomState);
   await notifyContentScripts({
     type: "background:apply-room-state",
     payload: compensatedRoomState,
@@ -643,11 +637,11 @@ function getPendingShareToastFor(
 
 function flushPendingShare(): void {
   const plan = getPendingShareFlushPlan({
-    pendingSharedVideo,
-    pendingSharedPlayback,
+    pendingSharedVideo: roomSessionState.pendingSharedVideo,
+    pendingSharedPlayback: roomSessionState.pendingSharedPlayback,
     connected: connectionState.connected,
-    roomCode,
-    memberToken,
+    roomCode: roomSessionState.roomCode,
+    memberToken: roomSessionState.memberToken,
   });
   if (!plan.shouldFlush || !plan.video) {
     return;
@@ -655,13 +649,13 @@ function flushPendingShare(): void {
   sendToServer({
     type: "video:share",
     payload: {
-      memberToken,
+      memberToken: roomSessionState.memberToken,
       video: plan.video,
       ...(plan.playback ? { playback: plan.playback } : {}),
     },
   });
-  pendingSharedVideo = null;
-  pendingSharedPlayback = null;
+  roomSessionState.pendingSharedVideo = null;
+  roomSessionState.pendingSharedPlayback = null;
 }
 
 async function getActiveTab(): Promise<chrome.tabs.Tab | null> {
@@ -728,8 +722,8 @@ async function queueOrSendSharedVideo(
   rememberSharedSourceTab(tabId ?? undefined, payload.video.url);
   setPendingLocalShare(payload.video.url);
 
-  if (connectionState.connected && roomCode) {
-    if (!memberToken) {
+  if (connectionState.connected && roomSessionState.roomCode) {
+    if (!roomSessionState.memberToken) {
       connectionState.lastError = t("popupErrorMemberTokenMissing");
       notifyAll();
       return;
@@ -737,14 +731,14 @@ async function queueOrSendSharedVideo(
     sendToServer({
       type: "video:share",
       payload: {
-        memberToken,
+        memberToken: roomSessionState.memberToken,
         video: payload.video,
         ...(payload.playback
           ? {
               playback: {
                 ...payload.playback,
                 serverTime: 0,
-                actorId: memberId ?? payload.playback.actorId,
+                actorId: roomSessionState.memberId ?? payload.playback.actorId,
               },
             }
           : {}),
@@ -753,37 +747,37 @@ async function queueOrSendSharedVideo(
     return;
   }
 
-  pendingSharedVideo = payload.video;
-  pendingSharedPlayback = payload.playback
+  roomSessionState.pendingSharedVideo = payload.video;
+  roomSessionState.pendingSharedPlayback = payload.playback
     ? {
         ...payload.playback,
         serverTime: 0,
-        actorId: memberId ?? payload.playback.actorId,
+        actorId: roomSessionState.memberId ?? payload.playback.actorId,
       }
     : null;
 
-  if (roomCode) {
-    memberToken = null;
+  if (roomSessionState.roomCode) {
+    roomSessionState.memberToken = null;
     connect();
     return;
   }
 
-  roomCode = null;
-  joinToken = null;
-  memberToken = null;
-  memberId = null;
-  roomState = null;
+  roomSessionState.roomCode = null;
+  roomSessionState.joinToken = null;
+  roomSessionState.memberToken = null;
+  roomSessionState.memberId = null;
+  roomSessionState.roomState = null;
   shareState.pendingShareToast = null;
   await persistState();
   connect();
   if (connectionState.connected) {
-    pendingCreateRoom = false;
+    roomSessionState.pendingCreateRoom = false;
     sendToServer({
       type: "room:create",
-      payload: { displayName: displayName ?? undefined },
+      payload: { displayName: roomSessionState.displayName ?? undefined },
     });
   } else {
-    pendingCreateRoom = true;
+    roomSessionState.pendingCreateRoom = true;
   }
 }
 
@@ -843,8 +837,8 @@ function scheduleReconnect(): void {
     !shouldReconnect({
       connected: connectionState.connected,
       reconnectTimer: connectionState.reconnectTimer,
-      roomCode,
-      pendingCreateRoom,
+      roomCode: roomSessionState.roomCode,
+      pendingCreateRoom: roomSessionState.pendingCreateRoom,
       reconnectAttempt: connectionState.reconnectAttempt,
       maxReconnectAttempts: MAX_RECONNECT_ATTEMPTS,
     })
@@ -898,15 +892,15 @@ async function clearCurrentRoomContext(
   errorMessage: string | null = null,
 ): Promise<void> {
   log("background", `Clearing current room context (${reason})`);
-  roomCode = null;
-  joinToken = null;
-  memberToken = null;
-  memberId = null;
-  roomState = null;
-  pendingCreateRoom = false;
-  pendingJoinRoomCode = null;
-  pendingJoinToken = null;
-  pendingJoinRequestSent = false;
+  roomSessionState.roomCode = null;
+  roomSessionState.joinToken = null;
+  roomSessionState.memberToken = null;
+  roomSessionState.memberId = null;
+  roomSessionState.roomState = null;
+  roomSessionState.pendingCreateRoom = false;
+  roomSessionState.pendingJoinRoomCode = null;
+  roomSessionState.pendingJoinToken = null;
+  roomSessionState.pendingJoinRequestSent = false;
   shareState.lastOpenedSharedUrl = null;
   connectionState.lastError = errorMessage;
   resetReconnectState();
@@ -975,7 +969,7 @@ function disconnectSocket(): void {
   resetReconnectState();
   stopClockSyncTimer();
   clearPendingLocalShare("socket disconnected");
-  memberToken = null;
+  roomSessionState.memberToken = null;
   if (!connectionState.socket) {
     connectionState.connected = false;
     return;
@@ -1008,8 +1002,8 @@ function resetRoomLifecycleTransientState(
     } = cleanup.nextState);
   }
   shareState.pendingShareToast = null;
-  pendingSharedVideo = null;
-  pendingSharedPlayback = null;
+  roomSessionState.pendingSharedVideo = null;
+  roomSessionState.pendingSharedPlayback = null;
 }
 
 function log(scope: DebugLogEntry["scope"], message: string): void {
@@ -1037,14 +1031,14 @@ function shouldLogHeartbeatMessage(
 }
 
 function maybeLogPopupStateRequest(): void {
-  const key = `${roomCode ?? "none"}|${connectionState.connected}|${pendingJoinRoomCode ?? "none"}`;
+  const key = `${roomSessionState.roomCode ?? "none"}|${connectionState.connected}|${roomSessionState.pendingJoinRoomCode ?? "none"}`;
   if (key === diagnosticsState.lastPopupStateLogKey) {
     return;
   }
   diagnosticsState.lastPopupStateLogKey = key;
   log(
     "background",
-    `Popup requested state room=${roomCode ?? "none"} connected=${connectionState.connected} pendingJoin=${pendingJoinRoomCode ?? "none"}`,
+    `Popup requested state room=${roomSessionState.roomCode ?? "none"} connected=${connectionState.connected} pendingJoin=${roomSessionState.pendingJoinRoomCode ?? "none"}`,
   );
 }
 
@@ -1063,7 +1057,9 @@ function isActiveSharedTab(tabId: number | undefined, url: string): boolean {
   const decision = decideSharedPlaybackTab({
     tabId,
     sharedTabId: shareState.sharedTabId,
-    normalizedRoomUrl: normalizeUrl(roomState?.sharedVideo?.url),
+    normalizedRoomUrl: normalizeUrl(
+      roomSessionState.roomState?.sharedVideo?.url,
+    ),
     normalizedPayloadUrl: normalizeUrl(url),
   });
   shareState.sharedTabId = decision.nextSharedTabId;
@@ -1151,7 +1147,7 @@ async function ensureSharedVideoOpen(state: RoomState): Promise<void> {
 }
 
 async function openSharedVideoFromPopup(): Promise<void> {
-  const targetUrl = roomState?.sharedVideo?.url;
+  const targetUrl = roomSessionState.roomState?.sharedVideo?.url;
   if (!targetUrl) {
     return;
   }
@@ -1213,9 +1209,9 @@ function notifyAll(): void {
   void notifyContentScripts({
     type: "background:sync-status",
     payload: {
-      roomCode,
+      roomCode: roomSessionState.roomCode,
       connected: connectionState.connected,
-      memberId,
+      memberId: roomSessionState.memberId,
     },
   });
 }
@@ -1237,18 +1233,18 @@ function syncRuntimeStateStore() {
       reconnectDeadlineMs: connectionState.reconnectDeadlineMs,
     },
     room: {
-      roomCode,
-      joinToken,
-      memberToken,
-      memberId,
-      displayName,
-      roomState,
-      pendingCreateRoom,
-      pendingJoinRoomCode,
-      pendingJoinToken,
-      pendingJoinRequestSent,
-      pendingSharedVideo,
-      pendingSharedPlayback,
+      roomCode: roomSessionState.roomCode,
+      joinToken: roomSessionState.joinToken,
+      memberToken: roomSessionState.memberToken,
+      memberId: roomSessionState.memberId,
+      displayName: roomSessionState.displayName,
+      roomState: roomSessionState.roomState,
+      pendingCreateRoom: roomSessionState.pendingCreateRoom,
+      pendingJoinRoomCode: roomSessionState.pendingJoinRoomCode,
+      pendingJoinToken: roomSessionState.pendingJoinToken,
+      pendingJoinRequestSent: roomSessionState.pendingJoinRequestSent,
+      pendingSharedVideo: roomSessionState.pendingSharedVideo,
+      pendingSharedPlayback: roomSessionState.pendingSharedPlayback,
     },
     share: {
       sharedTabId: shareState.sharedTabId,
@@ -1312,7 +1308,7 @@ async function updateServerUrl(nextServerUrl: string): Promise<void> {
     currentSocket.close();
   }
 
-  if (roomCode || pendingCreateRoom) {
+  if (roomSessionState.roomCode || roomSessionState.pendingCreateRoom) {
     connect();
   }
   notifyAll();
@@ -1328,13 +1324,13 @@ chrome.runtime.onMessage.addListener(
       switch (message.type) {
         case "popup:create-room":
           resetReconnectState();
-          roomCode = null;
-          joinToken = null;
-          memberToken = null;
-          memberId = null;
-          roomState = null;
-          pendingJoinRoomCode = null;
-          pendingJoinToken = null;
+          roomSessionState.roomCode = null;
+          roomSessionState.joinToken = null;
+          roomSessionState.memberToken = null;
+          roomSessionState.memberId = null;
+          roomSessionState.roomState = null;
+          roomSessionState.pendingJoinRoomCode = null;
+          roomSessionState.pendingJoinToken = null;
           resetRoomLifecycleTransientState(
             "create-room",
             "create room requested",
@@ -1343,28 +1339,35 @@ chrome.runtime.onMessage.addListener(
           await persistState();
           connect();
           if (connectionState.connected) {
-            pendingCreateRoom = false;
+            roomSessionState.pendingCreateRoom = false;
             sendToServer({
               type: "room:create",
-              payload: { displayName: displayName ?? undefined },
+              payload: {
+                displayName: roomSessionState.displayName ?? undefined,
+              },
             });
           } else {
-            pendingCreateRoom = true;
+            roomSessionState.pendingCreateRoom = true;
           }
           sendResponse(popupState());
           return;
         case "popup:join-room":
           resetReconnectState();
-          pendingCreateRoom = false;
-          pendingJoinRoomCode = message.roomCode.trim().toUpperCase();
-          pendingJoinToken = message.joinToken.trim();
-          pendingJoinRequestSent = false;
-          log("background", `Popup requested join for ${pendingJoinRoomCode}`);
-          roomCode = null;
-          joinToken = null;
-          memberToken = null;
-          memberId = null;
-          roomState = null;
+          roomSessionState.pendingCreateRoom = false;
+          roomSessionState.pendingJoinRoomCode = message.roomCode
+            .trim()
+            .toUpperCase();
+          roomSessionState.pendingJoinToken = message.joinToken.trim();
+          roomSessionState.pendingJoinRequestSent = false;
+          log(
+            "background",
+            `Popup requested join for ${roomSessionState.pendingJoinRoomCode}`,
+          );
+          roomSessionState.roomCode = null;
+          roomSessionState.joinToken = null;
+          roomSessionState.memberToken = null;
+          roomSessionState.memberId = null;
+          roomSessionState.roomState = null;
           resetRoomLifecycleTransientState("join-room", "join room requested");
           shareState.lastOpenedSharedUrl = null;
           connectionState.lastError = null;
@@ -1376,12 +1379,12 @@ chrome.runtime.onMessage.addListener(
           }
           if (
             connectionState.connected &&
-            pendingJoinRoomCode &&
-            pendingJoinToken
+            roomSessionState.pendingJoinRoomCode &&
+            roomSessionState.pendingJoinToken
           ) {
-            const targetRoomCode = pendingJoinRoomCode;
-            const targetJoinToken = pendingJoinToken;
-            if (!pendingJoinRequestSent) {
+            const targetRoomCode = roomSessionState.pendingJoinRoomCode;
+            const targetJoinToken = roomSessionState.pendingJoinToken;
+            if (!roomSessionState.pendingJoinRequestSent) {
               sendJoinRequest(targetRoomCode, targetJoinToken);
             }
           }
@@ -1389,27 +1392,32 @@ chrome.runtime.onMessage.addListener(
           sendResponse(popupState());
           return;
         case "popup:leave-room":
-          log("background", `Popup requested leave for ${roomCode ?? "none"}`);
+          log(
+            "background",
+            `Popup requested leave for ${roomSessionState.roomCode ?? "none"}`,
+          );
           if (connectionState.connected) {
             sendToServer({
               type: "room:leave",
-              payload: memberToken ? { memberToken } : undefined,
+              payload: roomSessionState.memberToken
+                ? { memberToken: roomSessionState.memberToken }
+                : undefined,
             });
           }
-          roomCode = null;
-          joinToken = null;
-          memberToken = null;
-          memberId = null;
-          roomState = null;
-          pendingJoinRoomCode = null;
-          pendingJoinToken = null;
-          pendingJoinRequestSent = false;
+          roomSessionState.roomCode = null;
+          roomSessionState.joinToken = null;
+          roomSessionState.memberToken = null;
+          roomSessionState.memberId = null;
+          roomSessionState.roomState = null;
+          roomSessionState.pendingJoinRoomCode = null;
+          roomSessionState.pendingJoinToken = null;
+          roomSessionState.pendingJoinRequestSent = false;
           resetRoomLifecycleTransientState(
             "leave-room",
             "leave room requested",
           );
           shareState.lastOpenedSharedUrl = null;
-          pendingCreateRoom = false;
+          roomSessionState.pendingCreateRoom = false;
           disconnectSocket();
           await persistState();
           notifyAll();
@@ -1421,7 +1429,7 @@ chrome.runtime.onMessage.addListener(
           return;
         case "popup:get-state":
           maybeLogPopupStateRequest();
-          if (roomCode && !connectionState.connected) {
+          if (roomSessionState.roomCode && !connectionState.connected) {
             connect();
           }
           sendResponse(popupState());
@@ -1462,15 +1470,19 @@ chrome.runtime.onMessage.addListener(
           sendResponse(popupState());
           return;
         case "content:report-user":
-          if (displayName !== message.payload.displayName) {
-            displayName = message.payload.displayName;
+          if (roomSessionState.displayName !== message.payload.displayName) {
+            roomSessionState.displayName = message.payload.displayName;
             await persistState();
-            if (connectionState.connected && roomCode && memberToken) {
+            if (
+              connectionState.connected &&
+              roomSessionState.roomCode &&
+              roomSessionState.memberToken
+            ) {
               sendToServer({
                 type: "profile:update",
                 payload: {
-                  memberToken,
-                  displayName,
+                  memberToken: roomSessionState.memberToken,
+                  displayName: roomSessionState.displayName,
                 },
               });
             }
@@ -1480,17 +1492,17 @@ chrome.runtime.onMessage.addListener(
         case "content:playback-update":
           if (
             connectionState.connected &&
-            memberToken &&
+            roomSessionState.memberToken &&
             isActiveSharedTab(sender.tab?.id, message.payload.url)
           ) {
             sendToServer({
               type: "playback:update",
               payload: {
-                memberToken,
+                memberToken: roomSessionState.memberToken,
                 playback: {
                   ...message.payload,
                   serverTime: 0,
-                  actorId: memberId ?? message.payload.actorId,
+                  actorId: roomSessionState.memberId ?? message.payload.actorId,
                 },
               },
             });
@@ -1498,21 +1510,32 @@ chrome.runtime.onMessage.addListener(
           sendResponse({ ok: true });
           return;
         case "content:get-room-state":
-          if (roomCode && !connectionState.connected) {
+          if (roomSessionState.roomCode && !connectionState.connected) {
             connect();
           }
-          if (connectionState.connected && roomCode && memberToken) {
-            sendToServer({ type: "sync:request", payload: { memberToken } });
+          if (
+            connectionState.connected &&
+            roomSessionState.roomCode &&
+            roomSessionState.memberToken
+          ) {
+            sendToServer({
+              type: "sync:request",
+              payload: { memberToken: roomSessionState.memberToken },
+            });
           }
           sendResponse(
-            roomState
+            roomSessionState.roomState
               ? {
                   ok: true,
-                  roomState: compensateRoomState(roomState),
-                  memberId,
-                  roomCode,
+                  roomState: compensateRoomState(roomSessionState.roomState),
+                  memberId: roomSessionState.memberId,
+                  roomCode: roomSessionState.roomCode,
                 }
-              : { ok: false, memberId, roomCode },
+              : {
+                  ok: false,
+                  memberId: roomSessionState.memberId,
+                  roomCode: roomSessionState.roomCode,
+                },
           );
           return;
         case "content:debug-log":
