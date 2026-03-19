@@ -1,6 +1,10 @@
 import type { BackgroundToPopupMessage } from "../shared/messages";
 import { bindPopupActions } from "./popup-actions";
 import {
+  connectPopupStatePort as createPopupStatePort,
+  queryPopupState,
+} from "./popup-port";
+import {
   applyRoomActionControlState as applyRoomActionControlStateToRefs,
   renderPopup,
 } from "./popup-render";
@@ -61,7 +65,7 @@ async function init(): Promise<void> {
     getLastRoomEnteredAt: () => lastRoomEnteredAt,
     getPopupState: () => popupStateSync.popupState,
   });
-  connectPopupStatePort();
+  connectPort();
   const initialState = await queryState();
   if (applyState(initialState, "query")) {
     render();
@@ -69,10 +73,7 @@ async function init(): Promise<void> {
 }
 
 async function queryState(): Promise<BackgroundToPopupMessage["payload"]> {
-  const response = (await chrome.runtime.sendMessage({
-    type: "popup:get-state",
-  })) as BackgroundToPopupMessage;
-  return response.payload;
+  return queryPopupState();
 }
 
 function applyActionState(state: BackgroundToPopupMessage["payload"]): void {
@@ -80,19 +81,17 @@ function applyActionState(state: BackgroundToPopupMessage["payload"]): void {
   render();
 }
 
-function connectPopupStatePort(): void {
+function connectPort(): void {
   popupPort?.disconnect();
-  popupPort = chrome.runtime.connect({ name: "popup-state" });
-  popupPort.onMessage.addListener((message: BackgroundToPopupMessage) => {
-    if (message.type !== "background:state") {
-      return;
-    }
-    if (applyState(message.payload, "port")) {
-      render();
-    }
-  });
-  popupPort.onDisconnect.addListener(() => {
-    popupPort = null;
+  popupPort = createPopupStatePort({
+    onState: (state) => {
+      if (applyState(state, "port")) {
+        render();
+      }
+    },
+    onDisconnect: () => {
+      popupPort = null;
+    },
   });
 }
 
