@@ -189,6 +189,25 @@ node -e "const { createHash } = require('node:crypto'); const password = 'secret
 npm install
 ```
 
+推荐直接使用根工作区命令：
+
+```bash
+npm run lint
+npm run format:check
+npm run build
+npm test
+```
+
+常用命令说明：
+
+- `npm run lint`：执行全仓 ESLint 检查
+- `npm run lint:fix`：执行可安全应用的 ESLint 自动修复
+- `npm run format`：用 Prettier 重写格式
+- `npm run format:check`：只检查格式，不改文件
+- `npm run build`：按依赖顺序构建 `protocol`、`server`、`extension`
+- `npm test`：执行 protocol、server、extension 的全仓测试
+- `npm run test:server:redis`：显式执行 server 的 Redis 持久化回归测试
+
 构建全部内容：
 
 ```bash
@@ -231,6 +250,56 @@ Redis 集成测试说明：
 - `npm run test:redis -w @bili-syncplay/server` 是显式的 Redis 回归测试入口
 - 在仓库根目录也可以运行 `npm run test:server:redis`
 - 这些显式 Redis 测试命令要求设置 `REDIS_URL`，缺失时会直接失败
+
+### 代码组织约定
+
+仓库现在遵循“薄入口 + 具名模块”的组织方式。
+
+- `extension/src/background`
+  - `index.ts` 只负责装配
+  - 运行态统一收敛在 `state-store.ts`
+  - socket、room session、popup state、diagnostics、tab 协调分别由独立 controller 承载
+- `extension/src/content`
+  - `index.ts` 只负责装配
+  - 运行态统一收敛在 `content-store.ts`
+  - 播放同步、room-state hydration、导航、视频绑定、分享识别由独立 controller 承载
+- `extension/src/popup`
+  - `index.ts` 只负责装配
+  - 本地 UI 状态统一收敛在 `popup-store.ts`
+  - template、refs、render、actions、background port 同步各自独立
+- `extension/src/shared`
+  - 扩展端共享 helper 必须沉淀在这里，例如共享视频 URL 归一化，不要回到各入口文件各写一份
+- `packages/protocol/src`
+  - 协议类型位于 `types/*`
+  - 类型守卫位于 `guards/*`
+  - `index.ts` 保持兼容导出面
+- `server/src`
+  - `app.ts` 只负责运行时装配
+  - 环境变量解析位于 `config/*`
+  - bootstrap 拼装位于 `bootstrap/*`
+  - admin 路由分发位于 `admin/routes/*`
+
+当前回归测试已经开始按这些边界补齐，不再只覆盖“功能能不能跑通”，也覆盖重构后 store/controller/helper 的关键行为。
+
+### 贡献约束
+
+后续继续改仓库时，默认遵守以下约束：
+
+- 优先把新行为放进已有具名模块，而不是继续拉长 `index.ts`
+- 入口文件只保留初始化、依赖装配和监听注册
+- 共享规则只能有一个可信来源；不要重新引入本地 `normalizeUrl()` 包装或重复 parser
+- 新增状态优先进入对应 store，不再随手增加新的顶层可变变量
+- 如果一个文件同时开始混入状态、IO 和业务决策，应在它再次膨胀前拆分
+- 修改 store、controller、helper、protocol guard、server config/router 边界时，必须同步补或改对应测试
+
+建议提交前自检：
+
+```bash
+npm run lint
+npm run format:check
+npm run build
+npm test
+```
 
 启动本地服务器：
 
@@ -733,6 +802,12 @@ Chrome 侧调试建议：
 - 从 `chrome://extensions` 复制未打包扩展 ID，并加入 `ALLOWED_ORIGINS`
 - 重新构建 `extension/dist` 后，重新加载未打包扩展
 - 扩展重新加载后，刷新已打开的 Bilibili 标签页，以便重新注入内容脚本
+
+结构治理相关文档：
+
+- [requirements.md](./docs/codebase-standardization/requirements.md)
+- [design.md](./docs/codebase-standardization/design.md)
+- [tasks.md](./docs/codebase-standardization/tasks.md)
 
 ### 构建发布包
 

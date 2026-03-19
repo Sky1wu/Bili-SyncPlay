@@ -13,7 +13,9 @@ test("normalizeSharedVideoUrl reuses bilibili url normalization", () => {
     "https://www.bilibili.com/video/BV1xx411c7mD?p=1",
   );
   assert.equal(
-    normalizeSharedVideoUrl("https://www.bilibili.com/festival/example?bvid=BV1xx411c7mD"),
+    normalizeSharedVideoUrl(
+      "https://www.bilibili.com/festival/example?bvid=BV1xx411c7mD",
+    ),
     "https://www.bilibili.com/video/BV1xx411c7mD",
   );
 });

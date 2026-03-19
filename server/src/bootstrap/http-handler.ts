@@ -4,7 +4,12 @@ import type { createSecurityPolicy } from "../security.js";
 import type { AdminUiConfig } from "../types.js";
 
 export function createHttpRequestHandler(args: {
-  adminRouter: { handle: (request: IncomingMessage, response: ServerResponse) => Promise<boolean> };
+  adminRouter: {
+    handle: (
+      request: IncomingMessage,
+      response: ServerResponse,
+    ) => Promise<boolean>;
+  };
   securityPolicy: ReturnType<typeof createSecurityPolicy>;
   adminUiConfig?: AdminUiConfig;
 }) {

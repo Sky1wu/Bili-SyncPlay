@@ -1,6 +1,9 @@
 import assert from "node:assert/strict";
 import test from "node:test";
-import { loadAdminConfig, loadAdminUiConfig } from "../src/config/admin-config.js";
+import {
+  loadAdminConfig,
+  loadAdminUiConfig,
+} from "../src/config/admin-config.js";
 import { parseBooleanEnv, parseIntegerEnv } from "../src/config/env.js";
 import { loadPersistenceConfig } from "../src/config/persistence-config.js";
 import { loadSecurityConfig } from "../src/config/security-config.js";

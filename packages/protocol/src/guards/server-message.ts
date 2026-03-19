@@ -99,9 +99,7 @@ function isRoomJoinedMessage(value: unknown): value is RoomJoinedMessage {
 
 function isRoomStateMessage(value: unknown): value is RoomStateMessage {
   return (
-    isRecord(value) &&
-    value.type === "room:state" &&
-    isRoomState(value.payload)
+    isRecord(value) && value.type === "room:state" && isRoomState(value.payload)
   );
 }
 

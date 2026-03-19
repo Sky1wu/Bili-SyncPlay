@@ -35,9 +35,7 @@ export function loadAdminConfig(env: EnvSource = process.env): AdminConfig {
   };
 }
 
-export function loadAdminUiConfig(
-  env: EnvSource = process.env,
-): AdminUiConfig {
+export function loadAdminUiConfig(env: EnvSource = process.env): AdminUiConfig {
   return {
     demoEnabled: parseBooleanEnv(env, "ADMIN_UI_DEMO_ENABLED", false),
   };

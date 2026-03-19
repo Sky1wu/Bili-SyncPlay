@@ -189,6 +189,25 @@ Install dependencies:
 npm install
 ```
 
+Recommended root workspace commands:
+
+```bash
+npm run lint
+npm run format:check
+npm run build
+npm test
+```
+
+Useful command matrix:
+
+- `npm run lint`: run repository-wide ESLint checks
+- `npm run lint:fix`: apply safe ESLint fixes
+- `npm run format`: rewrite files with Prettier
+- `npm run format:check`: verify formatting without rewriting
+- `npm run build`: build `protocol`, `server`, and `extension` in dependency order
+- `npm test`: run repository-wide protocol, server, and extension tests
+- `npm run test:server:redis`: run the explicit Redis regression entry point for server persistence
+
 Build everything:
 
 ```bash
@@ -231,6 +250,56 @@ Redis integration test notes:
 - `npm run test:redis -w @bili-syncplay/server` is the explicit Redis regression entry point
 - `npm run test:server:redis` runs the same Redis regression from the workspace root
 - `REDIS_URL` is required for those explicit Redis test commands and they fail fast when it is missing
+
+### Code Organization
+
+The repository now follows a "thin entrypoint + named modules" structure.
+
+- `extension/src/background`
+  - `index.ts` is assembly only
+  - runtime state lives in `state-store.ts`
+  - socket, room session, popup state, diagnostics, and tab coordination live in dedicated controllers
+- `extension/src/content`
+  - `index.ts` is assembly only
+  - runtime state lives in `content-store.ts`
+  - playback sync, room-state hydration, navigation, playback binding, and sharing logic live in dedicated controllers
+- `extension/src/popup`
+  - `index.ts` is assembly only
+  - local UI state lives in `popup-store.ts`
+  - template, refs, render, actions, and background port sync live in separate modules
+- `extension/src/shared`
+  - shared extension helpers such as normalized video URL handling must live here instead of being redefined in feature entrypoints
+- `packages/protocol/src`
+  - protocol types live under `types/*`
+  - guards live under `guards/*`
+  - `index.ts` is the compatibility export surface
+- `server/src`
+  - `app.ts` is runtime assembly only
+  - env parsing lives under `config/*`
+  - bootstrap glue lives under `bootstrap/*`
+  - admin route dispatch lives under `admin/routes/*`
+
+Current regression coverage is intentionally aligned with those boundaries and now includes store/controller/helper coverage for the refactored modules, not only end-to-end behavior checks.
+
+### Contribution Constraints
+
+When making follow-up changes, keep the current structure stable:
+
+- prefer adding behavior to an existing named module over growing `index.ts`
+- keep entry files focused on initialization, dependency wiring, and listener registration
+- keep shared rules in one place; do not reintroduce local `normalizeUrl()` wrappers or duplicate parser logic
+- if a change introduces new state, put it behind the relevant store instead of another top-level mutable variable
+- if a change mixes state, IO, and business decisions in one file, split it before it becomes the new largest file in that area
+- add or update targeted tests when changing a store, controller, helper, protocol guard, or server config/router boundary
+
+Recommended pre-commit checklist:
+
+```bash
+npm run lint
+npm run format:check
+npm run build
+npm test
+```
 
 Start the local server:
 
@@ -733,6 +802,12 @@ Chrome-side debugging tips:
 - copy the unpacked extension ID from `chrome://extensions` and use it in `ALLOWED_ORIGINS`
 - reload the unpacked extension after rebuilding `extension/dist`
 - reload open Bilibili tabs after the extension is reloaded so content scripts are injected again
+
+Additional structure references:
+
+- [requirements.md](./docs/codebase-standardization/requirements.md)
+- [design.md](./docs/codebase-standardization/design.md)
+- [tasks.md](./docs/codebase-standardization/tasks.md)
 
 ### Build a Release Package
 

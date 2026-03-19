@@ -146,7 +146,10 @@ test("room session controller resolves failed join attempts and clears stale roo
   assert.equal(harness.runtimeState.room.pendingJoinRequestSent, false);
   assert.equal(harness.runtimeState.room.roomCode, null);
   assert.equal(harness.runtimeState.room.memberToken, null);
-  assert.equal(harness.runtimeState.connection.lastError, "The room was not found.");
+  assert.equal(
+    harness.runtimeState.connection.lastError,
+    "The room was not found.",
+  );
   assert.equal(harness.persistReasons.length, 1);
   assert.equal(harness.notifyAllCalls, 1);
 });

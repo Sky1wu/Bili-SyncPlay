@@ -44,7 +44,10 @@ export const handleReadRoutes: AdminRouteHandler = async ({
           : "all",
       keyword: queryParams.get("keyword") ?? undefined,
       page: parsePositiveInt(queryParams.get("page"), 1),
-      pageSize: Math.min(parsePositiveInt(queryParams.get("pageSize"), 20), 100),
+      pageSize: Math.min(
+        parsePositiveInt(queryParams.get("pageSize"), 20),
+        100,
+      ),
       sortBy:
         queryParams.get("sortBy") === "createdAt"
           ? "createdAt"
@@ -89,10 +92,15 @@ export const handleReadRoutes: AdminRouteHandler = async ({
       remoteAddress: queryParams.get("remoteAddress") ?? undefined,
       origin: queryParams.get("origin") ?? undefined,
       result: queryParams.get("result") ?? undefined,
-      from: queryParams.get("from") ? Number(queryParams.get("from")) : undefined,
+      from: queryParams.get("from")
+        ? Number(queryParams.get("from"))
+        : undefined,
       to: queryParams.get("to") ? Number(queryParams.get("to")) : undefined,
       page: parsePositiveInt(queryParams.get("page"), 1),
-      pageSize: Math.min(parsePositiveInt(queryParams.get("pageSize"), 20), 100),
+      pageSize: Math.min(
+        parsePositiveInt(queryParams.get("pageSize"), 20),
+        100,
+      ),
     };
     sendOk(response, {
       ...options.eventStore.query(query),
@@ -130,10 +138,15 @@ export const handleReadRoutes: AdminRouteHandler = async ({
         resultValue === "error"
           ? resultValue
           : undefined,
-      from: queryParams.get("from") ? Number(queryParams.get("from")) : undefined,
+      from: queryParams.get("from")
+        ? Number(queryParams.get("from"))
+        : undefined,
       to: queryParams.get("to") ? Number(queryParams.get("to")) : undefined,
       page: parsePositiveInt(queryParams.get("page"), 1),
-      pageSize: Math.min(parsePositiveInt(queryParams.get("pageSize"), 20), 100),
+      pageSize: Math.min(
+        parsePositiveInt(queryParams.get("pageSize"), 20),
+        100,
+      ),
     };
     sendOk(response, {
       ...options.listAuditLogs(query),

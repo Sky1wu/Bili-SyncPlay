@@ -1,12 +1,6 @@
-import {
-  getDefaultPersistenceConfig,
-  type PersistenceConfig,
-} from "../app.js";
+import { getDefaultPersistenceConfig, type PersistenceConfig } from "../app.js";
 import type { EnvSource } from "./env.js";
-import {
-  parsePositiveIntegerEnv,
-  readTrimmedEnv,
-} from "./env.js";
+import { parsePositiveIntegerEnv, readTrimmedEnv } from "./env.js";
 
 function parseProviderEnv(
   env: EnvSource,
@@ -27,7 +21,11 @@ export function loadPersistenceConfig(
   env: EnvSource = process.env,
 ): PersistenceConfig {
   const defaults = getDefaultPersistenceConfig();
-  const provider = parseProviderEnv(env, "ROOM_STORE_PROVIDER", defaults.provider);
+  const provider = parseProviderEnv(
+    env,
+    "ROOM_STORE_PROVIDER",
+    defaults.provider,
+  );
 
   return {
     provider,

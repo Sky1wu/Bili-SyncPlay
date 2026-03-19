@@ -25,9 +25,13 @@ export function createAdminServices(args: {
   securityConfig: SecurityConfig;
   persistenceConfig: PersistenceConfig;
   roomStore: RoomStore;
-  runtimeRegistry: ReturnType<typeof import("../admin/runtime-registry.js").createRuntimeRegistry>;
+  runtimeRegistry: ReturnType<
+    typeof import("../admin/runtime-registry.js").createRuntimeRegistry
+  >;
   eventStore: ReturnType<typeof createEventStore>;
-  activeRooms: ReturnType<typeof import("../active-room-registry.js").createActiveRoomRegistry>;
+  activeRooms: ReturnType<
+    typeof import("../active-room-registry.js").createActiveRoomRegistry
+  >;
   roomService: ReturnType<typeof createRoomService>;
   send: (socket: WebSocket, message: ServerMessage) => void;
   logEvent: LogEvent;
@@ -36,7 +40,11 @@ export function createAdminServices(args: {
   serviceVersion: string;
 }) {
   const authService = args.adminConfig
-    ? createAdminAuthService(args.adminConfig, createInMemoryAuthStore(), args.now)
+    ? createAdminAuthService(
+        args.adminConfig,
+        createInMemoryAuthStore(),
+        args.now,
+      )
     : undefined;
   const auditLogService = createAuditLogService();
   const overviewService = createAdminOverviewService({
@@ -91,7 +99,8 @@ export function createAdminServices(args: {
     roomStore: args.roomStore,
     runtimeRegistry: args.runtimeRegistry,
     auditLogService,
-    getRoomStateByCode: (roomCode) => args.roomService.getRoomStateByCode(roomCode),
+    getRoomStateByCode: (roomCode) =>
+      args.roomService.getRoomStateByCode(roomCode),
     broadcastRoomState,
     disconnectSessionSocket,
     blockMemberToken: (roomCode, memberToken, expiresAt) =>
@@ -108,32 +117,27 @@ export function createAdminServices(args: {
     getOverview: () => overviewService.getOverview(),
     listRooms: (query: import("../admin/types.js").RoomListQuery) =>
       roomQueryService.listRooms(query),
-    getRoomDetail: (roomCode: string) => roomQueryService.getRoomDetail(roomCode),
+    getRoomDetail: (roomCode: string) =>
+      roomQueryService.getRoomDetail(roomCode),
     listAuditLogs: (query: import("../admin/types.js").AuditLogQuery) =>
       auditLogService.query(query),
     closeRoom: (actor: AdminSession, roomCode: string, reason?: string) =>
       actionService.closeRoom(actor, roomCode, reason),
     expireRoom: (actor: AdminSession, roomCode: string, reason?: string) =>
       actionService.expireRoom(actor, roomCode, reason),
-    clearRoomVideo: (
-      actor: AdminSession,
-      roomCode: string,
-      reason?: string,
-    ) =>
+    clearRoomVideo: (actor: AdminSession, roomCode: string, reason?: string) =>
       actionService.clearRoomVideo(actor, roomCode, reason),
     kickMember: (
       actor: AdminSession,
       roomCode: string,
       memberId: string,
       reason?: string,
-    ) =>
-      actionService.kickMember(actor, roomCode, memberId, reason),
+    ) => actionService.kickMember(actor, roomCode, memberId, reason),
     disconnectSession: (
       actor: AdminSession,
       sessionId: string,
       reason?: string,
-    ) =>
-      actionService.disconnectSession(actor, sessionId, reason),
+    ) => actionService.disconnectSession(actor, sessionId, reason),
     eventStore: args.eventStore,
     serviceName: "bili-syncplay-server",
     now: args.now,

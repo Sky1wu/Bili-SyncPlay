@@ -61,6 +61,7 @@
 - T14 已完成：服务端配置解析已从 `server/src/index.ts` 下沉到 `config/*`，安全配置、持久化配置、管理后台配置与通用 env helper 已收敛为单一来源，启动入口已退化为纯装配。
 - T15 已完成：服务端 bootstrap 与 admin router 已完成拆分，`app.ts` 的装配与 HTTP fallback 已下沉到 `bootstrap/*`，`admin/router.ts` 已切换为组合式路由分发，顺序分支复杂度显著下降。
 - T16 已完成：已为本轮新增的 store/controller/helper 补充回归测试，`background room-session controller`、`content sync controller`、`popup render` 与 `server http handler` 已具备最小可行自动化保护，重构后的关键边界不再只能依赖人工回归。
+- T17 已完成：根文档已补充统一开发命令、代码组织边界和贡献约束，中英文 README 现已明确“薄入口 + 具名模块”的结构约定，并把规范文档入口同步暴露给后续开发者。
 
 本轮实施备注：
 
@@ -92,6 +93,7 @@
 - T14 已落地：新增 `server/src/config/env.ts`、`server/src/config/security-config.ts`、`server/src/config/persistence-config.ts`、`server/src/config/admin-config.ts`，将环境变量解析与默认值组装从 `server/src/index.ts` 下沉，并补充 `server/test/config-env.test.ts` 覆盖解析与报错语义
 - T15 已落地：新增 `server/src/bootstrap/admin-services.ts`、`server/src/bootstrap/http-handler.ts` 与 `server/src/admin/routes/*`，将 admin 服务装配、HTTP fallback / connection-check 处理和各类 admin route 分发拆到独立模块；`server/src/app.ts` 已显著瘦身，`server/src/admin/router.ts` 现主要承载鉴权辅助、错误边界与 route composition
 - T16 已落地：新增 `extension/test/room-session-controller.test.ts`、`extension/test/sync-controller.test.ts`、`extension/test/popup-render.test.ts` 与 `server/test/http-handler.test.ts`，将 background 房间会话、content hydration/broadcast 护栏、popup 渲染状态映射以及 server connection-check / admin handler fallback 路径纳入自动化测试；配合既有 `url`、`popup-store`、`content-store`、`config-env`、`client-message` / `server-message` 测试，关键重构模块现已形成基础回归网
+- T17 已落地：更新 `README.md` 与 `README.zh-CN.md`，补充根级 `lint` / `format` / `build` / `test` 命令说明、当前模块边界、贡献时的结构约束以及规范文档入口；后续开发者无需反查历史提交，也能直接理解新的代码组织方式与提交流程
 
 ## T01 建立统一 lint/format 工具链
 

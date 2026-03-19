@@ -25,7 +25,10 @@ export const handleActionRoutes: AdminRouteHandler = async ({
       return true;
     }
     const body = await readJsonBody<{ reason?: string }>(request);
-    sendOk(response, await options.closeRoom(session, segments[3] ?? "", body.reason));
+    sendOk(
+      response,
+      await options.closeRoom(session, segments[3] ?? "", body.reason),
+    );
     return true;
   }
 
@@ -45,7 +48,10 @@ export const handleActionRoutes: AdminRouteHandler = async ({
       return true;
     }
     const body = await readJsonBody<{ reason?: string }>(request);
-    sendOk(response, await options.expireRoom(session, segments[3] ?? "", body.reason));
+    sendOk(
+      response,
+      await options.expireRoom(session, segments[3] ?? "", body.reason),
+    );
     return true;
   }
 

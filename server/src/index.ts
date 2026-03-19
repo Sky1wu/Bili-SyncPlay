@@ -1,6 +1,4 @@
-import {
-  createSyncServer,
-} from "./app.js";
+import { createSyncServer } from "./app.js";
 import { loadAdminConfig, loadAdminUiConfig } from "./config/admin-config.js";
 import { parseIntegerEnv } from "./config/env.js";
 import { loadPersistenceConfig } from "./config/persistence-config.js";

@@ -1,9 +1,10 @@
-import {
-  getDefaultSecurityConfig,
-  type SecurityConfig,
-} from "../app.js";
+import { getDefaultSecurityConfig, type SecurityConfig } from "../app.js";
 import type { EnvSource } from "./env.js";
-import { parseBooleanEnv, parseCsvEnv, parsePositiveIntegerEnv } from "./env.js";
+import {
+  parseBooleanEnv,
+  parseCsvEnv,
+  parsePositiveIntegerEnv,
+} from "./env.js";
 
 export function loadSecurityConfig(
   env: EnvSource = process.env,
@@ -12,7 +13,11 @@ export function loadSecurityConfig(
 
   return {
     ...defaults,
-    allowedOrigins: parseCsvEnv(env, "ALLOWED_ORIGINS", defaults.allowedOrigins),
+    allowedOrigins: parseCsvEnv(
+      env,
+      "ALLOWED_ORIGINS",
+      defaults.allowedOrigins,
+    ),
     allowMissingOriginInDev: parseBooleanEnv(
       env,
       "ALLOW_MISSING_ORIGIN_IN_DEV",

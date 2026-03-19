@@ -1,6 +1,10 @@
 import type { IncomingMessage, ServerResponse } from "node:http";
 import { AdminActionError } from "./action-service.js";
-import { getBearerToken, getPathSegments, JsonBodyParseError } from "./request.js";
+import {
+  getBearerToken,
+  getPathSegments,
+  JsonBodyParseError,
+} from "./request.js";
 import { sendError } from "./response.js";
 import {
   FORBIDDEN_MESSAGE,
