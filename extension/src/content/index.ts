@@ -1,6 +1,5 @@
 import {
   normalizeBilibiliUrl,
-  type PlaybackState,
   type RoomState,
   type SharedVideo,
 } from "@bili-syncplay/protocol";
@@ -11,20 +10,16 @@ import type {
 import { createFestivalBridgeController } from "./festival-bridge";
 import {
   bindVideoElement,
-  getPlayState,
   getVideoElement,
   pauseVideo,
 } from "./player-binding";
-import {
-  createSharePayload as createPageSharePayload,
-  resolvePageSharedVideo,
-} from "./page-video";
 import {
   evaluateNonSharedPageGuard,
   shouldForcePauseWhileWaitingForInitialRoomState,
 } from "./sync-guards";
 import { createContentStateStore } from "./content-store";
 import { createRoomStateController } from "./room-state-controller";
+import { createShareController } from "./share-controller";
 import { createSyncController } from "./sync-controller";
 import { createToastCoordinatorState, createToastPresenter } from "./toast";
 
@@ -56,11 +51,19 @@ let lastObservedPageUrl = window.location.href.split("#")[0];
 const festivalBridge = createFestivalBridgeController();
 const broadcastLogState = { key: null as string | null, at: 0 };
 const ignoredSelfPlaybackLogState = { key: null as string | null, at: 0 };
+const shareController = createShareController({
+  runtimeState,
+  festivalSnapshotTtlMs: FESTIVAL_SNAPSHOT_TTL_MS,
+  nextSeq: () => seq++,
+  getFestivalSnapshot: () => festivalBridge.getSnapshot(),
+  refreshFestivalBridge: (input) => festivalBridge.refreshSnapshot(input),
+  debugLog,
+});
 const roomStateController = createRoomStateController({
   runtimeState,
   toastState,
   toastPresenter,
-  getSharedVideo,
+  getSharedVideo: () => shareController.getSharedVideo(),
   normalizeUrl,
   debugLog,
   resetPlaybackSyncState,
@@ -89,8 +92,8 @@ const syncController = createSyncController({
     hydrateRetryTimer = timer;
   },
   getVideoElement,
-  getCurrentPlaybackVideo,
-  getSharedVideo,
+  getCurrentPlaybackVideo: () => shareController.getCurrentPlaybackVideo(),
+  getSharedVideo: () => shareController.getSharedVideo(),
   normalizeUrl,
   notifyRoomStateToasts: (state) =>
     roomStateController.notifyRoomStateToasts(state),
@@ -163,7 +166,7 @@ async function init(): Promise<void> {
         void (async () => {
           sendResponse({
             ok: true,
-            payload: await resolveCurrentSharePayload(),
+            payload: await shareController.resolveCurrentSharePayload(),
           });
         })();
         return true;
@@ -220,7 +223,7 @@ function attachPlaybackListeners(): void {
   };
 
   const guardUnexpectedResume = () => {
-    const currentVideo = getSharedVideo();
+    const currentVideo = shareController.getSharedVideo();
     if (
       currentVideo &&
       isCurrentVideoShared(currentVideo) &&
@@ -254,7 +257,7 @@ function attachPlaybackListeners(): void {
       }
     },
     onPause: () => {
-      const currentVideo = getSharedVideo();
+      const currentVideo = shareController.getSharedVideo();
       rememberExplicitPlaybackAction("paused");
       if (
         currentVideo &&
@@ -392,7 +395,7 @@ function forcePauseOnNonSharedPage(video: HTMLVideoElement): boolean {
     return false;
   }
 
-  const currentVideo = getSharedVideo();
+  const currentVideo = shareController.getSharedVideo();
   const normalizedCurrentUrl = normalizeUrl(currentVideo?.url);
   if (!currentVideo) {
     runtimeState.explicitNonSharedPlaybackUrl = null;
@@ -451,124 +454,6 @@ function scheduleHydrationRetry(delayMs = 350): void {
 
 function applyPendingPlaybackApplication(video: HTMLVideoElement): void {
   syncController.applyPendingPlaybackApplication(video);
-}
-
-function getSharedVideo(): SharedVideo | null {
-  const festivalSnapshot = festivalBridge.getSnapshot();
-  return resolvePageSharedVideo({
-    pageUrl: window.location.href.split("#")[0],
-    pathname: window.location.pathname,
-    documentTitle: document.title,
-    headingTitle: document.querySelector("h1")?.textContent?.trim() ?? null,
-    currentPartTitle: getCurrentPartTitle(),
-    festivalSnapshot: festivalSnapshot
-      ? {
-          videoId: festivalSnapshot.videoId,
-          url: festivalSnapshot.url,
-          title: festivalSnapshot.title,
-        }
-      : null,
-  });
-}
-
-async function getCurrentPlaybackVideo(): Promise<SharedVideo | null> {
-  if (window.location.pathname.startsWith("/festival/")) {
-    const refreshed = await refreshFestivalSnapshot(0);
-    if (refreshed) {
-      return refreshed;
-    }
-  }
-
-  return getSharedVideo();
-}
-
-function getCurrentPartTitle(): string | null {
-  return (
-    document
-      .querySelector("li.bpx-state-multi-active-item")
-      ?.textContent?.trim() ||
-    document
-      .querySelector(
-        ".video-section-list li.on, .video-section-list li.active, [data-cid].bpx-state-multi-active-item",
-      )
-      ?.textContent?.trim() ||
-    null
-  );
-}
-
-function createSharePayload(sharedVideo: SharedVideo): {
-  video: SharedVideo;
-  playback: PlaybackState | null;
-} {
-  const video = getVideoElement();
-  return createPageSharePayload({
-    sharedVideo,
-    playback: video
-      ? {
-          currentTime: video.currentTime,
-          playbackRate: video.playbackRate,
-          playState: getPlayState(video, runtimeState.intendedPlayState),
-        }
-      : null,
-    actorId: runtimeState.localMemberId ?? "local",
-    seq: seq++,
-    now: Date.now(),
-  });
-}
-
-function getCurrentSharePayload(): {
-  video: SharedVideo;
-  playback: PlaybackState | null;
-} | null {
-  const currentVideo = getSharedVideo();
-  if (currentVideo && window.location.pathname.startsWith("/festival/")) {
-    debugLog(
-      `Festival video detected id=${currentVideo.videoId} title=${currentVideo.title} url=${currentVideo.url}`,
-    );
-  }
-  return currentVideo ? createSharePayload(currentVideo) : null;
-}
-
-async function resolveCurrentSharePayload(): Promise<{
-  video: SharedVideo;
-  playback: PlaybackState | null;
-} | null> {
-  if (window.location.pathname.startsWith("/festival/")) {
-    for (let attempt = 1; attempt <= 8; attempt += 1) {
-      const refreshed = await refreshFestivalSnapshot(
-        attempt === 1 ? 0 : FESTIVAL_SNAPSHOT_TTL_MS,
-      );
-      if (refreshed) {
-        debugLog(
-          `Festival payload stabilized after retry ${attempt}: ${refreshed.videoId}`,
-        );
-        return createSharePayload(refreshed);
-      }
-      await new Promise((resolve) => window.setTimeout(resolve, 150));
-    }
-
-    debugLog("Festival payload fell back to URL-based detection");
-  }
-
-  const initialPayload = getCurrentSharePayload();
-  return initialPayload;
-}
-
-async function refreshFestivalSnapshot(
-  maxAgeMs = FESTIVAL_SNAPSHOT_TTL_MS,
-): Promise<SharedVideo | null> {
-  const nextSnapshot = await festivalBridge.refreshSnapshot({
-    pathname: window.location.pathname,
-    pageUrl: window.location.href.split("#")[0],
-    maxAgeMs,
-  });
-  if (!nextSnapshot) {
-    return null;
-  }
-  debugLog(
-    `Festival video detected id=${nextSnapshot.videoId} title=${nextSnapshot.title} url=${nextSnapshot.url}`,
-  );
-  return nextSnapshot;
 }
 
 function normalizeUrl(url: string | undefined | null): string | null {
