@@ -70,6 +70,7 @@
 - T06 已落地：新增 `extension/src/background/room-session-controller.ts`，将 `room:created`、`room:joined`、`room:state`、`error` 处理以及 popup `create/join/leave` 请求收敛到独立 controller，`background/index.ts` 进一步退化为薄装配层
 - T07 已落地：新增 `extension/src/background/popup-state-controller.ts`、`extension/src/background/diagnostics-controller.ts`、`extension/src/background/tab-controller.ts`，popup port 管理、状态广播、日志节流与共享页 tab 复用/打开逻辑已独立承载
 - T08 第一阶段已落地：新增 `extension/src/content/content-store.ts` 与对应测试，并将 `content/index.ts` 的 runtime state 接到统一 store，为后续抽离 sync/room-state controller 提供单一状态入口
+- T08 第二阶段已落地：新增 `extension/src/content/sync-controller.ts`，将 `broadcastPlayback`、`applyRoomState`、`hydrateRoomState` 与同步相关的回声抑制/本地意图守卫主流程从 `content/index.ts` 抽离，content 主入口开始退化为装配层
 
 ## T01 建立统一 lint/format 工具链
 
