@@ -63,6 +63,9 @@ import {
 import { localizeServerError, t } from "../shared/i18n";
 
 const stateStore = createBackgroundStateStore();
+const shareState = stateStore.getState().share;
+const clockState = stateStore.getState().clock;
+const diagnosticsState = stateStore.getState().diagnostics;
 
 let socket: WebSocket | null = null;
 let serverUrl = DEFAULT_SERVER_URL;
@@ -74,7 +77,6 @@ let memberToken: string | null = null;
 let memberId: string | null = null;
 let displayName: string | null = null;
 let roomState: RoomState | null = null;
-let sharedTabId: number | null = null;
 let pendingCreateRoom = false;
 let pendingJoinRoomCode: string | null = null;
 let pendingJoinToken: string | null = null;
@@ -82,22 +84,9 @@ let pendingJoinRequestSent = false;
 let reconnectTimer: number | null = null;
 let reconnectAttempt = 0;
 let reconnectDeadlineMs: number | null = null;
-let logs: DebugLogEntry[] = [];
-let lastOpenedSharedUrl: string | null = null;
-let clockOffsetMs: number | null = null;
-let rttMs: number | null = null;
-let clockSyncTimer: number | null = null;
 let pendingSharedVideo: SharedVideo | null = null;
 let pendingSharedPlayback: PlaybackState | null = null;
-let openingSharedUrl: string | null = null;
-let pendingLocalShareUrl: string | null = null;
-let pendingLocalShareExpiresAt: number | null = null;
-let pendingLocalShareTimer: number | null = null;
-let pendingShareToast:
-  | (SharedVideoToastPayload & { expiresAt: number; roomCode: string })
-  | null = null;
 let connectProbe: Promise<void> | null = null;
-let lastPopupStateLogKey: string | null = null;
 let pendingJoinAttemptResolvers: Array<
   (result: "joined" | "failed" | "timeout") => void
 > = [];
@@ -165,10 +154,10 @@ async function bootstrap(): Promise<void> {
         lastError = value;
       },
       get sharedTabId() {
-        return sharedTabId;
+        return shareState.sharedTabId;
       },
       set sharedTabId(value) {
-        sharedTabId = value;
+        shareState.sharedTabId = value;
       },
     },
     loadPersistedBackgroundSnapshot,
@@ -579,8 +568,8 @@ async function handleRoomStateMessage(nextState: RoomState): Promise<void> {
     currentRoomState: roomState,
     normalizedPendingLocalShareUrl: normalizeUrl(
       getActivePendingLocalShareUrl({
-        pendingLocalShareUrl,
-        pendingLocalShareExpiresAt,
+        pendingLocalShareUrl: shareState.pendingLocalShareUrl,
+        pendingLocalShareExpiresAt: shareState.pendingLocalShareExpiresAt,
         now: Date.now(),
       }),
     ),
@@ -590,18 +579,18 @@ async function handleRoomStateMessage(nextState: RoomState): Promise<void> {
   if (decision.kind === "ignore-stale") {
     log(
       "background",
-      `Ignored stale room state while waiting for ${pendingLocalShareUrl}; received ${nextState.sharedVideo?.url ?? "none"}`,
+      `Ignored stale room state while waiting for ${shareState.pendingLocalShareUrl}; received ${nextState.sharedVideo?.url ?? "none"}`,
     );
     return;
   }
 
   if (isSharedVideoChange(decision.previousSharedUrl, nextState)) {
-    lastOpenedSharedUrl = null;
+    shareState.lastOpenedSharedUrl = null;
     log(
       "background",
       `Shared video switched to ${nextState.sharedVideo?.url ?? "none"}`,
     );
-    pendingShareToast = createPendingShareToast(nextState);
+    shareState.pendingShareToast = createPendingShareToast(nextState);
   }
 
   roomState = nextState;
@@ -611,7 +600,7 @@ async function handleRoomStateMessage(nextState: RoomState): Promise<void> {
   if (decision.confirmedPendingLocalShare) {
     log(
       "background",
-      `Confirmed shared video switch to ${pendingLocalShareUrl}`,
+      `Confirmed shared video switch to ${shareState.pendingLocalShareUrl}`,
     );
     clearPendingLocalShare("share confirmation received");
   }
@@ -642,13 +631,15 @@ function getPendingShareToastFor(
   state: RoomState,
 ): SharedVideoToastPayload | null {
   const result = getRoomPendingShareToastFor({
-    pendingShareToast,
+    pendingShareToast: shareState.pendingShareToast,
     state,
-    normalizedPendingToastUrl: normalizeUrl(pendingShareToast?.videoUrl),
+    normalizedPendingToastUrl: normalizeUrl(
+      shareState.pendingShareToast?.videoUrl,
+    ),
     normalizedSharedUrl: normalizeUrl(state.sharedVideo?.url),
     now: Date.now(),
   });
-  pendingShareToast = result.pendingShareToast;
+  shareState.pendingShareToast = result.pendingShareToast;
   return result.shareToast;
 }
 
@@ -784,7 +775,7 @@ async function queueOrSendSharedVideo(
   memberToken = null;
   memberId = null;
   roomState = null;
-  pendingShareToast = null;
+  shareState.pendingShareToast = null;
   await persistState();
   connect();
   if (connected) {
@@ -812,15 +803,15 @@ function syncClock(): void {
 
 function startClockSyncTimer(): void {
   stopClockSyncTimer();
-  clockSyncTimer = self.setInterval(() => {
+  clockState.clockSyncTimer = self.setInterval(() => {
     syncClock();
   }, CLOCK_SYNC_INTERVAL_MS);
 }
 
 function stopClockSyncTimer(): void {
-  if (clockSyncTimer !== null) {
-    clearInterval(clockSyncTimer);
-    clockSyncTimer = null;
+  if (clockState.clockSyncTimer !== null) {
+    clearInterval(clockState.clockSyncTimer);
+    clockState.clockSyncTimer = null;
   }
 }
 
@@ -834,16 +825,19 @@ function updateClockOffset(
     serverReceiveTime,
     serverSendTime,
     now: Date.now(),
-    previousRttMs: rttMs,
-    previousClockOffsetMs: clockOffsetMs,
+    previousRttMs: clockState.rttMs,
+    previousClockOffsetMs: clockState.clockOffsetMs,
   });
-  rttMs = sample.rttMs;
-  clockOffsetMs = sample.clockOffsetMs;
-  log("background", `Clock sync offset=${clockOffsetMs}ms rtt=${rttMs}ms`);
+  clockState.rttMs = sample.rttMs;
+  clockState.clockOffsetMs = sample.clockOffsetMs;
+  log(
+    "background",
+    `Clock sync offset=${clockState.clockOffsetMs}ms rtt=${clockState.rttMs}ms`,
+  );
 }
 
 function compensateRoomState(state: RoomState): RoomState {
-  return compensateRoomStateForClock(state, clockOffsetMs);
+  return compensateRoomStateForClock(state, clockState.clockOffsetMs);
 }
 
 function scheduleReconnect(): void {
@@ -915,7 +909,7 @@ async function clearCurrentRoomContext(
   pendingJoinRoomCode = null;
   pendingJoinToken = null;
   pendingJoinRequestSent = false;
-  lastOpenedSharedUrl = null;
+  shareState.lastOpenedSharedUrl = null;
   lastError = errorMessage;
   resetReconnectState();
   resetRoomLifecycleTransientState("leave-room", reason);
@@ -924,17 +918,17 @@ async function clearCurrentRoomContext(
 }
 
 function clearPendingLocalShareTimer(): void {
-  if (pendingLocalShareTimer !== null) {
-    clearTimeout(pendingLocalShareTimer);
-    pendingLocalShareTimer = null;
+  if (shareState.pendingLocalShareTimer !== null) {
+    clearTimeout(shareState.pendingLocalShareTimer);
+    shareState.pendingLocalShareTimer = null;
   }
 }
 
 function clearPendingLocalShare(reason: string): void {
   const cleanup = preparePendingLocalShareCleanup({
-    pendingLocalShareUrl,
-    pendingLocalShareExpiresAt,
-    pendingLocalShareTimer,
+    pendingLocalShareUrl: shareState.pendingLocalShareUrl,
+    pendingLocalShareExpiresAt: shareState.pendingLocalShareExpiresAt,
+    pendingLocalShareTimer: shareState.pendingLocalShareTimer,
   });
   if (!cleanup.hadPendingLocalShare) {
     return;
@@ -944,19 +938,19 @@ function clearPendingLocalShare(reason: string): void {
   }
   log("background", `Cleared pending local share (${reason})`);
   ({
-    pendingLocalShareUrl,
-    pendingLocalShareExpiresAt,
-    pendingLocalShareTimer,
+    pendingLocalShareUrl: shareState.pendingLocalShareUrl,
+    pendingLocalShareExpiresAt: shareState.pendingLocalShareExpiresAt,
+    pendingLocalShareTimer: shareState.pendingLocalShareTimer,
   } = cleanup.nextState);
 }
 
 function expirePendingLocalShareIfNeeded(): void {
   const activePendingShare = getActivePendingLocalShareUrl({
-    pendingLocalShareUrl,
-    pendingLocalShareExpiresAt,
+    pendingLocalShareUrl: shareState.pendingLocalShareUrl,
+    pendingLocalShareExpiresAt: shareState.pendingLocalShareExpiresAt,
     now: Date.now(),
   });
-  if (pendingLocalShareUrl && activePendingShare === null) {
+  if (shareState.pendingLocalShareUrl && activePendingShare === null) {
     clearPendingLocalShare(
       `share confirmation timed out after ${PENDING_LOCAL_SHARE_TIMEOUT_MS}ms`,
     );
@@ -965,13 +959,15 @@ function expirePendingLocalShareIfNeeded(): void {
 
 function setPendingLocalShare(url: string): void {
   clearPendingLocalShareTimer();
-  pendingLocalShareUrl = url;
-  pendingLocalShareExpiresAt = createPendingLocalShareExpiry(Date.now());
+  shareState.pendingLocalShareUrl = url;
+  shareState.pendingLocalShareExpiresAt = createPendingLocalShareExpiry(
+    Date.now(),
+  );
   log(
     "background",
     `Waiting up to ${PENDING_LOCAL_SHARE_TIMEOUT_MS}ms for share confirmation ${url}`,
   );
-  pendingLocalShareTimer = self.setTimeout(() => {
+  shareState.pendingLocalShareTimer = self.setTimeout(() => {
     expirePendingLocalShareIfNeeded();
     notifyAll();
   }, PENDING_LOCAL_SHARE_TIMEOUT_MS);
@@ -998,9 +994,9 @@ function resetRoomLifecycleTransientState(
   reason: string,
 ): void {
   const cleanup = preparePendingLocalShareCleanupForRoomLifecycle(action, {
-    pendingLocalShareUrl,
-    pendingLocalShareExpiresAt,
-    pendingLocalShareTimer,
+    pendingLocalShareUrl: shareState.pendingLocalShareUrl,
+    pendingLocalShareExpiresAt: shareState.pendingLocalShareExpiresAt,
+    pendingLocalShareTimer: shareState.pendingLocalShareTimer,
   });
   if (cleanup.hadPendingLocalShare) {
     if (cleanup.shouldCancelTimer) {
@@ -1008,18 +1004,18 @@ function resetRoomLifecycleTransientState(
     }
     log("background", `Cleared pending local share (${reason})`);
     ({
-      pendingLocalShareUrl,
-      pendingLocalShareExpiresAt,
-      pendingLocalShareTimer,
+      pendingLocalShareUrl: shareState.pendingLocalShareUrl,
+      pendingLocalShareExpiresAt: shareState.pendingLocalShareExpiresAt,
+      pendingLocalShareTimer: shareState.pendingLocalShareTimer,
     } = cleanup.nextState);
   }
-  pendingShareToast = null;
+  shareState.pendingShareToast = null;
   pendingSharedVideo = null;
   pendingSharedPlayback = null;
 }
 
 function log(scope: DebugLogEntry["scope"], message: string): void {
-  logs = appendLog(logs, scope, message);
+  diagnosticsState.logs = appendLog(diagnosticsState.logs, scope, message);
   if (popupPorts.size > 0) {
     broadcastPopupState();
   }
@@ -1044,10 +1040,10 @@ function shouldLogHeartbeatMessage(
 
 function maybeLogPopupStateRequest(): void {
   const key = `${roomCode ?? "none"}|${connected}|${pendingJoinRoomCode ?? "none"}`;
-  if (key === lastPopupStateLogKey) {
+  if (key === diagnosticsState.lastPopupStateLogKey) {
     return;
   }
-  lastPopupStateLogKey = key;
+  diagnosticsState.lastPopupStateLogKey = key;
   log(
     "background",
     `Popup requested state room=${roomCode ?? "none"} connected=${connected} pendingJoin=${pendingJoinRoomCode ?? "none"}`,
@@ -1056,23 +1052,23 @@ function maybeLogPopupStateRequest(): void {
 
 function rememberSharedSourceTab(tabId: number | undefined, url: string): void {
   const next = rememberSharedSource({
-    currentSharedTabId: sharedTabId,
+    currentSharedTabId: shareState.sharedTabId,
     tabId,
     url,
   });
-  sharedTabId = next.sharedTabId;
-  lastOpenedSharedUrl = next.lastOpenedSharedUrl;
+  shareState.sharedTabId = next.sharedTabId;
+  shareState.lastOpenedSharedUrl = next.lastOpenedSharedUrl;
   log("background", `Shared source tab=${tabId ?? "unknown"} url=${url}`);
 }
 
 function isActiveSharedTab(tabId: number | undefined, url: string): boolean {
   const decision = decideSharedPlaybackTab({
     tabId,
-    sharedTabId,
+    sharedTabId: shareState.sharedTabId,
     normalizedRoomUrl: normalizeUrl(roomState?.sharedVideo?.url),
     normalizedPayloadUrl: normalizeUrl(url),
   });
-  sharedTabId = decision.nextSharedTabId;
+  shareState.sharedTabId = decision.nextSharedTabId;
 
   if (decision.reason === "accepted-first") {
     log("background", `Accepted first shared playback tab=${tabId}`);
@@ -1097,25 +1093,34 @@ async function ensureSharedVideoOpen(state: RoomState): Promise<void> {
   }
 
   const targetUrl = state.sharedVideo.url;
-  if (lastOpenedSharedUrl === targetUrl || openingSharedUrl === targetUrl) {
+  if (
+    shareState.lastOpenedSharedUrl === targetUrl ||
+    shareState.openingSharedUrl === targetUrl
+  ) {
     return;
   }
-  openingSharedUrl = targetUrl;
+  shareState.openingSharedUrl = targetUrl;
 
   try {
-    if (sharedTabId !== null) {
+    if (shareState.sharedTabId !== null) {
       try {
-        const existingTab = await chrome.tabs.get(sharedTabId);
+        const existingTab = await chrome.tabs.get(shareState.sharedTabId);
         if (normalizeUrl(existingTab.url) === normalizeUrl(targetUrl)) {
-          lastOpenedSharedUrl = targetUrl;
+          shareState.lastOpenedSharedUrl = targetUrl;
           return;
         }
-        await chrome.tabs.update(sharedTabId, { url: targetUrl, active: true });
-        lastOpenedSharedUrl = targetUrl;
-        log("background", `Reusing tab ${sharedTabId} for shared video`);
+        await chrome.tabs.update(shareState.sharedTabId, {
+          url: targetUrl,
+          active: true,
+        });
+        shareState.lastOpenedSharedUrl = targetUrl;
+        log(
+          "background",
+          `Reusing tab ${shareState.sharedTabId} for shared video`,
+        );
         return;
       } catch {
-        sharedTabId = null;
+        shareState.sharedTabId = null;
       }
     }
 
@@ -1126,23 +1131,23 @@ async function ensureSharedVideoOpen(state: RoomState): Promise<void> {
       (tab) => normalizeUrl(tab.url) === normalizeUrl(targetUrl),
     );
     if (matched?.id !== undefined) {
-      sharedTabId = matched.id;
+      shareState.sharedTabId = matched.id;
       await chrome.tabs.update(matched.id, { active: true });
-      lastOpenedSharedUrl = targetUrl;
+      shareState.lastOpenedSharedUrl = targetUrl;
       log("background", `Activated existing shared tab ${matched.id}`);
       return;
     }
 
     const created = await chrome.tabs.create({ url: targetUrl, active: true });
-    sharedTabId = created.id ?? null;
-    lastOpenedSharedUrl = targetUrl;
+    shareState.sharedTabId = created.id ?? null;
+    shareState.lastOpenedSharedUrl = targetUrl;
     log(
       "background",
-      `Opened shared video in new tab ${sharedTabId ?? "unknown"}`,
+      `Opened shared video in new tab ${shareState.sharedTabId ?? "unknown"}`,
     );
   } finally {
-    if (openingSharedUrl === targetUrl) {
-      openingSharedUrl = null;
+    if (shareState.openingSharedUrl === targetUrl) {
+      shareState.openingSharedUrl = null;
     }
   }
 }
@@ -1160,19 +1165,19 @@ async function openSharedVideoFromPopup(): Promise<void> {
     (tab) => normalizeUrl(tab.url) === normalizeUrl(targetUrl),
   );
   if (matched?.id !== undefined) {
-    sharedTabId = matched.id;
-    lastOpenedSharedUrl = targetUrl;
+    shareState.sharedTabId = matched.id;
+    shareState.lastOpenedSharedUrl = targetUrl;
     await chrome.tabs.update(matched.id, { active: true });
     log("background", `Popup activated shared tab ${matched.id}`);
     return;
   }
 
   const created = await chrome.tabs.create({ url: targetUrl, active: true });
-  sharedTabId = created.id ?? null;
-  lastOpenedSharedUrl = targetUrl;
+  shareState.sharedTabId = created.id ?? null;
+  shareState.lastOpenedSharedUrl = targetUrl;
   log(
     "background",
-    `Popup opened shared video in new tab ${sharedTabId ?? "unknown"}`,
+    `Popup opened shared video in new tab ${shareState.sharedTabId ?? "unknown"}`,
   );
 }
 
@@ -1248,22 +1253,22 @@ function syncRuntimeStateStore() {
       pendingSharedPlayback,
     },
     share: {
-      sharedTabId,
-      lastOpenedSharedUrl,
-      openingSharedUrl,
-      pendingLocalShareUrl,
-      pendingLocalShareExpiresAt,
-      pendingLocalShareTimer,
-      pendingShareToast,
+      sharedTabId: shareState.sharedTabId,
+      lastOpenedSharedUrl: shareState.lastOpenedSharedUrl,
+      openingSharedUrl: shareState.openingSharedUrl,
+      pendingLocalShareUrl: shareState.pendingLocalShareUrl,
+      pendingLocalShareExpiresAt: shareState.pendingLocalShareExpiresAt,
+      pendingLocalShareTimer: shareState.pendingLocalShareTimer,
+      pendingShareToast: shareState.pendingShareToast,
     },
     clock: {
-      clockOffsetMs,
-      rttMs,
-      clockSyncTimer,
+      clockOffsetMs: clockState.clockOffsetMs,
+      rttMs: clockState.rttMs,
+      clockSyncTimer: clockState.clockSyncTimer,
     },
     diagnostics: {
-      logs,
-      lastPopupStateLogKey,
+      logs: diagnosticsState.logs,
+      lastPopupStateLogKey: diagnosticsState.lastPopupStateLogKey,
     },
   });
 }
@@ -1289,7 +1294,7 @@ async function updateServerUrl(nextServerUrl: string): Promise<void> {
     shouldClearPendingLocalShareOnServerUrlChange({
       currentServerUrl: serverUrl,
       nextServerUrl: normalized,
-      pendingLocalShareUrl,
+      pendingLocalShareUrl: shareState.pendingLocalShareUrl,
     })
   ) {
     clearPendingLocalShare("server URL changed");
@@ -1336,7 +1341,7 @@ chrome.runtime.onMessage.addListener(
             "create-room",
             "create room requested",
           );
-          lastOpenedSharedUrl = null;
+          shareState.lastOpenedSharedUrl = null;
           await persistState();
           connect();
           if (connected) {
@@ -1363,7 +1368,7 @@ chrome.runtime.onMessage.addListener(
           memberId = null;
           roomState = null;
           resetRoomLifecycleTransientState("join-room", "join room requested");
-          lastOpenedSharedUrl = null;
+          shareState.lastOpenedSharedUrl = null;
           lastError = null;
           await persistState();
           await connect();
@@ -1401,7 +1406,7 @@ chrome.runtime.onMessage.addListener(
             "leave-room",
             "leave room requested",
           );
-          lastOpenedSharedUrl = null;
+          shareState.lastOpenedSharedUrl = null;
           pendingCreateRoom = false;
           disconnectSocket();
           await persistState();
