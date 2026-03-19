@@ -1,5 +1,16 @@
 import { normalizeBilibiliUrl, type ClientMessage, type ErrorCode, type PlaybackState, type SharedVideo } from "@bili-syncplay/protocol";
 import type { ActiveRoomRegistry } from "./active-room-registry.js";
+import {
+  INTERNAL_SERVER_ERROR_MESSAGE,
+  JOIN_TOKEN_INVALID_MESSAGE,
+  MEMBER_KICKED_REJOIN_MESSAGE,
+  MEMBER_TOKEN_INVALID_MESSAGE,
+  NOT_IN_ROOM_MESSAGE,
+  PLAYBACK_URL_MISMATCH_MESSAGE,
+  ROOM_FULL_MESSAGE,
+  ROOM_HAS_NO_SHARED_VIDEO_MESSAGE,
+  ROOM_NOT_FOUND_MESSAGE
+} from "./messages.js";
 import { createRoomCode, roomStateOf, type RoomStore } from "./room-store.js";
 import type { LogEvent, PersistenceConfig, PersistedRoom, SecurityConfig, Session } from "./types.js";
 
@@ -118,7 +129,7 @@ export function createRoomService(options: {
         result: "rejected",
         reason: "member_token_invalid"
       });
-      throw new RoomServiceError("member_token_invalid", "成员令牌无效。", "member_token_invalid");
+      throw new RoomServiceError("member_token_invalid", MEMBER_TOKEN_INVALID_MESSAGE, "member_token_invalid");
     }
   }
 
@@ -137,7 +148,7 @@ export function createRoomService(options: {
         result: "rejected",
         reason: "not_in_room"
       });
-      throw new RoomServiceError("not_in_room", "请先加入房间。", "not_in_room");
+      throw new RoomServiceError("not_in_room", NOT_IN_ROOM_MESSAGE, "not_in_room");
     }
 
     const persistedRoom = await resolveRoom(session.roomCode);
@@ -152,7 +163,7 @@ export function createRoomService(options: {
         result: "rejected",
         reason: "room_not_found"
       });
-      throw new RoomServiceError("room_not_found", "房间不存在。", "room_not_found");
+      throw new RoomServiceError("room_not_found", ROOM_NOT_FOUND_MESSAGE, "room_not_found");
     }
 
     const activeRoom = activeRooms.getRoom(persistedRoom.code);
@@ -167,7 +178,7 @@ export function createRoomService(options: {
         result: "rejected",
         reason: "member_token_invalid"
       });
-      throw new RoomServiceError("member_token_invalid", "成员令牌无效。", "member_token_invalid");
+      throw new RoomServiceError("member_token_invalid", MEMBER_TOKEN_INVALID_MESSAGE, "member_token_invalid");
     }
 
     requireMemberToken(activeRoom, session, memberToken, messageType);
@@ -299,7 +310,7 @@ export function createRoomService(options: {
           result: "error",
           reason: "room_create_conflict"
         });
-        throw new RoomServiceError("internal_error", "服务器内部错误。", "internal_error");
+        throw new RoomServiceError("internal_error", INTERNAL_SERVER_ERROR_MESSAGE, "internal_error");
       }
 
       const memberToken = generateToken();
@@ -335,7 +346,7 @@ export function createRoomService(options: {
             result: "rejected",
             reason: "join_token_invalid"
           });
-          throw new RoomServiceError("join_token_invalid", "加入码无效。", "join_token_invalid");
+          throw new RoomServiceError("join_token_invalid", JOIN_TOKEN_INVALID_MESSAGE, "join_token_invalid");
         }
 
         if (previousMemberToken && activeRooms.isMemberTokenBlocked(roomCode, previousMemberToken, now())) {
@@ -348,7 +359,7 @@ export function createRoomService(options: {
             result: "rejected",
             reason: "member_kicked"
           });
-          throw new RoomServiceError("join_token_invalid", "你已被管理员移出房间，请重新加入。", "join_token_invalid");
+          throw new RoomServiceError("join_token_invalid", MEMBER_KICKED_REJOIN_MESSAGE, "join_token_invalid");
         }
 
         const activeRoom = activeRooms.getRoom(roomCode);
@@ -356,7 +367,7 @@ export function createRoomService(options: {
           previousMemberToken && activeRoom ? activeRooms.findMemberIdByToken(roomCode, previousMemberToken) : null;
         const activeMemberCount = activeRoom?.members.size ?? 0;
         if (activeMemberCount >= config.maxMembersPerRoom && reconnectMemberId === null) {
-          throw new RoomServiceError("room_full", "房间已满。", "room_full");
+          throw new RoomServiceError("room_full", ROOM_FULL_MESSAGE, "room_full");
         }
 
         const result = await roomStore.updateRoom(roomCode, room.version, {
@@ -370,7 +381,7 @@ export function createRoomService(options: {
       });
 
       if (!joinedRoom) {
-        throw new RoomServiceError("room_not_found", "房间不存在。", "room_not_found");
+        throw new RoomServiceError("room_not_found", ROOM_NOT_FOUND_MESSAGE, "room_not_found");
       }
 
       const reconnectMemberId =
@@ -451,7 +462,7 @@ export function createRoomService(options: {
           result: "error",
           reason: "video_share_conflict"
         });
-        throw new RoomServiceError("internal_error", "服务器内部错误。", "internal_error");
+        throw new RoomServiceError("internal_error", INTERNAL_SERVER_ERROR_MESSAGE, "internal_error");
       }
 
       return { room };
@@ -460,13 +471,13 @@ export function createRoomService(options: {
     async updatePlaybackForSession(session, memberToken, playback) {
       const access = await requireJoinedRoomSession(session, memberToken, "playback:update");
       if (!access.persistedRoom.sharedVideo) {
-        throw new RoomServiceError("invalid_message", "当前房间还没有共享视频。", "invalid_message");
+        throw new RoomServiceError("invalid_message", ROOM_HAS_NO_SHARED_VIDEO_MESSAGE, "invalid_message");
       }
 
       const sharedUrl = normalizeBilibiliUrl(access.persistedRoom.sharedVideo.url);
       const playbackUrl = normalizeBilibiliUrl(playback.url);
       if (!sharedUrl || !playbackUrl || sharedUrl !== playbackUrl) {
-        throw new RoomServiceError("invalid_message", "播放地址与当前共享视频不一致。", "invalid_message");
+        throw new RoomServiceError("invalid_message", PLAYBACK_URL_MISMATCH_MESSAGE, "invalid_message");
       }
 
       const currentTime = now();
@@ -494,7 +505,7 @@ export function createRoomService(options: {
           });
           return { room: null, ignored: true };
         }
-        throw new RoomServiceError("room_not_found", "房间不存在。", "room_not_found");
+        throw new RoomServiceError("room_not_found", ROOM_NOT_FOUND_MESSAGE, "room_not_found");
       }
 
       return { room: result.room, ignored: false };
@@ -510,7 +521,7 @@ export function createRoomService(options: {
       const access = await requireJoinedRoomSession(session, memberToken, messageType);
       const persistedRoom = await resolveRoom(access.persistedRoom.code);
       if (!persistedRoom) {
-        throw new RoomServiceError("room_not_found", "房间不存在。", "room_not_found");
+        throw new RoomServiceError("room_not_found", ROOM_NOT_FOUND_MESSAGE, "room_not_found");
       }
       return roomStateOf(persistedRoom, activeRooms.getRoom(persistedRoom.code));
     },

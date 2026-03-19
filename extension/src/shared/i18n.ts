@@ -58,7 +58,11 @@ const MESSAGES: Record<"zh" | "en", MessageCatalog> = {
     serverErrorRoomNotFound: "房间不存在。",
     serverErrorJoinTokenInvalid: "加入码无效，请检查后重试。",
     serverErrorMemberTokenInvalid: "成员令牌无效，请重新加入房间。",
+    serverErrorNotInRoom: "请先加入房间。",
+    serverErrorRateLimited: "请求过于频繁，请稍后再试。",
+    serverErrorRoomFull: "房间已满。",
     serverErrorInvalidMessage: "当前请求无效。",
+    serverErrorInternal: "服务器内部错误。",
     toastMemberJoined: "{name} 加入了房间",
     toastMemberLeft: "{name} 离开了房间",
     toastStartedPlaying: "{name} 开始播放",
@@ -120,7 +124,11 @@ const MESSAGES: Record<"zh" | "en", MessageCatalog> = {
     serverErrorRoomNotFound: "The room was not found.",
     serverErrorJoinTokenInvalid: "The join token is invalid.",
     serverErrorMemberTokenInvalid: "The member token is invalid. Rejoin the room.",
+    serverErrorNotInRoom: "Join a room first.",
+    serverErrorRateLimited: "Too many requests. Try again later.",
+    serverErrorRoomFull: "Room is full.",
     serverErrorInvalidMessage: "The request was rejected as invalid.",
+    serverErrorInternal: "Internal server error.",
     toastMemberJoined: "{name} joined the room",
     toastMemberLeft: "{name} left the room",
     toastStartedPlaying: "{name} started playback",
@@ -180,8 +188,16 @@ export function localizeServerError(code: ErrorCode, fallbackMessage: string): s
       return t("serverErrorJoinTokenInvalid");
     case "member_token_invalid":
       return t("serverErrorMemberTokenInvalid");
+    case "not_in_room":
+      return t("serverErrorNotInRoom");
+    case "rate_limited":
+      return t("serverErrorRateLimited");
+    case "room_full":
+      return t("serverErrorRoomFull");
     case "invalid_message":
       return t("serverErrorInvalidMessage");
+    case "internal_error":
+      return t("serverErrorInternal");
     default:
       return fallbackMessage;
   }

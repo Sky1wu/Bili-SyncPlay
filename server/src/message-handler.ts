@@ -1,5 +1,6 @@
 import type { ClientMessage } from "@bili-syncplay/protocol";
 import { consumeFixedWindow, consumeTokenBucket, WINDOW_10_SECONDS_MS, WINDOW_MINUTE_MS } from "./rate-limit.js";
+import { MEMBER_TOKEN_INVALID_MESSAGE, RATE_LIMITED_MESSAGE } from "./messages.js";
 import { roomStateOf } from "./room-store.js";
 import { RoomServiceError } from "./room-service.js";
 import type { LogEvent, SendError, SendMessage, Session } from "./types.js";
@@ -111,7 +112,7 @@ export function createMessageHandler(options: {
           const previousRoomCode = session.roomCode;
           if (!consumeFixedWindow(session.rateLimitState.roomCreate, config.rateLimits.roomCreatePerMinute, WINDOW_MINUTE_MS, currentTime)) {
             handleRateLimitedMessage(session, message.type);
-            sendError(session.socket, "rate_limited", "请求过于频繁。");
+            sendError(session.socket, "rate_limited", RATE_LIMITED_MESSAGE);
             return;
           }
 
@@ -143,7 +144,7 @@ export function createMessageHandler(options: {
           const previousRoomCode = session.roomCode;
           if (!consumeFixedWindow(session.rateLimitState.roomJoin, config.rateLimits.roomJoinPerMinute, WINDOW_MINUTE_MS, currentTime)) {
             handleRateLimitedMessage(session, message.type);
-            sendError(session.socket, "rate_limited", "请求过于频繁。");
+            sendError(session.socket, "rate_limited", RATE_LIMITED_MESSAGE);
             return;
           }
 
@@ -178,7 +179,7 @@ export function createMessageHandler(options: {
         }
         case "room:leave": {
           if (message.payload?.memberToken && session.memberToken && message.payload.memberToken !== session.memberToken) {
-            sendError(session.socket, "member_token_invalid", "成员令牌无效。");
+            sendError(session.socket, "member_token_invalid", MEMBER_TOKEN_INVALID_MESSAGE);
             return;
           }
           await leaveRoom(session);
@@ -196,7 +197,7 @@ export function createMessageHandler(options: {
         case "video:share": {
           if (!consumeFixedWindow(session.rateLimitState.videoShare, config.rateLimits.videoSharePer10Seconds, WINDOW_10_SECONDS_MS, currentTime)) {
             handleRateLimitedMessage(session, message.type);
-            sendError(session.socket, "rate_limited", "请求过于频繁。");
+            sendError(session.socket, "rate_limited", RATE_LIMITED_MESSAGE);
             return;
           }
 
@@ -231,7 +232,7 @@ export function createMessageHandler(options: {
         case "sync:request": {
           if (!consumeFixedWindow(session.rateLimitState.syncRequest, config.rateLimits.syncRequestPer10Seconds, WINDOW_10_SECONDS_MS, currentTime)) {
             handleRateLimitedMessage(session, message.type);
-            sendError(session.socket, "rate_limited", "请求过于频繁。");
+            sendError(session.socket, "rate_limited", RATE_LIMITED_MESSAGE);
             return;
           }
 

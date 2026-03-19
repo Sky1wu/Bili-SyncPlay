@@ -409,7 +409,7 @@ test("operator can execute admin actions and query audit logs", async () => {
         const kickedError = await reconnectCollector.next("error");
         assert.deepEqual(kickedError.payload, {
           code: "join_token_invalid",
-          message: "你已被管理员移出房间，请重新加入。"
+          message: "You were removed from the room by an admin. Rejoin the room."
         });
       } finally {
         await closeClient(reconnectingJoiner);
@@ -487,7 +487,7 @@ test("expire room rejects active rooms and only deletes idle rooms", async () =>
       assert.equal(activeExpire.status, 409);
       assert.deepEqual(activeExpire.body.error, {
         code: "room_active",
-        message: "房间仍有在线成员，不能提前过期。请改用关闭房间。"
+        message: "Room still has active members. Close the room instead of expiring it early."
       });
 
       const stillExists = await requestJson(server.httpBaseUrl, `/api/admin/rooms/${roomCode}`, { token });

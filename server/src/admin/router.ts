@@ -1,5 +1,13 @@
 import type { IncomingMessage, ServerResponse } from "node:http";
 import { getBearerToken, getPathSegments, getQueryParams, JsonBodyParseError, readJsonBody, parsePositiveInt } from "./request.js";
+import {
+  ADMIN_AUTH_UNAVAILABLE_MESSAGE,
+  FORBIDDEN_MESSAGE,
+  INTERNAL_SERVER_ERROR_MESSAGE,
+  INVALID_CREDENTIALS_MESSAGE,
+  ROOM_NOT_FOUND_MESSAGE,
+  UNAUTHORIZED_MESSAGE
+} from "../messages.js";
 import { sendError, sendOk } from "./response.js";
 import type { AdminAuthService } from "./auth-service.js";
 import { AdminActionError } from "./action-service.js";
@@ -8,11 +16,11 @@ import type { EventStore } from "./event-store.js";
 import type { AdminRole, AdminSession, AuditLogQuery, EventListQuery, RoomListQuery } from "./types.js";
 
 function unauthorized(response: ServerResponse): void {
-  sendError(response, 401, "unauthorized", "未授权。");
+  sendError(response, 401, "unauthorized", UNAUTHORIZED_MESSAGE);
 }
 
 function forbidden(response: ServerResponse): void {
-  sendError(response, 403, "forbidden", "权限不足。");
+  sendError(response, 403, "forbidden", FORBIDDEN_MESSAGE);
 }
 
 export function createAdminRouter(options: {
@@ -99,7 +107,7 @@ export function createAdminRouter(options: {
 
         if (request.method === "POST" && pathname === "/api/admin/auth/login") {
           if (!options.authService) {
-            sendError(response, 503, "admin_auth_unavailable", "管理后台认证未配置。");
+            sendError(response, 503, "admin_auth_unavailable", ADMIN_AUTH_UNAVAILABLE_MESSAGE);
             return true;
           }
           const body = await readJsonBody<{ username?: string; password?: string }>(request);
@@ -117,7 +125,7 @@ export function createAdminRouter(options: {
               }
             });
           } catch {
-            sendError(response, 401, "invalid_credentials", "用户名或密码错误。");
+            sendError(response, 401, "invalid_credentials", INVALID_CREDENTIALS_MESSAGE);
           }
           return true;
         }
@@ -194,7 +202,7 @@ export function createAdminRouter(options: {
           }
           const detail = await options.getRoomDetail(segments[3] ?? "");
           if (!detail) {
-            sendError(response, 404, "room_not_found", "房间不存在。");
+            sendError(response, 404, "room_not_found", ROOM_NOT_FOUND_MESSAGE);
             return true;
           }
           sendOk(response, detail);
@@ -340,7 +348,7 @@ export function createAdminRouter(options: {
           sendError(response, error.statusCode, error.code, error.message);
           return true;
         }
-        sendError(response, 500, "internal_error", "服务器内部错误。");
+        sendError(response, 500, "internal_error", INTERNAL_SERVER_ERROR_MESSAGE);
         return true;
       }
     }

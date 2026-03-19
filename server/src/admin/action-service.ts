@@ -1,6 +1,13 @@
 import type { AuditLogService } from "./audit-log.js";
 import type { AdminSession } from "./types.js";
 import type { RuntimeRegistry } from "./runtime-registry.js";
+import {
+  MEMBER_NOT_FOUND_MESSAGE,
+  ROOM_ACTIVE_MESSAGE,
+  ROOM_NOT_FOUND_MESSAGE,
+  ROOM_VERSION_CONFLICT_MESSAGE,
+  SESSION_NOT_FOUND_MESSAGE
+} from "../messages.js";
 import type { LogEvent, PersistedRoom, Session } from "../types.js";
 import type { RoomStore, RoomUpdateResult } from "../room-store.js";
 
@@ -33,7 +40,7 @@ export function createAdminActionService(options: {
   async function getRoomOrThrow(roomCode: string): Promise<PersistedRoom> {
     const room = await options.roomStore.getRoom(roomCode);
     if (!room) {
-      throw new AdminActionError(404, "room_not_found", "房间不存在。");
+      throw new AdminActionError(404, "room_not_found", ROOM_NOT_FOUND_MESSAGE);
     }
     return room;
   }
@@ -49,10 +56,10 @@ export function createAdminActionService(options: {
         return result.room;
       }
       if (result.reason === "not_found") {
-        throw new AdminActionError(404, "room_not_found", "房间不存在。");
+        throw new AdminActionError(404, "room_not_found", ROOM_NOT_FOUND_MESSAGE);
       }
     }
-    throw new AdminActionError(409, "room_version_conflict", "房间状态更新冲突。");
+    throw new AdminActionError(409, "room_version_conflict", ROOM_VERSION_CONFLICT_MESSAGE);
   }
 
   function writeAudit(
@@ -101,7 +108,7 @@ export function createAdminActionService(options: {
     async expireRoom(actor: AdminSession, roomCode: string, reason?: string) {
       const sessions = options.runtimeRegistry.listSessionsByRoom(roomCode);
       if (sessions.length > 0) {
-        throw new AdminActionError(409, "room_active", "房间仍有在线成员，不能提前过期。请改用关闭房间。");
+        throw new AdminActionError(409, "room_active", ROOM_ACTIVE_MESSAGE);
       }
 
       await getRoomOrThrow(roomCode);
@@ -146,7 +153,7 @@ export function createAdminActionService(options: {
       await getRoomOrThrow(roomCode);
       const session = options.runtimeRegistry.listSessionsByRoom(roomCode).find((entry) => entry.memberId === memberId);
       if (!session) {
-        throw new AdminActionError(404, "member_not_found", "成员不存在。");
+        throw new AdminActionError(404, "member_not_found", MEMBER_NOT_FOUND_MESSAGE);
       }
       if (session.memberToken) {
         options.blockMemberToken(roomCode, session.memberToken, now() + KICK_REJOIN_BLOCK_MS);
@@ -170,7 +177,7 @@ export function createAdminActionService(options: {
     async disconnectSession(actor: AdminSession, sessionId: string, reason?: string) {
       const session = options.runtimeRegistry.getSession(sessionId);
       if (!session) {
-        throw new AdminActionError(404, "session_not_found", "会话不存在。");
+        throw new AdminActionError(404, "session_not_found", SESSION_NOT_FOUND_MESSAGE);
       }
       options.disconnectSessionSocket(session, "Admin disconnected session");
       options.logEvent("admin_session_disconnected", {

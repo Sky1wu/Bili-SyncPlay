@@ -396,7 +396,7 @@ test("rejects room:join with an invalid joinToken", async () => {
         type: "error",
         payload: {
           code: "join_token_invalid",
-          message: "加入码无效。"
+          message: "Join token is invalid."
         }
       });
     } finally {
@@ -435,7 +435,7 @@ test("rejects room messages when the memberToken is missing or invalid", async (
         type: "error",
         payload: {
           code: "member_token_invalid",
-          message: "成员令牌无效。"
+          message: "Member token is invalid."
         }
       });
     } finally {
@@ -675,7 +675,7 @@ test("rate limits room:create and room:join requests", async () => {
         type: "error",
         payload: {
           code: "rate_limited",
-          message: "请求过于频繁。"
+          message: "Too many requests."
         }
       });
 
@@ -706,7 +706,7 @@ test("rate limits room:create and room:join requests", async () => {
         type: "error",
         payload: {
           code: "rate_limited",
-          message: "请求过于频繁。"
+          message: "Too many requests."
         }
       });
     } finally {
@@ -928,7 +928,7 @@ test("restores persisted room state across server restart and issues a new membe
         type: "error",
         payload: {
           code: "member_token_invalid",
-          message: "成员令牌无效。"
+          message: "Member token is invalid."
         }
       });
     } finally {
@@ -1050,7 +1050,7 @@ test("keeps empty rooms during TTL and rejects joins after expiry", async () => 
         type: "error",
         payload: {
           code: "room_not_found",
-          message: "房间不存在。"
+          message: "Room not found."
         }
       });
     } finally {

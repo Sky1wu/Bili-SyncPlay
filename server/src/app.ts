@@ -24,12 +24,18 @@ import { createRoomService } from "./room-service.js";
 import { createRedisRoomStore } from "./redis-room-store.js";
 import { createSecurityPolicy } from "./security.js";
 import type { AdminConfig, AdminUiConfig, LogEvent, PersistenceConfig, SecurityConfig, Session } from "./types.js";
+import {
+  INTERNAL_SERVER_ERROR_MESSAGE,
+  INVALID_CLIENT_MESSAGE_MESSAGE,
+  INVALID_JSON_MESSAGE
+} from "./messages.js";
 
 export type { AdminConfig, AdminUiConfig, PersistenceConfig, SecurityConfig } from "./types.js";
-
-export const INVALID_JSON_MESSAGE = "无效的 JSON 消息。";
-export const INVALID_CLIENT_MESSAGE_MESSAGE = "无效的客户端消息体。";
-export const INTERNAL_SERVER_ERROR_MESSAGE = "服务器内部错误。";
+export {
+  INTERNAL_SERVER_ERROR_MESSAGE,
+  INVALID_CLIENT_MESSAGE_MESSAGE,
+  INVALID_JSON_MESSAGE
+} from "./messages.js";
 
 const CLOSE_CODE_POLICY_VIOLATION = 1008;
 

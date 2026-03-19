@@ -1,7 +1,8 @@
 import type { IncomingMessage } from "node:http";
+import { INVALID_JSON_REQUEST_BODY_MESSAGE } from "../messages.js";
 
 export class JsonBodyParseError extends Error {
-  constructor(message = "无效的 JSON 请求体。") {
+  constructor(message = INVALID_JSON_REQUEST_BODY_MESSAGE) {
     super(message);
   }
 }
