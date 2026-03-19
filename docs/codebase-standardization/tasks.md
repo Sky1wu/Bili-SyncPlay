@@ -76,6 +76,7 @@
 - T09 第一阶段已落地：新增 `extension/src/content/navigation-controller.ts`，将页面 URL 轮询、房间内导航后的初始状态重置、自动暂停守卫与重试 hydration 触发从 `content/index.ts` 抽离，主入口继续收敛为 controller 装配与消息绑定层
 - T09 第二阶段已落地：新增 `extension/src/content/playback-binding-controller.ts`，将视频元素轮询绑定、本地播放事件广播触发、非共享页保护与初始 hydration 等待守卫从 `content/index.ts` 抽离，入口文件不再直接承载大段视频事件副作用
 - T09 第三阶段已落地：`content/index.ts` 已移除对同步主流程的中转包装函数，房间同步、播放广播、hydration 重试与导航/房间 controller 现已直接装配 `sync-controller` 与 `room-state-controller` 能力，主入口已基本退化为初始化与依赖装配层
+- T10 第一阶段已落地：新增 `extension/src/popup/popup-template.ts` 与 `extension/src/popup/popup-view.ts`，将 popup 首屏 HTML 模板与 DOM refs 收集从 `popup/index.ts` 抽离，主入口已不再直接承载大段模板字符串与节点查询逻辑
 
 ## T01 建立统一 lint/format 工具链
 
