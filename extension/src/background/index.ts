@@ -9,9 +9,7 @@ import {
 } from "@bili-syncplay/protocol";
 import type {
   BackgroundToContentMessage,
-  BackgroundToPopupMessage,
   ContentToBackgroundMessage,
-  DebugLogEntry,
   PopupToBackgroundMessage,
 } from "../shared/messages";
 import {
@@ -30,10 +28,10 @@ import {
   updateClockSample,
 } from "./clock-sync";
 import { notifyContentTabs } from "./content-bus";
-import { appendLog, formatContentLogSource } from "./logger";
 import { bootstrapBackground } from "./bootstrap";
-import { createPopupStateSnapshot } from "./popup-bus";
+import { createDiagnosticsController } from "./diagnostics-controller";
 import { flushPendingShare as getPendingShareFlushPlan } from "./room-manager";
+import { createPopupStateController } from "./popup-state-controller";
 import { createRoomSessionController } from "./room-session-controller";
 import {
   BILIBILI_VIDEO_URL_PATTERNS,
@@ -48,10 +46,7 @@ import {
   loadPersistedBackgroundSnapshot,
   persistBackgroundState,
 } from "./storage-manager";
-import {
-  decideSharedPlaybackTab,
-  rememberSharedSource,
-} from "./tab-coordinator";
+import { createTabController } from "./tab-controller";
 import { t } from "../shared/i18n";
 
 const stateStore = createBackgroundStateStore();
@@ -60,15 +55,28 @@ const roomSessionState = stateStore.getState().room;
 const shareState = stateStore.getState().share;
 const clockState = stateStore.getState().clock;
 const diagnosticsState = stateStore.getState().diagnostics;
-const HEARTBEAT_LOG_INTERVAL_MS = 10000;
-const outgoingMessageLogState = new Map<string, number>();
-const incomingMessageLogState = new Map<string, number>();
-const popupPorts = new Set<chrome.runtime.Port>();
+const diagnosticsController = createDiagnosticsController({
+  diagnosticsState,
+  roomSessionState,
+  connectionState,
+  onLog: () => {
+    if (popupStateController?.hasPopupConnections()) {
+      popupStateController.broadcastPopupState();
+    }
+  },
+});
+const tabController = createTabController({
+  roomSessionState,
+  shareState,
+  log: (scope, message) => diagnosticsController.log(scope, message),
+  normalizeUrl,
+  bilibiliVideoUrlPatterns: BILIBILI_VIDEO_URL_PATTERNS,
+});
 const roomSessionController = createRoomSessionController({
   connectionState,
   roomSessionState,
   shareState,
-  log,
+  log: (scope, message) => diagnosticsController.log(scope, message),
   notifyAll,
   persistState,
   sendToServer,
@@ -77,7 +85,7 @@ const roomSessionController = createRoomSessionController({
   resetReconnectState: () => socketController.resetReconnectState(),
   resetRoomLifecycleTransientState,
   flushPendingShare,
-  ensureSharedVideoOpen,
+  ensureSharedVideoOpen: () => tabController.ensureSharedVideoOpen(),
   notifyContentScripts,
   compensateRoomState,
   clearPendingLocalShare,
@@ -90,7 +98,7 @@ const socketController = createSocketController({
   connectionState,
   roomSessionState,
   maxReconnectAttempts: MAX_RECONNECT_ATTEMPTS,
-  log,
+  log: (scope, message) => diagnosticsController.log(scope, message),
   logInvalidServerUrl,
   logConnectionProbeFailure,
   notifyAll,
@@ -115,6 +123,17 @@ const socketController = createSocketController({
     t("popupErrorReconnectFailed", {
       attempts: MAX_RECONNECT_ATTEMPTS,
     }),
+});
+const popupStateController = createPopupStateController({
+  createState: syncRuntimeStateStore,
+  getRetryInMs: () => socketController.getRetryInMs(),
+  retryAttemptMax: MAX_RECONNECT_ATTEMPTS,
+  notifyContentScripts,
+  getSyncStatus: () => ({
+    roomCode: roomSessionState.roomCode,
+    connected: connectionState.connected,
+    memberId: roomSessionState.memberId,
+  }),
 });
 
 bootstrap().catch(console.error);
@@ -203,7 +222,10 @@ function formatAdminSessionResetReason(reason: string): string {
 }
 
 function logInvalidServerUrl(context: string, invalidUrl: string): void {
-  log("background", `Invalid server URL (${context}): ${invalidUrl}`);
+  diagnosticsController.log(
+    "background",
+    `Invalid server URL (${context}): ${invalidUrl}`,
+  );
 }
 
 function logConnectionProbeFailure(details: {
@@ -226,11 +248,11 @@ function logConnectionProbeFailure(details: {
   if (details.readyState !== undefined && details.readyState !== null) {
     parts.push(`readyState=${details.readyState}`);
   }
-  log("background", parts.join(" "));
+  diagnosticsController.log("background", parts.join(" "));
 }
 
 function logServerError(code: string, message: string): void {
-  log(
+  diagnosticsController.log(
     "server",
     `Received server error code=${code} message=${JSON.stringify(message)}`,
   );
@@ -241,19 +263,22 @@ function sendToServer(message: ClientMessage): void {
     !connectionState.socket ||
     connectionState.socket.readyState !== WebSocket.OPEN
   ) {
-    log("background", `Socket not ready for ${message.type}`);
+    diagnosticsController.log(
+      "background",
+      `Socket not ready for ${message.type}`,
+    );
     void socketController.connect();
     return;
   }
-  if (shouldLogHeartbeatMessage(outgoingMessageLogState, message.type)) {
-    log("background", `-> ${message.type}`);
+  if (diagnosticsController.shouldLogOutgoingMessage(message.type)) {
+    diagnosticsController.log("background", `-> ${message.type}`);
   }
   connectionState.socket.send(JSON.stringify(message));
 }
 
 async function handleServerMessage(message: ServerMessage): Promise<void> {
-  if (shouldLogHeartbeatMessage(incomingMessageLogState, message.type)) {
-    log("server", `<- ${message.type}`);
+  if (diagnosticsController.shouldLogIncomingMessage(message.type)) {
+    diagnosticsController.log("server", `<- ${message.type}`);
   }
   if (message.type !== "sync:pong") {
     await roomSessionController.handleServerMessage(message);
@@ -351,7 +376,7 @@ async function queueOrSendSharedVideo(
   payload: { video: SharedVideo; playback: PlaybackState | null },
   tabId: number | null,
 ): Promise<void> {
-  rememberSharedSourceTab(tabId ?? undefined, payload.video.url);
+  tabController.rememberSharedSourceTab(tabId ?? undefined, payload.video.url);
   setPendingLocalShare(payload.video.url);
 
   if (connectionState.connected && roomSessionState.roomCode) {
@@ -454,7 +479,7 @@ function updateClockOffset(
   });
   clockState.rttMs = sample.rttMs;
   clockState.clockOffsetMs = sample.clockOffsetMs;
-  log(
+  diagnosticsController.log(
     "background",
     `Clock sync offset=${clockState.clockOffsetMs}ms rtt=${clockState.rttMs}ms`,
   );
@@ -483,7 +508,10 @@ function clearPendingLocalShare(reason: string): void {
   if (cleanup.shouldCancelTimer) {
     clearPendingLocalShareTimer();
   }
-  log("background", `Cleared pending local share (${reason})`);
+  diagnosticsController.log(
+    "background",
+    `Cleared pending local share (${reason})`,
+  );
   ({
     pendingLocalShareUrl: shareState.pendingLocalShareUrl,
     pendingLocalShareExpiresAt: shareState.pendingLocalShareExpiresAt,
@@ -510,7 +538,7 @@ function setPendingLocalShare(url: string): void {
   shareState.pendingLocalShareExpiresAt = createPendingLocalShareExpiry(
     Date.now(),
   );
-  log(
+  diagnosticsController.log(
     "background",
     `Waiting up to ${PENDING_LOCAL_SHARE_TIMEOUT_MS}ms for share confirmation ${url}`,
   );
@@ -549,7 +577,10 @@ function resetRoomLifecycleTransientState(
     if (cleanup.shouldCancelTimer) {
       clearPendingLocalShareTimer();
     }
-    log("background", `Cleared pending local share (${reason})`);
+    diagnosticsController.log(
+      "background",
+      `Cleared pending local share (${reason})`,
+    );
     ({
       pendingLocalShareUrl: shareState.pendingLocalShareUrl,
       pendingLocalShareExpiresAt: shareState.pendingLocalShareExpiresAt,
@@ -559,175 +590,6 @@ function resetRoomLifecycleTransientState(
   shareState.pendingShareToast = null;
   roomSessionState.pendingSharedVideo = null;
   roomSessionState.pendingSharedPlayback = null;
-}
-
-function log(scope: DebugLogEntry["scope"], message: string): void {
-  diagnosticsState.logs = appendLog(diagnosticsState.logs, scope, message);
-  if (popupPorts.size > 0) {
-    broadcastPopupState();
-  }
-}
-
-function shouldLogHeartbeatMessage(
-  logState: Map<string, number>,
-  type: string,
-  now = Date.now(),
-): boolean {
-  if (type !== "playback:update" && type !== "room:state") {
-    return true;
-  }
-
-  const lastAt = logState.get(type) ?? 0;
-  if (now - lastAt < HEARTBEAT_LOG_INTERVAL_MS) {
-    return false;
-  }
-  logState.set(type, now);
-  return true;
-}
-
-function maybeLogPopupStateRequest(): void {
-  const key = `${roomSessionState.roomCode ?? "none"}|${connectionState.connected}|${roomSessionState.pendingJoinRoomCode ?? "none"}`;
-  if (key === diagnosticsState.lastPopupStateLogKey) {
-    return;
-  }
-  diagnosticsState.lastPopupStateLogKey = key;
-  log(
-    "background",
-    `Popup requested state room=${roomSessionState.roomCode ?? "none"} connected=${connectionState.connected} pendingJoin=${roomSessionState.pendingJoinRoomCode ?? "none"}`,
-  );
-}
-
-function rememberSharedSourceTab(tabId: number | undefined, url: string): void {
-  const next = rememberSharedSource({
-    currentSharedTabId: shareState.sharedTabId,
-    tabId,
-    url,
-  });
-  shareState.sharedTabId = next.sharedTabId;
-  shareState.lastOpenedSharedUrl = next.lastOpenedSharedUrl;
-  log("background", `Shared source tab=${tabId ?? "unknown"} url=${url}`);
-}
-
-function isActiveSharedTab(tabId: number | undefined, url: string): boolean {
-  const decision = decideSharedPlaybackTab({
-    tabId,
-    sharedTabId: shareState.sharedTabId,
-    normalizedRoomUrl: normalizeUrl(
-      roomSessionState.roomState?.sharedVideo?.url,
-    ),
-    normalizedPayloadUrl: normalizeUrl(url),
-  });
-  shareState.sharedTabId = decision.nextSharedTabId;
-
-  if (decision.reason === "accepted-first") {
-    log("background", `Accepted first shared playback tab=${tabId}`);
-  } else if (decision.reason === "room-mismatch") {
-    log(
-      "background",
-      `Ignored playback from shared tab ${tabId} because url no longer matches room`,
-    );
-  } else if (
-    decision.reason === "ignored-non-shared" &&
-    decision.nextSharedTabId !== null
-  ) {
-    log("background", `Ignored playback from non-shared tab ${tabId}`);
-  }
-
-  return decision.accepted;
-}
-
-async function ensureSharedVideoOpen(state: RoomState): Promise<void> {
-  if (!state.sharedVideo?.url) {
-    return;
-  }
-
-  const targetUrl = state.sharedVideo.url;
-  if (
-    shareState.lastOpenedSharedUrl === targetUrl ||
-    shareState.openingSharedUrl === targetUrl
-  ) {
-    return;
-  }
-  shareState.openingSharedUrl = targetUrl;
-
-  try {
-    if (shareState.sharedTabId !== null) {
-      try {
-        const existingTab = await chrome.tabs.get(shareState.sharedTabId);
-        if (normalizeUrl(existingTab.url) === normalizeUrl(targetUrl)) {
-          shareState.lastOpenedSharedUrl = targetUrl;
-          return;
-        }
-        await chrome.tabs.update(shareState.sharedTabId, {
-          url: targetUrl,
-          active: true,
-        });
-        shareState.lastOpenedSharedUrl = targetUrl;
-        log(
-          "background",
-          `Reusing tab ${shareState.sharedTabId} for shared video`,
-        );
-        return;
-      } catch {
-        shareState.sharedTabId = null;
-      }
-    }
-
-    const existingTabs = await chrome.tabs.query({
-      url: BILIBILI_VIDEO_URL_PATTERNS,
-    });
-    const matched = existingTabs.find(
-      (tab) => normalizeUrl(tab.url) === normalizeUrl(targetUrl),
-    );
-    if (matched?.id !== undefined) {
-      shareState.sharedTabId = matched.id;
-      await chrome.tabs.update(matched.id, { active: true });
-      shareState.lastOpenedSharedUrl = targetUrl;
-      log("background", `Activated existing shared tab ${matched.id}`);
-      return;
-    }
-
-    const created = await chrome.tabs.create({ url: targetUrl, active: true });
-    shareState.sharedTabId = created.id ?? null;
-    shareState.lastOpenedSharedUrl = targetUrl;
-    log(
-      "background",
-      `Opened shared video in new tab ${shareState.sharedTabId ?? "unknown"}`,
-    );
-  } finally {
-    if (shareState.openingSharedUrl === targetUrl) {
-      shareState.openingSharedUrl = null;
-    }
-  }
-}
-
-async function openSharedVideoFromPopup(): Promise<void> {
-  const targetUrl = roomSessionState.roomState?.sharedVideo?.url;
-  if (!targetUrl) {
-    return;
-  }
-
-  const existingTabs = await chrome.tabs.query({
-    url: BILIBILI_VIDEO_URL_PATTERNS,
-  });
-  const matched = existingTabs.find(
-    (tab) => normalizeUrl(tab.url) === normalizeUrl(targetUrl),
-  );
-  if (matched?.id !== undefined) {
-    shareState.sharedTabId = matched.id;
-    shareState.lastOpenedSharedUrl = targetUrl;
-    await chrome.tabs.update(matched.id, { active: true });
-    log("background", `Popup activated shared tab ${matched.id}`);
-    return;
-  }
-
-  const created = await chrome.tabs.create({ url: targetUrl, active: true });
-  shareState.sharedTabId = created.id ?? null;
-  shareState.lastOpenedSharedUrl = targetUrl;
-  log(
-    "background",
-    `Popup opened shared video in new tab ${shareState.sharedTabId ?? "unknown"}`,
-  );
 }
 
 function normalizeUrl(url: string | undefined | null): string | null {
@@ -740,35 +602,8 @@ async function notifyContentScripts(
   await notifyContentTabs(message, BILIBILI_VIDEO_URL_PATTERNS);
 }
 
-function popupState(): BackgroundToPopupMessage {
-  return createPopupStateSnapshot({
-    state: syncRuntimeStateStore(),
-    retryInMs: socketController.getRetryInMs(),
-    retryAttemptMax: MAX_RECONNECT_ATTEMPTS,
-  });
-}
-
-function broadcastPopupState(): void {
-  const snapshot = popupState();
-  for (const port of popupPorts) {
-    try {
-      port.postMessage(snapshot);
-    } catch {
-      popupPorts.delete(port);
-    }
-  }
-}
-
 function notifyAll(): void {
-  broadcastPopupState();
-  void notifyContentScripts({
-    type: "background:sync-status",
-    payload: {
-      roomCode: roomSessionState.roomCode,
-      connected: connectionState.connected,
-      memberId: roomSessionState.memberId,
-    },
-  });
+  popupStateController.notifyAll();
 }
 
 async function persistState(): Promise<void> {
@@ -852,7 +687,10 @@ async function updateServerUrl(nextServerUrl: string): Promise<void> {
   connectionState.serverUrl = normalized;
   connectionState.lastError = null;
   await persistState();
-  log("background", `Server URL updated to ${connectionState.serverUrl}`);
+  diagnosticsController.log(
+    "background",
+    `Server URL updated to ${connectionState.serverUrl}`,
+  );
 
   if (connectionState.socket) {
     socketController.resetReconnectState();
@@ -879,7 +717,7 @@ chrome.runtime.onMessage.addListener(
       switch (message.type) {
         case "popup:create-room":
           await roomSessionController.requestCreateRoom();
-          sendResponse(popupState());
+          sendResponse(popupStateController.popupState());
           return;
         case "popup:join-room":
           await roomSessionController.requestJoinRoom(
@@ -887,26 +725,26 @@ chrome.runtime.onMessage.addListener(
             message.joinToken,
           );
           if (!connectionState.connected) {
-            sendResponse(popupState());
+            sendResponse(popupStateController.popupState());
             return;
           }
           await roomSessionController.waitForJoinAttemptResult();
-          sendResponse(popupState());
+          sendResponse(popupStateController.popupState());
           return;
         case "popup:leave-room":
           await roomSessionController.requestLeaveRoom();
-          sendResponse(popupState());
+          sendResponse(popupStateController.popupState());
           return;
         case "popup:debug-log":
-          log("popup", message.message);
+          diagnosticsController.log("popup", message.message);
           sendResponse({ ok: true });
           return;
         case "popup:get-state":
-          maybeLogPopupStateRequest();
+          diagnosticsController.maybeLogPopupStateRequest();
           if (roomSessionState.roomCode && !connectionState.connected) {
             void socketController.connect();
           }
-          sendResponse(popupState());
+          sendResponse(popupStateController.popupState());
           return;
         case "popup:get-active-video": {
           const response = await getActiveVideoPayload();
@@ -936,12 +774,12 @@ chrome.runtime.onMessage.addListener(
           return;
         }
         case "popup:open-shared-video":
-          await openSharedVideoFromPopup();
+          await tabController.openSharedVideoFromPopup();
           sendResponse({ ok: true });
           return;
         case "popup:set-server-url":
           await updateServerUrl(message.serverUrl);
-          sendResponse(popupState());
+          sendResponse(popupStateController.popupState());
           return;
         case "content:report-user":
           if (roomSessionState.displayName !== message.payload.displayName) {
@@ -967,7 +805,7 @@ chrome.runtime.onMessage.addListener(
           if (
             connectionState.connected &&
             roomSessionState.memberToken &&
-            isActiveSharedTab(sender.tab?.id, message.payload.url)
+            tabController.isActiveSharedTab(sender.tab?.id, message.payload.url)
           ) {
             sendToServer({
               type: "playback:update",
@@ -1013,9 +851,9 @@ chrome.runtime.onMessage.addListener(
           );
           return;
         case "content:debug-log":
-          log(
+          diagnosticsController.log(
             "content",
-            `[${formatContentLogSource(sender)}] ${message.payload.message}`,
+            `[${diagnosticsController.formatContentSource(sender)}] ${message.payload.message}`,
           );
           sendResponse({ ok: true });
           return;
@@ -1032,17 +870,5 @@ chrome.runtime.onConnect.addListener((port) => {
   if (port.name !== "popup-state") {
     return;
   }
-
-  popupPorts.add(port);
-  port.postMessage({
-    type: "background:popup-connected",
-    payload: {
-      connectedAt: Date.now(),
-    },
-  } satisfies BackgroundToPopupMessage);
-  port.postMessage(popupState());
-
-  port.onDisconnect.addListener(() => {
-    popupPorts.delete(port);
-  });
+  popupStateController.attachPort(port);
 });
