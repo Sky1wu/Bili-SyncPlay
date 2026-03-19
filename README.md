@@ -4,6 +4,10 @@
 
 Bili-SyncPlay is a Chrome extension plus a WebSocket server for synchronized Bilibili watching. Users can create or join a room, share the current video, and keep playback, pause, seek, and playback rate in sync across participants.
 
+Chrome Web Store:
+
+- [Bili-SyncPlay](https://chromewebstore.google.com/detail/bili-syncplay/lbmckljnginagfabglpfdepofoglfdkj)
+
 It supports the full local workflow:
 
 - load the unpacked extension in Chrome or Edge
@@ -25,6 +29,10 @@ This repository is a monorepo:
 - Recommended production server URL: `wss://<your-domain>`
 
 ## Quick Start
+
+If you want to use the published extension directly, install it from the Chrome Web Store first:
+
+- [Bili-SyncPlay on Chrome Web Store](https://chromewebstore.google.com/detail/bili-syncplay/lbmckljnginagfabglpfdepofoglfdkj)
 
 ### 1. Install and build
 
