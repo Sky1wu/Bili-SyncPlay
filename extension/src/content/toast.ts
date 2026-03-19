@@ -1,5 +1,6 @@
 import type { PlaybackState, RoomState } from "@bili-syncplay/protocol";
 import type { SharedVideoToastPayload } from "../shared/messages";
+import { t } from "../shared/i18n";
 
 const SEEK_TOAST_THRESHOLD_SECONDS = 1.5;
 const SEEK_START_TOAST_SUPPRESSION_MS = 1600;
@@ -167,13 +168,13 @@ export function getRoomStateToastMessages(args: {
 
   for (const [memberId, memberName] of currentMembers) {
     if (!previousMembers.has(memberId) && memberId !== args.localMemberId) {
-      messages.push(`${memberName} 加入了房间`);
+      messages.push(t("toastMemberJoined", { name: memberName }));
     }
   }
 
   for (const [memberId, memberName] of previousMembers) {
     if (!currentMembers.has(memberId) && memberId !== args.localMemberId) {
-      messages.push(`${memberName} 离开了房间`);
+      messages.push(t("toastMemberLeft", { name: memberName }));
     }
   }
 
@@ -203,7 +204,11 @@ export function getRoomStateToastMessages(args: {
   ) {
     const actorName = getMemberName(args.nextState, args.nextState.playback.actorId);
     if (actorName) {
-      messages.push(args.nextState.playback.playState === "playing" ? `${actorName} 开始播放` : `${actorName} 暂停了视频`);
+      messages.push(
+        args.nextState.playback.playState === "playing"
+          ? t("toastStartedPlaying", { name: actorName })
+          : t("toastPausedVideo", { name: actorName })
+      );
     }
   }
 
@@ -216,7 +221,12 @@ export function getRoomStateToastMessages(args: {
   ) {
     const actorName = getMemberName(args.nextState, args.nextState.playback.actorId);
     if (actorName) {
-      messages.push(`${actorName} 切换到 ${formatPlaybackRate(args.nextState.playback.playbackRate)}`);
+      messages.push(
+        t("toastSwitchedRate", {
+          name: actorName,
+          rate: formatPlaybackRate(args.nextState.playback.playbackRate)
+        })
+      );
     }
   }
 
@@ -224,7 +234,12 @@ export function getRoomStateToastMessages(args: {
     const actorName = getMemberName(args.nextState, args.nextState.playback.actorId);
     if (actorName) {
       nextSeekToastByActor.set(args.nextState.playback.actorId, args.now);
-      messages.push(`${actorName} 跳转到 ${formatToastTime(args.nextState.playback.currentTime)}`);
+      messages.push(
+        t("toastSeekedTo", {
+          name: actorName,
+          time: formatToastTime(args.nextState.playback.currentTime)
+        })
+      );
     }
   }
 
@@ -265,7 +280,7 @@ export function getSharedVideoToastMessage(args: {
   }
 
   return {
-    message: `${actorName} 共享了新视频：${args.toast.title}`,
+    message: t("toastSharedNewVideo", { name: actorName, title: args.toast.title }),
     nextSharedVideoToastKey: args.toast.key
   };
 }

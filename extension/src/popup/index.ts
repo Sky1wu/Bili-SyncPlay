@@ -9,6 +9,7 @@ import {
 } from "./server-url-draft";
 import { DEFAULT_SERVER_URL } from "../background/runtime-state";
 import { applyIncomingPopupState, createPopupStateSyncState } from "./state-sync";
+import { getDocumentLanguage, getUiLanguage, t } from "../shared/i18n";
 
 const app = document.getElementById("app");
 
@@ -63,22 +64,25 @@ async function init(): Promise<void> {
     return;
   }
 
+  document.documentElement.lang = getDocumentLanguage();
+  document.title = t("popupTitle");
+
   app.innerHTML = `
     <div class="card">
       <div class="hero">
         <div class="hero-copy">
-          <h1 class="title">哔哩同步放映</h1>
+          <h1 class="title">${escapeHtml(t("popupTitle"))}</h1>
         </div>
         <div class="hero-badge">LIVE</div>
       </div>
 
       <div class="grid">
         <div class="metric">
-          <span class="metric-label">连接状态</span>
+          <span class="metric-label">${escapeHtml(t("metricConnectionStatus"))}</span>
           <span class="metric-value" id="server-status">-</span>
         </div>
         <div class="metric">
-          <span class="metric-label">房间人数</span>
+          <span class="metric-label">${escapeHtml(t("metricRoomMembers"))}</span>
           <span class="metric-value" id="members-status">-</span>
         </div>
       </div>
@@ -87,7 +91,7 @@ async function init(): Promise<void> {
         <div class="metric room-code-metric" id="room-panel-joined">
           <div class="room-code-header">
             <div>
-              <span class="metric-label">当前房间码</span>
+              <span class="metric-label">${escapeHtml(t("metricCurrentRoomCode"))}</span>
               <span class="metric-value room-code-value" id="room-status">-</span>
             </div>
             <div class="room-code-actions">
@@ -101,39 +105,39 @@ async function init(): Promise<void> {
                     <path d="M3.2 8.3L6.6 11.4L12.8 4.9" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"></path>
                   </svg>
                 </span>
-                <span class="button-label">复制</span>
+                <span class="button-label">${escapeHtml(t("actionCopy"))}</span>
               </button>
-              <button class="secondary compact-button danger-button" id="leave-room" type="button">退出</button>
+              <button class="secondary compact-button danger-button" id="leave-room" type="button">${escapeHtml(t("actionLeave"))}</button>
             </div>
           </div>
         </div>
 
         <div class="metric room-entry-metric" id="room-panel-idle">
           <div class="room-entry-header">
-            <button class="compact-button" id="create-room" type="button">创建</button>
-            <input id="room-code" placeholder="输入房间码">
-            <button class="secondary compact-button" id="join-room" type="button">加入</button>
+            <button class="compact-button" id="create-room" type="button">${escapeHtml(t("actionCreate"))}</button>
+            <input id="room-code" placeholder="${escapeHtml(t("roomCodePlaceholder"))}">
+            <button class="secondary compact-button" id="join-room" type="button">${escapeHtml(t("actionJoin"))}</button>
           </div>
         </div>
       </div>
 
       <div class="status-banner" id="status-message" hidden></div>
 
-      <div class="section-title shared-video-heading">当前共享视频</div>
+      <div class="section-title shared-video-heading">${escapeHtml(t("sectionSharedVideo"))}</div>
 
       <button class="video-card video-card-button" id="shared-video-card" type="button">
-        <div class="video-title" id="shared-video-title">暂无共享视频</div>
+        <div class="video-title" id="shared-video-title">${escapeHtml(t("stateNoSharedVideo"))}</div>
         <div class="video-subline">
-          <div class="video-meta" id="shared-video-meta">点击可打开共享视频</div>
-          <div class="video-owner" id="shared-video-owner" hidden>由 - 共享</div>
+          <div class="video-meta" id="shared-video-meta">${escapeHtml(t("actionOpenSharedVideoHint"))}</div>
+          <div class="video-owner" id="shared-video-owner" hidden>${escapeHtml(t("ownerSharedBy", { owner: "-" }))}</div>
         </div>
       </button>
 
-      <button class="secondary compact-button full-width-button" id="share-current-video" type="button">同步当前页视频</button>
+      <button class="secondary compact-button full-width-button" id="share-current-video" type="button">${escapeHtml(t("actionShareCurrentVideo"))}</button>
 
       <div class="row">
         <div style="flex: 1;">
-          <div class="section-title">房间成员</div>
+          <div class="section-title">${escapeHtml(t("sectionRoomMembers"))}</div>
           <div class="member-list" id="member-list"></div>
         </div>
       </div>
@@ -141,34 +145,34 @@ async function init(): Promise<void> {
 
     <div class="card">
       <details class="details">
-        <summary>高级信息</summary>
+        <summary>${escapeHtml(t("sectionAdvancedInfo"))}</summary>
         <div class="details-body">
           <div class="details-grid">
             <div class="metric" style="grid-column: span 2;">
-              <span class="metric-label">服务端地址</span>
+              <span class="metric-label">${escapeHtml(t("metricServerUrl"))}</span>
               <div class="settings-row">
                 <input id="server-url" placeholder="${escapeHtml(DEFAULT_SERVER_URL)}">
-                <button class="secondary compact-button" id="save-server-url" type="button">保存</button>
+                <button class="secondary compact-button" id="save-server-url" type="button">${escapeHtml(t("actionSave"))}</button>
               </div>
             </div>
             <div class="metric">
-              <span class="metric-label">当前身份</span>
+              <span class="metric-label">${escapeHtml(t("metricCurrentIdentity"))}</span>
               <span class="metric-value" id="member-status">-</span>
             </div>
             <div class="metric">
-              <span class="metric-label">重连倒计时</span>
+              <span class="metric-label">${escapeHtml(t("metricReconnectCountdown"))}</span>
               <span class="metric-value retry-status" id="retry-status">
                 <span id="retry-status-value">-</span>
                 <span class="retry-status-count" id="retry-status-count"></span>
               </span>
             </div>
             <div class="metric" style="grid-column: span 2;">
-              <span class="metric-label">时钟校准</span>
+              <span class="metric-label">${escapeHtml(t("metricClockSync"))}</span>
               <span class="metric-value" id="clock-status">-</span>
             </div>
           </div>
           <div class="logs-header">
-            <div class="section-title">调试日志</div>
+            <div class="section-title">${escapeHtml(t("sectionDebugLogs"))}</div>
             <button class="secondary compact-button copy-button" id="copy-logs" type="button">
               <span class="button-icon-wrap" aria-hidden="true">
                 <svg class="button-icon button-icon-copy" viewBox="0 0 16 16">
@@ -179,11 +183,11 @@ async function init(): Promise<void> {
                   <path d="M3.2 8.3L6.6 11.4L12.8 4.9" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"></path>
                 </svg>
               </span>
-              <span class="button-label">复制</span>
+              <span class="button-label">${escapeHtml(t("actionCopy"))}</span>
             </button>
           </div>
           <div class="log-box" id="debug-logs">
-            <div class="muted">暂无日志</div>
+            <div class="muted">${escapeHtml(t("stateNoLogs"))}</div>
           </div>
         </div>
       </details>
@@ -324,15 +328,18 @@ function render(): void {
   const roomCodeFocused = document.activeElement === refs.roomCodeInput;
   const serverUrlFocused = document.activeElement === refs.serverUrlInput;
 
-  refs.serverStatus.textContent = state.connected ? "已连接" : "未连接";
+  refs.serverStatus.textContent = state.connected ? t("statusConnected") : t("statusDisconnected");
   refs.roomStatus.textContent = state.roomCode ?? "-";
-  refs.membersStatus.textContent = `${state.roomState?.members.length ?? 0} 人在线`;
+  refs.membersStatus.textContent = t("membersOnline", { count: state.roomState?.members.length ?? 0 });
   refs.debugMemberStatus.textContent = state.displayName ?? state.memberId ?? "-";
-  refs.retryStatusValue.textContent = state.retryInMs !== null ? `${Math.ceil(state.retryInMs / 1000)} 秒` : "-";
+  refs.retryStatusValue.textContent = state.retryInMs !== null ? t("retrySeconds", { seconds: Math.ceil(state.retryInMs / 1000) }) : "-";
   refs.retryStatusCount.textContent = state.retryAttempt > 0
     ? `(${state.retryAttempt}/${state.retryAttemptMax})`
     : "";
-  refs.clockStatus.textContent = `偏移 ${state.clockOffsetMs ?? "-"}ms / RTT ${state.rttMs ?? "-"}ms`;
+  refs.clockStatus.textContent = t("clockStatus", {
+    offset: state.clockOffsetMs ?? "-",
+    rtt: state.rttMs ?? "-"
+  });
   const visibleMessage = localStatusMessage ?? state.error;
   refs.message.textContent = visibleMessage ?? "";
   refs.message.hidden = !visibleMessage;
@@ -352,7 +359,7 @@ function render(): void {
   refs.roomPanelIdle.hidden = Boolean(state.roomCode);
   applyRoomActionControlState(refs);
 
-  refs.sharedVideoTitle.textContent = state.roomState?.sharedVideo?.title ?? "暂无共享视频";
+  refs.sharedVideoTitle.textContent = state.roomState?.sharedVideo?.title ?? t("stateNoSharedVideo");
   refs.sharedVideoMeta.textContent = formatVideoMeta(state.roomState?.sharedVideo?.url ?? null);
   const ownerText = formatVideoOwner(
     state.roomState?.members ?? [],
@@ -374,10 +381,10 @@ function render(): void {
 
 function formatVideoMeta(url: string | null): string {
   if (!url) {
-    return "点击可打开共享视频";
+    return t("actionOpenSharedVideoHint");
   }
   const match = url.match(/\/video\/([^/?]+)/);
-  return match ? match[1] : "打开共享视频";
+  return match ? match[1] : t("actionOpenSharedVideo");
 }
 
 function formatVideoOwner(members: RoomMember[], actorId: string | null): string {
@@ -385,18 +392,18 @@ function formatVideoOwner(members: RoomMember[], actorId: string | null): string
     return "";
   }
   const owner = members.find((member) => member.id === actorId)?.name;
-  return owner ? `由 ${owner} 共享` : "";
+  return owner ? t("ownerSharedBy", { owner }) : "";
 }
 
 function renderLogs(container: HTMLElement, logs: BackgroundToPopupMessage["payload"]["logs"]): void {
   if (logs.length === 0) {
-    container.innerHTML = `<div class="muted">暂无日志</div>`;
+    container.innerHTML = `<div class="muted">${escapeHtml(t("stateNoLogs"))}</div>`;
     return;
   }
 
   container.innerHTML = logs
     .map((entry) => {
-      const time = new Date(entry.at).toLocaleTimeString("zh-CN", { hour12: false });
+      const time = new Date(entry.at).toLocaleTimeString(getUiLanguage(), { hour12: false });
       return `<div class="log-line">[${time}] [${entry.scope}] ${escapeHtml(entry.message)}</div>`;
     })
     .join("");
@@ -404,7 +411,7 @@ function renderLogs(container: HTMLElement, logs: BackgroundToPopupMessage["payl
 
 function renderMemberList(container: HTMLElement, members: RoomMember[]): void {
   if (members.length === 0) {
-    container.innerHTML = `<span class="member-chip">暂无成员</span>`;
+    container.innerHTML = `<span class="member-chip">${escapeHtml(t("stateNoMembers"))}</span>`;
     return;
   }
 
@@ -427,7 +434,7 @@ async function handleShareCurrentVideo(): Promise<void> {
 
   const currentVideo = activeVideo.payload.video as { title: string; url: string };
   if (!state.roomCode) {
-    const shouldCreateRoom = window.confirm("当前未加入房间。是否创建房间并同步当前页视频？");
+    const shouldCreateRoom = window.confirm(t("confirmCreateRoomBeforeShare"));
     if (!shouldCreateRoom) {
       return;
     }
@@ -436,7 +443,10 @@ async function handleShareCurrentVideo(): Promise<void> {
     normalizeUrl(state.roomState.sharedVideo.url) !== normalizeUrl(currentVideo.url)
   ) {
     const shouldReplace = window.confirm(
-      `当前房间正在同步《${state.roomState.sharedVideo.title}》。\n是否替换为《${currentVideo.title}》？`
+      t("confirmReplaceSharedVideo", {
+        currentTitle: state.roomState.sharedVideo.title,
+        nextTitle: currentVideo.title
+      })
     );
     if (!shouldReplace) {
       return;
@@ -494,7 +504,7 @@ function bindActions(nodes: PopupRefs): void {
     const inviteText = nodes.roomCodeInput.value.trim();
     const invite = parseInviteValue(inviteText);
     if (!invite) {
-      setLocalStatusMessage("邀请格式无效，请输入“房间码:加入码”。");
+      setLocalStatusMessage(t("errorInvalidInviteFormat"));
       void sendPopupLog("Join click ignored because invite string is invalid");
       return;
     }
@@ -567,12 +577,12 @@ function bindActions(nodes: PopupRefs): void {
       .slice()
       .reverse()
       .map((entry) => {
-        const time = new Date(entry.at).toLocaleTimeString("zh-CN", { hour12: false });
+        const time = new Date(entry.at).toLocaleTimeString(getUiLanguage(), { hour12: false });
         return `[${time}] [${entry.scope}] ${entry.message}`;
       })
       .join("\n");
 
-    await navigator.clipboard.writeText(text || "暂无日志");
+    await navigator.clipboard.writeText(text || t("stateNoLogs"));
     nodes.copyLogsButton.classList.add("success-button");
     if (copyLogsResetTimer !== null) {
       window.clearTimeout(copyLogsResetTimer);
@@ -602,7 +612,7 @@ function bindActions(nodes: PopupRefs): void {
     const inviteText = nodes.roomCodeInput.value.trim();
     const invite = parseInviteValue(inviteText);
     if (!invite) {
-      setLocalStatusMessage("邀请格式无效，请输入“房间码:加入码”。");
+      setLocalStatusMessage(t("errorInvalidInviteFormat"));
       void sendPopupLog("Join by Enter ignored because invite string is invalid");
       return;
     }

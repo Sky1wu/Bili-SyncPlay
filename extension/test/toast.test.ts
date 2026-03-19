@@ -2,6 +2,7 @@ import assert from "node:assert/strict";
 import test from "node:test";
 import type { RoomState } from "@bili-syncplay/protocol";
 import { getRoomStateToastMessages, getSharedVideoToastMessage } from "../src/content/toast";
+import { setLocaleForTests } from "../src/shared/i18n";
 
 function createRoomState(args: {
   members?: Array<{ id: string; name: string }>;
@@ -23,6 +24,7 @@ function createRoomState(args: {
 }
 
 test("builds member join and leave toast messages", () => {
+  setLocaleForTests("zh-CN");
   const previousState = createRoomState({
     members: [
       { id: "self", name: "Me" },
@@ -52,6 +54,7 @@ test("builds member join and leave toast messages", () => {
 });
 
 test("keeps member join toasts during initial hydration", () => {
+  setLocaleForTests("zh-CN");
   const previousState = createRoomState({
     members: [{ id: "self", name: "Me" }],
     sharedUrl: "https://www.bilibili.com/video/BV1?p=1"
@@ -78,6 +81,7 @@ test("keeps member join toasts during initial hydration", () => {
 });
 
 test("builds seek and rate toast messages for remote playback changes", () => {
+  setLocaleForTests("zh-CN");
   const previousState = createRoomState({
     members: [
       { id: "self", name: "Me" },
@@ -127,6 +131,7 @@ test("builds seek and rate toast messages for remote playback changes", () => {
 });
 
 test("builds shared video toast for another member only once", () => {
+  setLocaleForTests("zh-CN");
   const state = createRoomState({
     members: [
       { id: "self", name: "Me" },
@@ -165,4 +170,76 @@ test("builds shared video toast for another member only once", () => {
     normalizedSharedUrl: "https://www.bilibili.com/video/BV1?p=1"
   });
   assert.equal(repeated.message, null);
+});
+
+test("builds English toast messages when the UI language is English", () => {
+  setLocaleForTests("en-US");
+  const previousState = createRoomState({
+    members: [
+      { id: "self", name: "Me" },
+      { id: "remote", name: "Alice" }
+    ],
+    sharedUrl: "https://www.bilibili.com/video/BV1?p=1",
+    playback: {
+      url: "https://www.bilibili.com/video/BV1?p=1",
+      currentTime: 10,
+      playState: "paused",
+      playbackRate: 1,
+      updatedAt: 1,
+      serverTime: 1,
+      actorId: "remote",
+      seq: 1
+    }
+  });
+  const nextState = createRoomState({
+    members: [
+      { id: "self", name: "Me" },
+      { id: "remote", name: "Alice" },
+      { id: "new", name: "Bob" }
+    ],
+    sharedUrl: "https://www.bilibili.com/video/BV1?p=1",
+    playback: {
+      url: "https://www.bilibili.com/video/BV1?p=1",
+      currentTime: 42,
+      playState: "playing",
+      playbackRate: 1.5,
+      updatedAt: 2,
+      serverTime: 2,
+      actorId: "remote",
+      seq: 2
+    }
+  });
+
+  const result = getRoomStateToastMessages({
+    previousState,
+    nextState,
+    localMemberId: "self",
+    pendingRoomStateHydration: false,
+    isCurrentPageShowingSharedVideo: true,
+    now: 1000,
+    lastSeekToastByActor: new Map()
+  });
+
+  assert.deepEqual(result.messages, [
+    "Bob joined the room",
+    "Alice switched to 1.5x",
+    "Alice jumped to 0:42"
+  ]);
+
+  const sharedVideo = getSharedVideoToastMessage({
+    toast: {
+      key: "toast-en-1",
+      actorId: "remote",
+      title: "New Video",
+      videoUrl: "https://www.bilibili.com/video/BV1?p=1"
+    },
+    state: nextState,
+    localMemberId: "self",
+    lastSharedVideoToastKey: null,
+    normalizedToastUrl: "https://www.bilibili.com/video/BV1?p=1",
+    normalizedSharedUrl: "https://www.bilibili.com/video/BV1?p=1"
+  });
+
+  assert.equal(sharedVideo.message, "Alice shared a new video: New Video");
+  setLocaleForTests(null);
 });

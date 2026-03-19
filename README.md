@@ -2,38 +2,99 @@
 
 [English](./README.md) | [简体中文](./README.zh-CN.md)
 
-Bili-SyncPlay is a Chrome extension for synchronized Bilibili watching. Users can create or join a room, share the current video, and keep playback, pause, seek, and playback rate in sync across participants.
+Bili-SyncPlay is a Chrome extension plus a WebSocket server for synchronized Bilibili watching. Users can create or join a room, share the current video, and keep playback, pause, seek, and playback rate in sync across participants.
 
-This repository is a monorepo with:
-- a Chrome extension
-- a WebSocket room server
-- a shared protocol package
+It supports the full local workflow:
+- load the unpacked extension in Chrome or Edge
+- run the local sync server
+- create a room and share an invite string
+- keep everyone on the same shared video in sync
+
+This repository is a monorepo:
+- `extension/`: Chrome extension
+- `server/`: WebSocket room server and admin panel
+- `packages/protocol/`: shared protocol types
+
+## At a Glance
+
+- Invite format: `roomCode:joinToken`
+- Default local server: `ws://localhost:8787`
+- Supported browsers for development: Chrome, Edge
+- Recommended production server URL: `wss://<your-domain>`
+
+## Quick Start
+
+### 1. Install and build
+
+```bash
+npm install
+npm run build
+```
+
+### 2. Load the extension
+
+1. Open `chrome://extensions`
+2. Enable Developer mode
+3. Click `Load unpacked`
+4. Select `extension/dist`
+
+### 3. Start the local server
+
+Before connecting the unpacked extension to a local server, allow the current extension origin in `ALLOWED_ORIGINS`.
+
+PowerShell:
+
+```powershell
+$env:ALLOWED_ORIGINS="chrome-extension://<extension-id>"
+npm run dev:server
+```
+
+Bash:
+
+```bash
+ALLOWED_ORIGINS=chrome-extension://<extension-id> \
+npm run dev:server
+```
+
+### 4. Use it
+
+1. Open the popup
+2. Create a room, or join one with `roomCode:joinToken`
+3. Open a supported Bilibili video page
+4. Click `Sync current page video`
+5. Other members will open the same video and enter sync mode
+
+If a member later browses to a different non-shared video while still in the room, that page stays local and does not affect the room unless they explicitly sync it.
 
 ## Features
 
-- Create a room and get an invite string
-- Join a room with `roomCode:joinToken`
-- Share the current page video from the popup
-- Sync play, pause, seek, and playback rate
-- Automatically open the currently shared video for room members
-- Show in-page room toasts for:
-  - member join and leave
-  - shared video changes
-  - play and pause
-  - seek
-  - playback rate changes
-- Keep non-shared pages local-only while staying in a room
+- Room lifecycle
+  - create a room and get an invite string
+  - join a room with `roomCode:joinToken`
+  - copy and share invites directly from the popup
+- Playback sync
+  - share the current page video from the popup
+  - sync play, pause, seek, and playback rate
+  - automatically open the currently shared video for room members
+- In-page feedback
+  - member join and leave toasts
+  - shared video change toasts
+  - play, pause, seek, and rate-change toasts
+- Safe local browsing while still in a room
   - non-shared pages do not broadcast playback back to the room
   - manual playback on a non-shared page stays local
-- Support multiple Bilibili page types:
-  - `https://www.bilibili.com/video/*`
-  - `https://www.bilibili.com/bangumi/play/*`
-  - `https://www.bilibili.com/festival/*`
-  - `https://www.bilibili.com/list/watchlater*` when the page URL carries `bvid`
-  - `https://www.bilibili.com/medialist/play/watchlater*` when the page URL carries `bvid`
-- Support per-part / per-episode variants:
-  - multi-part videos via `?p=`
-  - festival pages via `bvid + cid`
+
+## Supported Pages
+
+- `https://www.bilibili.com/video/*`
+- `https://www.bilibili.com/bangumi/play/*`
+- `https://www.bilibili.com/festival/*`
+- `https://www.bilibili.com/list/watchlater*` when the page URL carries `bvid`
+- `https://www.bilibili.com/medialist/play/watchlater*` when the page URL carries `bvid`
+
+Video variants:
+- multi-part videos via `?p=`
+- festival pages via `bvid + cid`
 
 ## Project Structure
 
@@ -52,49 +113,12 @@ Bili-SyncPlay/
 - npm 8+
 - Chrome or Edge for loading the unpacked extension
 
-## Quick Start
+## Local Defaults
 
-### Load the Extension
-
-1. Run `npm install`
-2. Run `npm run build`
-3. Open `chrome://extensions`
-4. Enable Developer mode
-5. Click `Load unpacked`
-6. Select `extension/dist`
-
-### Start the Local Server
-
-Before connecting the unpacked extension to a local server, allow the current extension origin in `ALLOWED_ORIGINS`.
-
-PowerShell:
-
-```powershell
-$env:ALLOWED_ORIGINS="chrome-extension://<extension-id>"
-npm run dev:server
-```
-
-Bash:
-
-```bash
-ALLOWED_ORIGINS=chrome-extension://<extension-id> \
-npm run dev:server
-```
-
-Default server URL:
-
-```text
-ws://localhost:8787
-```
-
-### Basic Usage
-
-1. Open the extension popup
-2. Create a room or join an existing room with an invite string
-3. Open a supported Bilibili video page
-4. Click `Sync current page video` in the popup
-5. Other room members will open the same video and enter sync mode
-6. If a member browses to a different non-shared video while still in the room, that page stays local and does not affect the room unless they explicitly sync it
+- Default server URL: `ws://localhost:8787`
+- Empty server URL input falls back to the build-time default
+- Only `ws://` and `wss://` are accepted
+- Local unpacked extension development requires `ALLOWED_ORIGINS=chrome-extension://<extension-id>`
 
 ### Open the Admin Control Panel
 

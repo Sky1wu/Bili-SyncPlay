@@ -1,6 +1,7 @@
 import { DEFAULT_SERVER_URL } from "./runtime-state";
+import { t } from "../shared/i18n";
 
-export const INVALID_SERVER_URL_MESSAGE = "服务端地址必须以 ws:// 或 wss:// 开头。";
+export const INVALID_SERVER_URL_MESSAGE = t("invalidServerUrl");
 
 type ServerUrlValidationResult =
   | { ok: true; normalizedUrl: string }

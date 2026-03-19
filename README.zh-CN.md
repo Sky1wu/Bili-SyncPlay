@@ -2,38 +2,99 @@
 
 [English](./README.md) | [简体中文](./README.zh-CN.md)
 
-Bili-SyncPlay 是一个用于哔哩哔哩同步观影的 Chrome 扩展。用户可以创建或加入房间，分享当前视频，并在参与者之间同步播放、暂停、跳转和播放速率。
+Bili-SyncPlay 是一个“Chrome 扩展 + WebSocket 服务端”的哔哩哔哩同步观影项目。用户可以创建或加入房间，分享当前视频，并在参与者之间同步播放、暂停、跳转和播放速率。
 
-本仓库是一个 monorepo，包含：
-- Chrome 扩展
-- WebSocket 房间服务器
-- 共享协议包
+它覆盖了完整的本地使用链路：
+- 在 Chrome / Edge 中加载未打包扩展
+- 启动本地同步服务
+- 创建房间并复制邀请串
+- 让多个成员保持同一共享视频的同步播放
+
+本仓库是一个 monorepo：
+- `extension/`：Chrome 扩展
+- `server/`：WebSocket 房间服务与管理后台
+- `packages/protocol/`：共享协议类型
+
+## 一眼看懂
+
+- 邀请格式：`roomCode:joinToken`
+- 默认本地服务地址：`ws://localhost:8787`
+- 本地开发浏览器：Chrome、Edge
+- 生产环境建议地址：`wss://<你的域名>`
+
+## 快速开始
+
+### 1. 安装并构建
+
+```bash
+npm install
+npm run build
+```
+
+### 2. 加载扩展
+
+1. 打开 `chrome://extensions`
+2. 开启开发者模式
+3. 点击 `加载已解压的扩展程序`
+4. 选择 `extension/dist`
+
+### 3. 启动本地服务器
+
+在未打包扩展连接本地服务器之前，需要先把当前扩展 Origin 加入 `ALLOWED_ORIGINS`。
+
+PowerShell：
+
+```powershell
+$env:ALLOWED_ORIGINS="chrome-extension://<extension-id>"
+npm run dev:server
+```
+
+Bash：
+
+```bash
+ALLOWED_ORIGINS=chrome-extension://<extension-id> \
+npm run dev:server
+```
+
+### 4. 开始使用
+
+1. 打开扩展弹窗
+2. 创建房间，或者使用 `roomCode:joinToken` 加入已有房间
+3. 打开受支持的 Bilibili 视频页面
+4. 在弹窗中点击 `同步当前页视频`
+5. 其他房间成员会打开同一视频并进入同步模式
+
+如果成员在仍处于房间时浏览到其他未共享视频页面，该页面会保持本地模式，除非他们显式再次同步，否则不会影响房间。
 
 ## 功能
 
-- 创建房间并获取邀请串
-- 使用 `roomCode:joinToken` 加入房间
-- 在扩展弹窗中分享当前页面视频
-- 同步播放、暂停、跳转和播放速率
-- 房间成员自动打开当前共享的视频
-- 在页面内显示房间提示，包括：
-  - 成员加入和离开
-  - 共享视频变更
-  - 播放和暂停
-  - 跳转
-  - 播放速率变更
-- 在仍处于房间内时，保持未共享页面为本地模式
+- 房间能力
+  - 创建房间并获取邀请串
+  - 使用 `roomCode:joinToken` 加入房间
+  - 直接在弹窗中复制并分享邀请串
+- 同步能力
+  - 在扩展弹窗中分享当前页面视频
+  - 同步播放、暂停、跳转和播放速率
+  - 房间成员自动打开当前共享的视频
+- 页面内反馈
+  - 成员加入和离开提示
+  - 共享视频变更提示
+  - 播放、暂停、跳转、倍速变化提示
+- 房间内的本地浏览隔离
   - 未共享页面不会把播放状态广播回房间
   - 在未共享页面上的手动播放仅在本地生效
-- 支持多种 Bilibili 页面类型：
-  - `https://www.bilibili.com/video/*`
-  - `https://www.bilibili.com/bangumi/play/*`
-  - `https://www.bilibili.com/festival/*`
-  - `https://www.bilibili.com/list/watchlater*`，且页面 URL 中带有 `bvid`
-  - `https://www.bilibili.com/medialist/play/watchlater*`，且页面 URL 中带有 `bvid`
-- 支持分 P / 分集变体：
-  - 多 P 视频通过 `?p=` 识别
-  - festival 页面通过 `bvid + cid` 识别
+
+## 支持的页面
+
+- `https://www.bilibili.com/video/*`
+- `https://www.bilibili.com/bangumi/play/*`
+- `https://www.bilibili.com/festival/*`
+- `https://www.bilibili.com/list/watchlater*`，且页面 URL 中带有 `bvid`
+- `https://www.bilibili.com/medialist/play/watchlater*`，且页面 URL 中带有 `bvid`
+
+视频变体识别：
+- 多 P 视频通过 `?p=` 识别
+- festival 页面通过 `bvid + cid` 识别
 
 ## 项目结构
 
@@ -52,49 +113,12 @@ Bili-SyncPlay/
 - npm 8+
 - Chrome 或 Edge，用于加载未打包扩展
 
-## 快速开始
+## 本地默认值
 
-### 加载扩展
-
-1. 运行 `npm install`
-2. 运行 `npm run build`
-3. 打开 `chrome://extensions`
-4. 开启开发者模式
-5. 点击 `加载已解压的扩展程序`
-6. 选择 `extension/dist`
-
-### 启动本地服务器
-
-在未打包扩展连接本地服务器之前，需要先把当前扩展 Origin 加入 `ALLOWED_ORIGINS`。
-
-PowerShell：
-
-```powershell
-$env:ALLOWED_ORIGINS="chrome-extension://<extension-id>"
-npm run dev:server
-```
-
-Bash：
-
-```bash
-ALLOWED_ORIGINS=chrome-extension://<extension-id> \
-npm run dev:server
-```
-
-默认服务器地址：
-
-```text
-ws://localhost:8787
-```
-
-### 基本使用
-
-1. 打开扩展弹窗
-2. 创建房间，或者使用邀请串加入已有房间
-3. 打开受支持的 Bilibili 视频页面
-4. 在弹窗中点击 `Sync current page video`
-5. 其他房间成员会打开同一视频并进入同步模式
-6. 如果成员在仍处于房间时浏览到其他未共享视频页面，该页面会保持本地模式，除非他们显式再次同步，否则不会影响房间
+- 默认服务器地址：`ws://localhost:8787`
+- 服务器地址输入为空时，会回退到构建时默认值
+- 仅接受 `ws://` 和 `wss://`
+- 本地未打包扩展开发要求 `ALLOWED_ORIGINS=chrome-extension://<extension-id>`
 
 ### 打开管理控制面板
 

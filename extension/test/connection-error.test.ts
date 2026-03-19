@@ -1,8 +1,10 @@
 import assert from "node:assert/strict";
 import test from "node:test";
 import { getConnectionErrorMessage } from "../src/background/connection-error";
+import { setLocaleForTests } from "../src/shared/i18n";
 
 test("returns the generic message when the healthcheck endpoint is unreachable", () => {
+  setLocaleForTests("zh-CN");
   assert.equal(
     getConnectionErrorMessage({
       healthcheckReachable: false,
@@ -13,6 +15,7 @@ test("returns the generic message when the healthcheck endpoint is unreachable",
 });
 
 test("mentions the extension origin when the websocket handshake is rejected after a reachable healthcheck", () => {
+  setLocaleForTests("zh-CN");
   assert.equal(
     getConnectionErrorMessage({
       healthcheckReachable: true,
@@ -23,6 +26,7 @@ test("mentions the extension origin when the websocket handshake is rejected aft
 });
 
 test("returns a generic reachable-but-rejected message for non-origin handshake failures", () => {
+  setLocaleForTests("zh-CN");
   assert.equal(
     getConnectionErrorMessage({
       healthcheckReachable: true,
@@ -34,6 +38,7 @@ test("returns a generic reachable-but-rejected message for non-origin handshake 
 });
 
 test("falls back to a generic handshake rejection hint when the extension origin is unavailable", () => {
+  setLocaleForTests("zh-CN");
   assert.equal(
     getConnectionErrorMessage({
       healthcheckReachable: true,
@@ -41,4 +46,23 @@ test("falls back to a generic handshake rejection hint when the extension origin
     }),
     "服务器可达，但 WebSocket 握手被拒绝。请检查服务端 ALLOWED_ORIGINS，以及反向代理是否已正确转发 WebSocket。"
   );
+});
+
+test("returns English connection guidance when the UI language is English", () => {
+  setLocaleForTests("en-US");
+  assert.equal(
+    getConnectionErrorMessage({
+      healthcheckReachable: false,
+      extensionOrigin: "chrome-extension://abc123"
+    }),
+    "Unable to connect to the sync server."
+  );
+  assert.equal(
+    getConnectionErrorMessage({
+      healthcheckReachable: true,
+      extensionOrigin: "chrome-extension://abc123"
+    }),
+    "The server is reachable, but the WebSocket handshake was rejected. Check whether ALLOWED_ORIGINS includes chrome-extension://abc123, and make sure the reverse proxy forwards WebSocket correctly."
+  );
+  setLocaleForTests(null);
 });

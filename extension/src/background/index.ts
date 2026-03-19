@@ -50,6 +50,7 @@ import { validateServerUrl } from "./server-url";
 import { shouldReconnect, getReconnectDelayMs } from "./socket-manager";
 import { loadPersistedBackgroundSnapshot, persistBackgroundState } from "./storage-manager";
 import { decideSharedPlaybackTab, rememberSharedSource } from "./tab-coordinator";
+import { localizeServerError, t } from "../shared/i18n";
 
 const structuredState = createBackgroundRuntimeState();
 
@@ -170,15 +171,46 @@ async function bootstrap(): Promise<void> {
 
 function formatAdminSessionResetReason(reason: string): string {
   if (reason === "Admin kicked member") {
-    return "你已被管理员移出房间。";
+    return t("adminRemovedFromRoom");
   }
   if (reason === "Admin disconnected session") {
-    return "你的连接已被管理员断开。";
+    return t("adminDisconnectedSession");
   }
   if (reason === "Admin closed room") {
-    return "当前房间已被管理员关闭。";
+    return t("adminClosedRoom");
   }
-  return `已退出房间：${reason}`;
+  return t("leftRoomWithReason", { reason });
+}
+
+function logInvalidServerUrl(context: string, invalidUrl: string): void {
+  log("background", `Invalid server URL (${context}): ${invalidUrl}`);
+}
+
+function logConnectionProbeFailure(details: {
+  stage: "connection-check" | "healthcheck" | "websocket";
+  serverUrl: string;
+  reason?: string | null;
+  extensionOrigin?: string | null;
+  readyState?: number | null;
+}): void {
+  const parts = [
+    `Connection failure stage=${details.stage}`,
+    `serverUrl=${details.serverUrl}`
+  ];
+  if (details.reason) {
+    parts.push(`reason=${details.reason}`);
+  }
+  if (details.extensionOrigin) {
+    parts.push(`extensionOrigin=${details.extensionOrigin}`);
+  }
+  if (details.readyState !== undefined && details.readyState !== null) {
+    parts.push(`readyState=${details.readyState}`);
+  }
+  log("background", parts.join(" "));
+}
+
+function logServerError(code: string, message: string): void {
+  log("server", `Received server error code=${code} message=${JSON.stringify(message)}`);
 }
 
 async function connect(): Promise<void> {
@@ -194,7 +226,7 @@ async function connect(): Promise<void> {
     lastError = serverUrlResult.message;
     connected = false;
     stopClockSyncTimer();
-    log("background", lastError);
+    logInvalidServerUrl("connect", serverUrl);
     notifyAll();
     return;
   }
@@ -215,7 +247,7 @@ async function openSocketWithProbe(targetServerUrl: string): Promise<void> {
     lastError = serverUrlResult.message;
     connected = false;
     stopClockSyncTimer();
-    log("background", lastError);
+    logInvalidServerUrl("open-socket", targetServerUrl);
     notifyAll();
     return;
   }
@@ -249,7 +281,12 @@ async function openSocketWithProbe(targetServerUrl: string): Promise<void> {
           });
           connected = false;
           stopClockSyncTimer();
-          log("background", lastError);
+          logConnectionProbeFailure({
+            stage: "connection-check",
+            serverUrl: serverUrlResult.normalizedUrl,
+            reason: payload.data.reason,
+            extensionOrigin
+          });
           scheduleReconnect();
           notifyAll();
           return;
@@ -275,7 +312,11 @@ async function openSocketWithProbe(targetServerUrl: string): Promise<void> {
       });
       connected = false;
       stopClockSyncTimer();
-      log("background", lastError);
+      logConnectionProbeFailure({
+        stage: "healthcheck",
+        serverUrl: serverUrlResult.normalizedUrl,
+        extensionOrigin
+      });
       scheduleReconnect();
       notifyAll();
       return;
@@ -337,8 +378,12 @@ async function openSocketWithProbe(targetServerUrl: string): Promise<void> {
     connected = false;
     stopClockSyncTimer();
     clearPendingLocalShare("socket error before share confirmation");
-    log("background", `Socket error readyState=${socket?.readyState ?? -1}`);
-    log("background", lastError);
+    logConnectionProbeFailure({
+      stage: "websocket",
+      serverUrl: serverUrlResult.normalizedUrl,
+      extensionOrigin,
+      readyState: socket?.readyState ?? -1
+    });
     notifyAll();
   });
 }
@@ -431,7 +476,7 @@ async function handleServerMessage(message: ServerMessage): Promise<void> {
       await handleRoomStateMessage(message.payload);
       return;
     case "error":
-      lastError = message.payload.message;
+      lastError = localizeServerError(message.payload.code, message.payload.message);
       if (
         pendingJoinRoomCode &&
         (message.payload.code === "room_not_found" ||
@@ -456,14 +501,14 @@ async function handleServerMessage(message: ServerMessage): Promise<void> {
         (message.payload.code === "room_not_found" || message.payload.code === "join_token_invalid")
       ) {
         await clearCurrentRoomContext(`server rejected stored room context: ${message.payload.code}`, message.payload.message);
-        log("server", `error(${message.payload.code}): ${message.payload.message}`);
+        logServerError(message.payload.code, message.payload.message);
         return;
       }
       if (message.payload.code === "member_token_invalid") {
         memberToken = null;
         await persistState();
       }
-      log("server", `error(${message.payload.code}): ${message.payload.message}`);
+      logServerError(message.payload.code, message.payload.message);
       notifyAll();
       return;
     case "sync:pong":
@@ -578,11 +623,11 @@ async function getActiveVideoPayload(): Promise<{
 }> {
   const activeTab = await getActiveTab();
   if (!activeTab?.id) {
-    return { ok: false, payload: null, tabId: null, error: "当前没有活动标签页。" };
+    return { ok: false, payload: null, tabId: null, error: t("popupErrorNoActiveTab") };
   }
 
   if (!activeTab.url || !parseBilibiliVideoRef(activeTab.url)) {
-    return { ok: false, payload: null, tabId: activeTab.id, error: "请先打开一个哔哩哔哩视频页面。" };
+    return { ok: false, payload: null, tabId: activeTab.id, error: t("popupErrorOpenBilibiliVideo") };
   }
 
   try {
@@ -590,7 +635,7 @@ async function getActiveVideoPayload(): Promise<{
       type: "background:get-current-video"
     });
     if (!response?.ok || !response.payload?.video) {
-      return { ok: false, payload: null, tabId: activeTab.id, error: "当前页面没有可播放的视频。" };
+      return { ok: false, payload: null, tabId: activeTab.id, error: t("popupErrorNoPlayableVideo") };
     }
     return {
       ok: true,
@@ -598,7 +643,7 @@ async function getActiveVideoPayload(): Promise<{
       tabId: activeTab.id
     };
   } catch {
-    return { ok: false, payload: null, tabId: activeTab.id, error: "无法访问当前页面。" };
+    return { ok: false, payload: null, tabId: activeTab.id, error: t("popupErrorCannotAccessPage") };
   }
 }
 
@@ -611,7 +656,7 @@ async function queueOrSendSharedVideo(
 
   if (connected && roomCode) {
     if (!memberToken) {
-      lastError = "成员令牌缺失，请重新加入房间。";
+      lastError = t("popupErrorMemberTokenMissing");
       notifyAll();
       return;
     }
@@ -725,8 +770,8 @@ function scheduleReconnect(): void {
   ) {
     if (reconnectAttempt >= MAX_RECONNECT_ATTEMPTS) {
       reconnectDeadlineMs = null;
-      lastError = `重试 ${MAX_RECONNECT_ATTEMPTS} 次后仍无法连接到同步服务器。`;
-      log("background", lastError);
+      lastError = t("popupErrorReconnectFailed", { attempts: MAX_RECONNECT_ATTEMPTS });
+      log("background", `Reconnect exhausted after ${MAX_RECONNECT_ATTEMPTS} attempts`);
     }
     return;
   }
@@ -1066,7 +1111,7 @@ async function updateServerUrl(nextServerUrl: string): Promise<void> {
   const serverUrlResult = validateServerUrl(nextServerUrl);
   if (!serverUrlResult.ok) {
     lastError = serverUrlResult.message;
-    log("background", lastError);
+    logInvalidServerUrl("update-server-url", nextServerUrl.trim() || DEFAULT_SERVER_URL);
     notifyAll();
     return;
   }
@@ -1211,7 +1256,7 @@ chrome.runtime.onMessage.addListener((message: PopupToBackgroundMessage | Conten
       case "popup:share-current-video": {
         const response = await getActiveVideoPayload();
         if (!response.ok || !response.payload) {
-          lastError = response.error ?? "无法读取当前视频。";
+          lastError = response.error ?? t("popupErrorCannotReadCurrentVideo");
           notifyAll();
           sendResponse({ ok: false, error: lastError });
           return;
