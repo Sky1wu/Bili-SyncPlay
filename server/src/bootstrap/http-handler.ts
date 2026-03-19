@@ -13,7 +13,10 @@ export function createHttpRequestHandler(args: {
   securityPolicy: ReturnType<typeof createSecurityPolicy>;
   adminUiConfig?: AdminUiConfig;
 }) {
-  return (request: IncomingMessage, response: ServerResponse): void => {
+  return async (
+    request: IncomingMessage,
+    response: ServerResponse,
+  ): Promise<void> => {
     const pathname = new URL(request.url ?? "/", "http://localhost").pathname;
     if (pathname === "/api/connection-check") {
       const originHeader = request.headers.origin;
@@ -57,21 +60,34 @@ export function createHttpRequestHandler(args: {
       return;
     }
 
-    void args.adminRouter.handle(request, response).then((handled: boolean) => {
+    try {
+      const handled = await args.adminRouter.handle(request, response);
       if (handled) {
         return;
       }
-      void tryHandleAdminPanel(request, response, args.adminUiConfig).then(
-        (adminPanelHandled) => {
-          if (adminPanelHandled) {
-            return;
-          }
-          response.writeHead(200, { "content-type": "application/json" });
-          response.end(
-            JSON.stringify({ ok: true, service: "bili-syncplay-server" }),
-          );
-        },
+
+      const adminPanelHandled = await tryHandleAdminPanel(
+        request,
+        response,
+        args.adminUiConfig,
       );
-    });
+      if (adminPanelHandled) {
+        return;
+      }
+
+      response.writeHead(200, { "content-type": "application/json" });
+      response.end(JSON.stringify({ ok: true, service: "bili-syncplay-server" }));
+    } catch {
+      response.writeHead(500, { "content-type": "application/json" });
+      response.end(
+        JSON.stringify({
+          ok: false,
+          error: {
+            code: "internal_error",
+            message: "Internal server error.",
+          },
+        }),
+      );
+    }
   };
 }

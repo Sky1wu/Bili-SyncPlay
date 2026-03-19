@@ -136,3 +136,49 @@ test("http handler preserves admin router responses without falling through to r
     admin: true,
   });
 });
+
+test("http handler returns a stable 500 payload when downstream routing throws", async () => {
+  const handler = createHttpRequestHandler({
+    adminRouter: {
+      handle: async () => {
+        throw new Error("boom");
+      },
+    },
+    securityPolicy: createSecurityPolicy({
+      allowedOrigins: ["chrome-extension://allowed"],
+      allowMissingOriginInDev: false,
+      connectionAttemptsPerMinute: 10,
+      maxConnectionsPerIp: 5,
+      maxMembersPerRoom: 8,
+      trustProxyHeaders: false,
+      rateLimits: {
+        roomCreatePerMinute: 5,
+        roomJoinPerMinute: 10,
+        videoSharePerMinute: 20,
+        playbackUpdatePerSecond: 30,
+        profileUpdatePerMinute: 20,
+        syncPingPerMinute: 30,
+        syncPingBurst: 5,
+      },
+    }),
+  });
+  const response = createResponse();
+
+  await handler(
+    createRequest({
+      url: "/api/admin/me",
+      method: "GET",
+      origin: "chrome-extension://allowed",
+    }),
+    response,
+  );
+
+  assert.equal(response.statusCode, 500);
+  assert.deepEqual(JSON.parse(response.body), {
+    ok: false,
+    error: {
+      code: "internal_error",
+      message: "Internal server error.",
+    },
+  });
+});
