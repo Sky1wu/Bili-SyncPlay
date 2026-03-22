@@ -46,7 +46,8 @@ export function decidePlaybackAcceptance(args: {
       args.incomingPlayback.currentTime - args.currentPlayback.currentTime,
     ) < 1.2;
   const nonAdvancingStopLike =
-    args.incomingPlayback.currentTime <= args.currentPlayback.currentTime + 0.15;
+    args.incomingPlayback.currentTime <=
+    args.currentPlayback.currentTime + 0.15;
   const driftsBackBehindCurrent =
     args.incomingPlayback.currentTime + 0.6 < args.currentPlayback.currentTime;
 
