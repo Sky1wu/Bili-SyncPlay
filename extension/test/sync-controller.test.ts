@@ -282,6 +282,52 @@ test("sync controller suppresses follow-up local broadcast after applying a late
   );
 });
 
+test("sync controller keeps the remote follow window through buffering and suppresses the later playing event", async () => {
+  const harness = createControllerHarness();
+  const sharedVideo = {
+    videoId: "BV1xx411c7mD",
+    url: "https://www.bilibili.com/video/BV1xx411c7mD?p=1",
+    title: "Video",
+  };
+  const video = createVideo({
+    paused: false,
+    readyState: 2,
+    currentTime: 24.05,
+  });
+
+  harness.runtimeState.hydrationReady = true;
+  harness.setSharedVideo(sharedVideo);
+  harness.setCurrentPlaybackVideo(sharedVideo);
+  harness.setVideoElement(video);
+  harness.setNow(20_000);
+
+  await harness.controller.applyRoomState(
+    createRoomState({
+      actorId: "remote-member",
+      seq: 8,
+      serverTime: 19_900,
+      currentTime: 24,
+      playState: "playing",
+    }),
+  );
+
+  harness.setNow(20_100);
+  await harness.controller.broadcastPlayback(video, "waiting");
+
+  video.readyState = 4;
+  harness.setNow(20_900);
+  await harness.controller.broadcastPlayback(video, "playing");
+
+  assert.equal(harness.runtimeMessages.length, 0);
+  assert.equal(harness.runtimeState.remoteFollowPlayingUntil > 20_900, true);
+  assert.equal(
+    harness.debugLogs.some((message) =>
+      message.includes("result=remote-follow-playing"),
+    ),
+    true,
+  );
+});
+
 test("sync controller allows explicit user seek inside the silence window", async () => {
   const harness = createControllerHarness();
   const sharedVideo = {

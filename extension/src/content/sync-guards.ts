@@ -89,6 +89,16 @@ export interface RemoteFollowupBroadcastSuppressionInput {
   userGestureGraceMs: number;
 }
 
+function isRemotePlaybackStateCompatibleForLocalEcho(args: {
+  localPlayState: PlaybackState["playState"];
+  remotePlayState: PlaybackState["playState"];
+}): boolean {
+  return (
+    args.localPlayState === args.remotePlayState ||
+    (args.localPlayState === "buffering" && args.remotePlayState === "playing")
+  );
+}
+
 function getProgrammaticEventThreshold(
   eventSource: LocalPlaybackEventSource,
   playState: PlaybackState["playState"],
@@ -244,7 +254,10 @@ export function shouldSuppressLocalEcho(input: LocalEchoGuardInput): {
 
   if (
     input.normalizedCurrentUrl !== input.suppressedRemotePlayback.url ||
-    input.playState !== input.suppressedRemotePlayback.playState ||
+    !isRemotePlaybackStateCompatibleForLocalEcho({
+      localPlayState: input.playState,
+      remotePlayState: input.suppressedRemotePlayback.playState,
+    }) ||
     Math.abs(input.playbackRate - input.suppressedRemotePlayback.playbackRate) >
       0.01
   ) {
@@ -257,7 +270,11 @@ export function shouldSuppressLocalEcho(input: LocalEchoGuardInput): {
   const delta = Math.abs(
     input.currentTime - input.suppressedRemotePlayback.currentTime,
   );
-  const threshold = input.playState === "playing" ? 0.9 : 0.2;
+  const threshold =
+    input.playState === "playing" &&
+    input.suppressedRemotePlayback.playState === "playing"
+      ? 0.9
+      : 0.2;
   return {
     shouldSuppress: delta <= threshold,
     nextSuppressedRemotePlayback: input.suppressedRemotePlayback,
@@ -372,14 +389,19 @@ export function shouldSuppressRemoteFollowupBroadcast(
     };
   }
 
-  if (
-    input.playState === "paused" ||
-    input.playState === "buffering"
-  ) {
+  if (input.playState === "paused") {
     return {
       shouldSuppress: false,
       nextRemoteFollowPlayingUntil: 0,
       nextRemoteFollowPlayingUrl: null,
+    };
+  }
+
+  if (input.playState === "buffering") {
+    return {
+      shouldSuppress: false,
+      nextRemoteFollowPlayingUntil: input.remoteFollowPlayingUntil,
+      nextRemoteFollowPlayingUrl: input.remoteFollowPlayingUrl,
     };
   }
 
