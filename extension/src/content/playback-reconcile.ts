@@ -16,6 +16,7 @@ export function decidePlaybackReconcileMode(args: {
   localCurrentTime: number;
   targetTime: number;
   playState: PlaybackState["playState"];
+  isExplicitSeek?: boolean;
 }): PlaybackReconcileDecision {
   const delta = Math.abs(args.targetTime - args.localCurrentTime);
 
@@ -24,6 +25,14 @@ export function decidePlaybackReconcileMode(args: {
       mode: delta > 0.15 ? "hard-seek" : "ignore",
       delta,
       reason: delta > 0.15 ? "paused-or-buffering" : "within-threshold",
+    };
+  }
+
+  if (args.isExplicitSeek) {
+    return {
+      mode: "hard-seek",
+      delta,
+      reason: "explicit-seek",
     };
   }
 
