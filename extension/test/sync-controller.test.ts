@@ -1,5 +1,6 @@
 import assert from "node:assert/strict";
 import test from "node:test";
+import type { PlaybackState, RoomState, SharedVideo } from "@bili-syncplay/protocol";
 import { createContentRuntimeState } from "../src/content/runtime-state";
 import { createSyncController } from "../src/content/sync-controller";
 
@@ -35,6 +36,10 @@ function createControllerHarness() {
   const debugLogs: string[] = [];
   const runtimeMessages: Array<unknown> = [];
   let hydrateRetryTimer: number | null = null;
+  let now = 10_000;
+  let currentPlaybackVideo: SharedVideo | null = null;
+  let sharedVideo: SharedVideo | null = null;
+  let videoElement: HTMLVideoElement | null = null;
 
   const controller = createSyncController({
     runtimeState,
@@ -49,7 +54,7 @@ function createControllerHarness() {
     userGestureGraceMs: 300,
     nextSeq: () => 1,
     markBroadcastAt: () => {},
-    getNow: () => 10_000,
+    getNow: () => now,
     debugLog: (message) => {
       debugLogs.push(message);
     },
@@ -62,9 +67,9 @@ function createControllerHarness() {
     setHydrateRetryTimer: (timer) => {
       hydrateRetryTimer = timer;
     },
-    getVideoElement: () => null,
-    getCurrentPlaybackVideo: async () => null,
-    getSharedVideo: () => null,
+    getVideoElement: () => videoElement,
+    getCurrentPlaybackVideo: async () => currentPlaybackVideo,
+    getSharedVideo: () => sharedVideo,
     normalizeUrl: (url) => url?.trim() ?? null,
     notifyRoomStateToasts: () => {},
     maybeShowSharedVideoToast: () => {},
@@ -75,10 +80,67 @@ function createControllerHarness() {
     controller,
     debugLogs,
     runtimeMessages,
+    setNow(value: number) {
+      now = value;
+    },
+    setCurrentPlaybackVideo(video: SharedVideo | null) {
+      currentPlaybackVideo = video;
+    },
+    setSharedVideo(video: SharedVideo | null) {
+      sharedVideo = video;
+    },
+    setVideoElement(video: HTMLVideoElement | null) {
+      videoElement = video;
+    },
     get hydrateRetryTimer() {
       return hydrateRetryTimer;
     },
   };
+}
+
+function createPlaybackState(
+  overrides: Partial<PlaybackState> = {},
+): PlaybackState {
+  return {
+    url: "https://www.bilibili.com/video/BV1xx411c7mD?p=1",
+    currentTime: 24,
+    playState: "playing",
+    playbackRate: 1,
+    updatedAt: 1,
+    serverTime: 1,
+    actorId: "remote-member",
+    seq: 1,
+    ...overrides,
+  };
+}
+
+function createRoomState(
+  playbackOverrides: Partial<PlaybackState> = {},
+): RoomState {
+  const playback = createPlaybackState(playbackOverrides);
+  return {
+    roomCode: "ROOM01",
+    sharedVideo: {
+      videoId: "BV1xx411c7mD",
+      url: playback.url,
+      title: "Video",
+    },
+    playback,
+    members: [],
+  };
+}
+
+function createVideo(overrides: Partial<HTMLVideoElement> = {}): HTMLVideoElement {
+  return {
+    paused: false,
+    readyState: 4,
+    duration: 120,
+    currentTime: 24,
+    playbackRate: 1,
+    pause() {},
+    play: async () => undefined,
+    ...overrides,
+  } as HTMLVideoElement;
 }
 
 test("sync controller skips playback broadcast before hydration becomes ready", async () => {
@@ -168,4 +230,45 @@ test("sync controller schedules hydration retry when room exists but initial roo
   } finally {
     windowHarness.restore();
   }
+});
+
+test("sync controller suppresses follow-up local broadcast after applying a late remote playback state", async () => {
+  const harness = createControllerHarness();
+  const sharedVideo = {
+    videoId: "BV1xx411c7mD",
+    url: "https://www.bilibili.com/video/BV1xx411c7mD?p=1",
+    title: "Video",
+  };
+  const video = createVideo({
+    paused: false,
+    currentTime: 24.1,
+  });
+
+  harness.runtimeState.hydrationReady = true;
+  harness.setSharedVideo(sharedVideo);
+  harness.setCurrentPlaybackVideo(sharedVideo);
+  harness.setVideoElement(video);
+  harness.setNow(20_000);
+
+  await harness.controller.applyRoomState(
+    createRoomState({
+      actorId: "remote-member",
+      seq: 8,
+      serverTime: 19_900,
+      currentTime: 24,
+      playState: "playing",
+    }),
+  );
+
+  harness.setNow(20_050);
+  await harness.controller.broadcastPlayback(video);
+
+  assert.equal(harness.runtimeMessages.length, 0);
+  assert.equal(
+    harness.debugLogs.some((message) =>
+      message.includes("Allowed local echo") ||
+      message.includes("Suppressed local echo"),
+    ),
+    true,
+  );
 });
