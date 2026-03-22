@@ -17,6 +17,7 @@ import {
   ROOM_HAS_NO_SHARED_VIDEO_MESSAGE,
   ROOM_NOT_FOUND_MESSAGE,
 } from "./messages.js";
+import { decidePlaybackAcceptance } from "./playback-authority.js";
 import { createRoomCode, roomStateOf, type RoomStore } from "./room-store.js";
 import type {
   LogEvent,
@@ -327,33 +328,6 @@ export function createRoomService(options: {
       result: "conflict",
     });
     return null;
-  }
-
-  function shouldIgnorePlaybackUpdate(
-    room: PersistedRoom,
-    nextPlayback: PlaybackState,
-    currentTime: number,
-  ): boolean {
-    if (!room.playback) {
-      return false;
-    }
-
-    const currentPlayback = room.playback;
-    if (currentPlayback.actorId === nextPlayback.actorId) {
-      return false;
-    }
-    const currentIsStopLike =
-      currentPlayback.playState === "paused" ||
-      currentPlayback.playState === "buffering";
-    const nextIsPlaying = nextPlayback.playState === "playing";
-    const withinPauseWindow =
-      currentTime - currentPlayback.serverTime < PAUSE_DOMINANCE_WINDOW_MS;
-    const closeInTimeline =
-      Math.abs(nextPlayback.currentTime - currentPlayback.currentTime) < 1.2;
-
-    return (
-      currentIsStopLike && nextIsPlaying && withinPauseWindow && closeInTimeline
-    );
   }
 
   async function leaveCurrentRoom(
@@ -700,13 +674,13 @@ export function createRoomService(options: {
         currentPlayback: access.persistedRoom.playback,
         nextPlayback,
       });
-      if (
-        shouldIgnorePlaybackUpdate(
-          access.persistedRoom,
-          nextPlayback,
-          currentTime,
-        )
-      ) {
+      const acceptance = decidePlaybackAcceptance({
+        currentPlayback: access.persistedRoom.playback,
+        authority: getPlaybackAuthority(access.persistedRoom.code),
+        incomingPlayback: nextPlayback,
+        currentTime,
+      });
+      if (acceptance.decision !== "accept") {
         return { room: access.persistedRoom, ignored: true };
       }
 
