@@ -30,13 +30,23 @@ export function decidePlaybackAcceptance(args: {
     args.currentPlayback.playState === "paused" ||
     args.currentPlayback.playState === "buffering";
   const incomingIsPlaying = args.incomingPlayback.playState === "playing";
+  const incomingIsStopLike =
+    args.incomingPlayback.playState === "paused" ||
+    args.incomingPlayback.playState === "buffering";
   const authority = args.authority;
   const withinAuthorityWindow =
     authority !== null && args.currentTime < authority.until;
+  const authorityPrefersPlaybackContinuity =
+    authority?.kind === "play" ||
+    authority?.kind === "seek" ||
+    authority?.kind === "ratechange" ||
+    authority?.kind === "share";
   const closeInTimeline =
     Math.abs(
       args.incomingPlayback.currentTime - args.currentPlayback.currentTime,
     ) < 1.2;
+  const nonAdvancingStopLike =
+    args.incomingPlayback.currentTime <= args.currentPlayback.currentTime + 0.15;
   const driftsBackBehindCurrent =
     args.incomingPlayback.currentTime + 0.6 < args.currentPlayback.currentTime;
 
@@ -45,6 +55,21 @@ export function decidePlaybackAcceptance(args: {
     authority.actorId !== args.incomingPlayback.actorId &&
     incomingIsPlaying &&
     (currentIsStopLike || closeInTimeline)
+  ) {
+    return {
+      decision: "ignore-as-follow",
+      reason: "authority-window-follow",
+    };
+  }
+
+  if (
+    withinAuthorityWindow &&
+    authority.actorId !== args.incomingPlayback.actorId &&
+    authorityPrefersPlaybackContinuity &&
+    incomingIsStopLike &&
+    !currentIsStopLike &&
+    closeInTimeline &&
+    nonAdvancingStopLike
   ) {
     return {
       decision: "ignore-as-follow",
