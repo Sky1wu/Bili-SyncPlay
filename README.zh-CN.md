@@ -821,7 +821,7 @@ Chrome 侧调试建议：
 先更新 workspace 版本：
 
 ```bash
-npm run release:version -- 0.5.4
+npm run release:version -- 0.9.0
 ```
 
 该命令会更新：
@@ -856,10 +856,10 @@ release/bili-syncplay-extension-v<version>.zip
 示例：
 
 ```bash
-npm run release:version -- 0.5.4
+npm run release:version -- 0.9.0
 git push origin main
-git tag v0.5.4
-git push origin v0.5.4
+git tag v0.9.0
+git push origin v0.9.0
 ```
 
 ## License

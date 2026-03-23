@@ -821,7 +821,7 @@ Chrome-side debugging tips:
 Update the workspace version first:
 
 ```bash
-npm run release:version -- 0.5.4
+npm run release:version -- 0.9.0
 ```
 
 This command updates:
@@ -856,10 +856,10 @@ The repository already includes a GitHub Actions workflow that:
 Example:
 
 ```bash
-npm run release:version -- 0.5.4
+npm run release:version -- 0.9.0
 git push origin main
-git tag v0.5.4
-git push origin v0.5.4
+git tag v0.9.0
+git push origin v0.9.0
 ```
 
 ## License
