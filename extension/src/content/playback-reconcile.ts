@@ -26,7 +26,7 @@ export function formatPlaybackReconcileDecision(
 
 const PAUSED_HARD_SEEK_THRESHOLD_SECONDS = 0.15;
 const PLAYING_IGNORE_THRESHOLD_SECONDS = 0.35;
-const PLAYING_RATE_ONLY_THRESHOLD_SECONDS = 0.5;
+const PLAYING_RATE_ONLY_THRESHOLD_SECONDS = 0.9;
 const PLAYING_SOFT_APPLY_THRESHOLD_SECONDS = 1.2;
 
 export function shouldTreatAsExplicitSeek(args: {

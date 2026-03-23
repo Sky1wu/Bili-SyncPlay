@@ -21,7 +21,7 @@ function createVideo(
   } as HTMLVideoElement;
 }
 
-test("soft apply nudges current time and playback rate toward the remote target", () => {
+test("rate-only adjustment nudges playback rate without rewriting current time for medium drift", () => {
   const video = createVideo({
     currentTime: 12,
     playbackRate: 1,
@@ -29,20 +29,20 @@ test("soft apply nudges current time and playback rate toward the remote target"
 
   const applied = syncPlaybackPosition(video, 12.8, "playing", undefined, 1);
 
-  assert.ok(Math.abs(video.currentTime - 12.48) < 0.001);
+  assert.ok(Math.abs(video.currentTime - 12) < 0.001);
   assert.ok(Math.abs(video.playbackRate - 1.12) < 0.001);
-  assert.equal(applied.mode, "soft-apply");
+  assert.equal(applied.mode, "rate-only");
   assert.equal(applied.targetTime, 12.8);
   assert.equal(applied.restorePlaybackRate, 1);
-  assert.equal(applied.currentTime, 12.48);
+  assert.equal(applied.currentTime, 12);
   assert.equal(applied.playbackRate, 1.12);
-  assert.equal(applied.reason, "playing-soft-drift");
+  assert.equal(applied.reason, "playing-rate-adjust");
   assert.ok(Math.abs(applied.delta - 0.8) < 0.001);
-  assert.equal(applied.didWriteCurrentTime, true);
+  assert.equal(applied.didWriteCurrentTime, false);
   assert.equal(applied.didWritePlaybackRate, true);
 });
 
-test("soft apply slows down when local playback is ahead of the room timeline", () => {
+test("rate-only adjustment slows playback without rewriting current time when local timeline is ahead", () => {
   const video = createVideo({
     currentTime: 12.8,
     playbackRate: 1,
@@ -50,16 +50,16 @@ test("soft apply slows down when local playback is ahead of the room timeline", 
 
   const applied = syncPlaybackPosition(video, 12, "playing", undefined, 1);
 
-  assert.ok(Math.abs(video.currentTime - 12.32) < 0.001);
+  assert.ok(Math.abs(video.currentTime - 12.8) < 0.001);
   assert.ok(Math.abs(video.playbackRate - 0.88) < 0.001);
-  assert.equal(applied.mode, "soft-apply");
+  assert.equal(applied.mode, "rate-only");
   assert.equal(applied.targetTime, 12);
   assert.equal(applied.restorePlaybackRate, 1);
-  assert.equal(applied.currentTime, 12.32);
+  assert.equal(applied.currentTime, 12.8);
   assert.equal(applied.playbackRate, 0.88);
-  assert.equal(applied.reason, "playing-soft-drift");
+  assert.equal(applied.reason, "playing-rate-adjust");
   assert.ok(Math.abs(applied.delta - 0.8) < 0.001);
-  assert.equal(applied.didWriteCurrentTime, true);
+  assert.equal(applied.didWriteCurrentTime, false);
   assert.equal(applied.didWritePlaybackRate, true);
 });
 
@@ -79,7 +79,7 @@ test("programmatic apply signature tracks the soft-applied position instead of t
     video,
     pendingPlaybackApplication: {
       url: "https://www.bilibili.com/video/BV1xx411c7mD?p=1",
-      currentTime: 12.8,
+      currentTime: 13.1,
       playState: "playing",
       playbackRate: 1,
       updatedAt: 1,
@@ -97,7 +97,7 @@ test("programmatic apply signature tracks the soft-applied position instead of t
   assert.equal(applied.applied, true);
   assert.equal(applied.didChange, true);
   assert.equal(signatures.length, 1);
-  assert.ok(Math.abs(signatures[0]!.currentTime - 12.48) < 0.001);
+  assert.ok(Math.abs(signatures[0]!.currentTime - 12.55) < 0.001);
   assert.ok(Math.abs(signatures[0]!.playbackRate - 1.12) < 0.001);
 });
 

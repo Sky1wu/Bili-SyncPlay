@@ -304,13 +304,13 @@ test("sync controller logs reconcile decisions for soft apply and ignore paths",
         actorId: "remote-member",
         seq: 10,
         serverTime: 19_900,
-        currentTime: 24.8,
+        currentTime: 25.1,
         playState: "playing",
         playbackRate: 1,
       }),
     );
 
-    video.currentTime = 24.78;
+    video.currentTime = 25;
     harness.controller.maintainActiveSoftApply(video);
 
     video.currentTime = 24.92;
@@ -377,7 +377,7 @@ test("sync controller suppresses the waiting event chain triggered by soft apply
         actorId: "remote-member",
         seq: 10,
         serverTime: 19_900,
-        currentTime: 24.8,
+        currentTime: 25.1,
         playState: "playing",
         playbackRate: 1,
       }),
@@ -630,16 +630,16 @@ test("sync controller reproduces repeated soft apply after heartbeat-driven conv
         actorId: "remote-member",
         seq: 10,
         serverTime: 19_900,
-        currentTime: 24.8,
+        currentTime: 25.1,
         playState: "playing",
         playbackRate: 1,
       }),
     );
 
-    assert.ok(Math.abs(video.currentTime - 24.48) < 0.001);
+    assert.ok(Math.abs(video.currentTime - 24.55) < 0.001);
     assert.ok(Math.abs(video.playbackRate - 1.12) < 0.001);
 
-    video.currentTime = 24.66;
+    video.currentTime = 25;
     harness.controller.maintainActiveSoftApply(video);
     assert.ok(Math.abs(video.playbackRate - 1) < 0.001);
 
@@ -650,13 +650,13 @@ test("sync controller reproduces repeated soft apply after heartbeat-driven conv
         actorId: "remote-member",
         seq: 11,
         serverTime: 21_900,
-        currentTime: 26.7,
+        currentTime: 27.1,
         playState: "playing",
         playbackRate: 1,
       }),
     );
 
-    assert.ok(Math.abs(video.currentTime - 26.42) < 0.001);
+    assert.ok(Math.abs(video.currentTime - 26.55) < 0.001);
     assert.ok(Math.abs(video.playbackRate - 1.12) < 0.001);
 
     const startedSoftApplyLogs = harness.debugLogs.filter((message) =>
