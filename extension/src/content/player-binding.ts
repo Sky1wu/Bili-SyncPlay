@@ -8,8 +8,6 @@ import type { ProgrammaticPlaybackSignature } from "./runtime-state";
 const SOFT_APPLY_STEP_SECONDS = 0.22;
 const SOFT_APPLY_MAX_STEP_SECONDS = 0.4;
 const SOFT_APPLY_RATE_OFFSET = 0.12;
-const MIN_PLAYBACK_RATE = 0.85;
-const MAX_PLAYBACK_RATE = 1.15;
 
 interface AppliedPlaybackAdjustment {
   mode: "ignore" | "rate-only" | "soft-apply" | "hard-seek";
@@ -75,6 +73,7 @@ function getSoftApplySignature(args: {
   targetTime: number;
   basePlaybackRate: number;
 }): { currentTime: number; playbackRate: number } {
+  const tuning = getPlaybackAdjustmentTuning(args.basePlaybackRate);
   const playbackRate = getRateAdjustedPlaybackRate({
     localCurrentTime: args.localCurrentTime,
     targetTime: args.targetTime,
@@ -82,8 +81,8 @@ function getSoftApplySignature(args: {
   });
   const drift = args.targetTime - args.localCurrentTime;
   const stepLimit = Math.min(
-    SOFT_APPLY_MAX_STEP_SECONDS,
-    Math.max(SOFT_APPLY_STEP_SECONDS, Math.abs(drift) * 0.45),
+    tuning.maxStepSeconds,
+    Math.max(tuning.minStepSeconds, Math.abs(drift) * tuning.stepScale),
   );
   const steppedCurrentTime =
     args.localCurrentTime + clamp(drift, -stepLimit, stepLimit);
@@ -94,22 +93,51 @@ function getSoftApplySignature(args: {
   };
 }
 
+function getPlaybackAdjustmentTuning(basePlaybackRate: number): {
+  rateOffsetLimit: number;
+  minPlaybackRate: number;
+  maxPlaybackRate: number;
+  minStepSeconds: number;
+  maxStepSeconds: number;
+  stepScale: number;
+} {
+  const normalizedRate = Math.max(1, basePlaybackRate);
+  const extraRate = normalizedRate - 1;
+  const rateOffsetLimit = Math.min(
+    0.26,
+    SOFT_APPLY_RATE_OFFSET + extraRate * 0.1,
+  );
+
+  return {
+    rateOffsetLimit,
+    minPlaybackRate: Math.max(0.1, basePlaybackRate - rateOffsetLimit),
+    maxPlaybackRate: basePlaybackRate + rateOffsetLimit,
+    minStepSeconds: Math.max(0.16, SOFT_APPLY_STEP_SECONDS - extraRate * 0.03),
+    maxStepSeconds: Math.max(
+      0.28,
+      SOFT_APPLY_MAX_STEP_SECONDS - extraRate * 0.08,
+    ),
+    stepScale: Math.max(0.3, 0.45 - extraRate * 0.08),
+  };
+}
+
 function getRateAdjustedPlaybackRate(args: {
   localCurrentTime: number;
   targetTime: number;
   basePlaybackRate: number;
 }): number {
+  const tuning = getPlaybackAdjustmentTuning(args.basePlaybackRate);
   const drift = args.targetTime - args.localCurrentTime;
   const rateOffset = clamp(
     drift * 0.18,
-    -SOFT_APPLY_RATE_OFFSET,
-    SOFT_APPLY_RATE_OFFSET,
+    -tuning.rateOffsetLimit,
+    tuning.rateOffsetLimit,
   );
 
   return clamp(
     args.basePlaybackRate + rateOffset,
-    MIN_PLAYBACK_RATE,
-    MAX_PLAYBACK_RATE,
+    tuning.minPlaybackRate,
+    tuning.maxPlaybackRate,
   );
 }
 

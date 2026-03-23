@@ -63,6 +63,21 @@ test("rate-only adjustment slows playback without rewriting current time when lo
   assert.equal(applied.didWritePlaybackRate, true);
 });
 
+test("rate-only adjustment widens playback-rate correction at 2x", () => {
+  const video = createVideo({
+    currentTime: 12,
+    playbackRate: 2,
+  });
+
+  const applied = syncPlaybackPosition(video, 13.1, "playing", undefined, 2);
+
+  assert.equal(applied.mode, "rate-only");
+  assert.ok(Math.abs(video.currentTime - 12) < 0.001);
+  assert.ok(Math.abs(video.playbackRate - 2.198) < 0.001);
+  assert.equal(applied.didWriteCurrentTime, false);
+  assert.equal(applied.didWritePlaybackRate, true);
+});
+
 test("programmatic apply signature tracks the soft-applied position instead of the raw remote target", () => {
   const video = createVideo({
     currentTime: 12,
@@ -113,6 +128,22 @@ test("soft apply uses a more conservative time step than the raw drift", () => {
   assert.ok(Math.abs(video.currentTime - 12.4) < 0.001);
   assert.ok(Math.abs(applied.targetTime - applied.currentTime - 0.7) < 0.001);
   assert.equal(applied.didWriteCurrentTime, true);
+});
+
+test("soft apply keeps a smaller time step but a wider rate offset at 2x", () => {
+  const video = createVideo({
+    currentTime: 12,
+    playbackRate: 2,
+  });
+
+  const applied = syncPlaybackPosition(video, 13.7, "playing", undefined, 2);
+
+  assert.equal(applied.mode, "soft-apply");
+  assert.ok(video.currentTime > 12);
+  assert.ok(video.currentTime < 12.4);
+  assert.ok(Math.abs(video.playbackRate - 2.22) < 0.001);
+  assert.equal(applied.didWriteCurrentTime, true);
+  assert.equal(applied.didWritePlaybackRate, true);
 });
 
 test("explicit seek still uses hard seek for immediate alignment", () => {
