@@ -286,11 +286,7 @@ export function createSyncController(args: {
         "apply",
       );
     }
-    if (
-      reason === "converged" ||
-      reason === "timeout" ||
-      reason === "apply-hard-seek"
-    ) {
+    if (reason === "converged" || reason === "apply-hard-seek") {
       armSoftApplyCooldown(session.normalizedUrl, reason);
     } else if (
       args.runtimeState.softApplyCooldownUrl === session.normalizedUrl

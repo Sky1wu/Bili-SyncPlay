@@ -778,6 +778,79 @@ test("sync controller suppresses repeated apply during the soft-apply cooldown w
   }
 });
 
+test("sync controller does not arm cooldown when soft apply times out", async () => {
+  const windowHarness = installWindowStub();
+  const harness = createControllerHarness();
+  const sharedVideo = {
+    videoId: "BV1xx411c7mD",
+    url: "https://www.bilibili.com/video/BV1xx411c7mD?p=1",
+    title: "Video",
+  };
+  const video = createVideo({
+    paused: false,
+    currentTime: 24,
+    playbackRate: 1,
+  });
+
+  harness.runtimeState.hydrationReady = true;
+  harness.runtimeState.pendingRoomStateHydration = false;
+  harness.setSharedVideo(sharedVideo);
+  harness.setCurrentPlaybackVideo(sharedVideo);
+  harness.setVideoElement(video);
+
+  try {
+    harness.setNow(20_000);
+    await harness.controller.applyRoomState(
+      createRoomState({
+        actorId: "remote-member",
+        seq: 10,
+        serverTime: 19_900,
+        currentTime: 25.1,
+        playState: "playing",
+        playbackRate: 1,
+      }),
+    );
+
+    harness.setNow(22_500);
+    harness.controller.maintainActiveSoftApply(video);
+
+    assert.equal(harness.runtimeState.softApplyCooldownUntil, 0);
+    assert.equal(harness.runtimeState.softApplyCooldownUrl, null);
+    assert.ok(Math.abs(video.playbackRate - 1) < 0.001);
+
+    harness.setNow(22_600);
+    video.currentTime = 26;
+    await harness.controller.applyRoomState(
+      createRoomState({
+        actorId: "remote-member",
+        seq: 11,
+        serverTime: 22_500,
+        currentTime: 27.1,
+        playState: "playing",
+        playbackRate: 1,
+      }),
+    );
+
+    assert.ok(Math.abs(video.currentTime - 26.4) < 0.001);
+    assert.ok(Math.abs(video.playbackRate - 1.12) < 0.001);
+    assert.equal(
+      harness.debugLogs.some(
+        (message) =>
+          message.includes("Ignored remote playback") &&
+          message.includes("result=cooldown-suppress"),
+      ),
+      false,
+    );
+    assert.equal(
+      harness.debugLogs.filter((message) => message.includes("Started soft apply"))
+        .length,
+      2,
+    );
+  } finally {
+    windowHarness.restore();
+  }
+});
+
 test("sync controller cooldown still allows remote pause and resume control", async () => {
   const windowHarness = installWindowStub();
   const harness = createControllerHarness();
