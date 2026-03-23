@@ -100,6 +100,7 @@ export function createSyncController(args: {
   const SOFT_APPLY_TIMEOUT_PER_SECOND_MS = 900;
   const SOFT_APPLY_RTT_TIMEOUT_FACTOR = 2.5;
   const SOFT_APPLY_TARGET_SHIFT_CANCEL_THRESHOLD_SECONDS = 0.6;
+  const SOFT_APPLY_COOLDOWN_MS = 2_500;
   const nowOf = () => args.getNow?.() ?? Date.now();
   let activeSoftApply: {
     normalizedUrl: string;
@@ -225,6 +226,19 @@ export function createSyncController(args: {
     }
   }
 
+  function armSoftApplyCooldown(normalizedUrl: string, reason: string): void {
+    args.runtimeState.softApplyCooldownUrl = normalizedUrl;
+    args.runtimeState.softApplyCooldownUntil = nowOf() + SOFT_APPLY_COOLDOWN_MS;
+    args.debugLog(
+      `Soft apply cooldown armed url=${normalizedUrl} result=${reason} until=${args.runtimeState.softApplyCooldownUntil}`,
+    );
+  }
+
+  function clearSoftApplyCooldown(): void {
+    args.runtimeState.softApplyCooldownUntil = 0;
+    args.runtimeState.softApplyCooldownUrl = null;
+  }
+
   function computeSoftApplyTimeoutMs(remainingDriftSeconds: number): number {
     const networkAllowanceMs =
       args.runtimeState.rttMs === null
@@ -271,6 +285,17 @@ export function createSyncController(args: {
         },
         "apply",
       );
+    }
+    if (
+      reason === "converged" ||
+      reason === "timeout" ||
+      reason === "apply-hard-seek"
+    ) {
+      armSoftApplyCooldown(session.normalizedUrl, reason);
+    } else if (
+      args.runtimeState.softApplyCooldownUrl === session.normalizedUrl
+    ) {
+      clearSoftApplyCooldown();
     }
     args.debugLog(
       `Cancelled soft apply url=${session.normalizedUrl} target=${session.targetTime.toFixed(2)} result=${reason}`,
@@ -419,6 +444,7 @@ export function createSyncController(args: {
     clearPendingLocalPlaybackOverride();
     args.runtimeState.programmaticApplyUntil = 0;
     args.runtimeState.programmaticApplySignature = null;
+    clearSoftApplyCooldown();
     args.runtimeState.lastLocalPlaybackVersion = null;
     args.runtimeState.intendedPlaybackRate = 1;
     args.debugLog(`Reset playback sync state: ${reason}`);
@@ -432,6 +458,9 @@ export function createSyncController(args: {
         args.runtimeState.pendingPlaybackApplication = null;
       },
       onPlaybackAdjusted: (adjustment, playback) => {
+        if (adjustment.mode !== "soft-apply") {
+          clearSoftApplyCooldown();
+        }
         args.debugLog(
           `Playback reconcile actor=${playback.actorId} playState=${playback.playState} url=${playback.url} ${formatPlaybackReconcileDecision({
             mode: adjustment.mode,
@@ -476,6 +505,41 @@ export function createSyncController(args: {
     if (args.runtimeState.pendingRoomStateHydration) {
       acceptInitialRoomStateHydration();
     }
+  }
+
+  function shouldSuppressBySoftApplyCooldown(
+    video: HTMLVideoElement,
+    playback: PlaybackState,
+  ): boolean {
+    if (
+      args.runtimeState.softApplyCooldownUntil <= nowOf() ||
+      !args.runtimeState.softApplyCooldownUrl
+    ) {
+      return false;
+    }
+
+    const normalizedUrl = args.normalizeUrl(playback.url);
+    if (
+      !normalizedUrl ||
+      normalizedUrl !== args.runtimeState.softApplyCooldownUrl ||
+      playback.playState !== "playing" ||
+      playback.syncIntent === "explicit-seek" ||
+      playback.syncIntent === "explicit-ratechange"
+    ) {
+      return false;
+    }
+
+    const decision = decidePlaybackReconcileMode({
+      localCurrentTime: video.currentTime,
+      targetTime: playback.currentTime,
+      playState: playback.playState,
+      isExplicitSeek: shouldTreatAsExplicitSeek({
+        syncIntent: playback.syncIntent,
+        playState: playback.playState,
+      }),
+    });
+
+    return decision.mode === "rate-only" || decision.mode === "soft-apply";
   }
 
   function logIgnoredRemotePlayback(argsForLog: {
@@ -1411,6 +1475,7 @@ export function createSyncController(args: {
     shouldCancelActiveSoftApplyForPlayback,
     shouldApplySelfPlayback,
     shouldIgnoreRemotePlaybackApply,
+    shouldSuppressRemotePlaybackByCooldown: shouldSuppressBySoftApplyCooldown,
     rememberRemoteFollowPlayingWindow,
     rememberRemotePlaybackForSuppression,
     armProgrammaticApplyWindow,

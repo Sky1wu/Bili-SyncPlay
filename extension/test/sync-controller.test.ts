@@ -696,7 +696,7 @@ test("sync controller ignores remote explicit seek while local explicit seek is 
   );
 });
 
-test("sync controller reproduces repeated soft apply after heartbeat-driven convergence", async () => {
+test("sync controller suppresses repeated apply during the soft-apply cooldown window", async () => {
   const windowHarness = installWindowStub();
   const harness = createControllerHarness();
   const sharedVideo = {
@@ -735,6 +735,7 @@ test("sync controller reproduces repeated soft apply after heartbeat-driven conv
     video.currentTime = 25;
     harness.controller.maintainActiveSoftApply(video);
     assert.ok(Math.abs(video.playbackRate - 1) < 0.001);
+    assert.equal(harness.runtimeState.softApplyCooldownUntil > 20_000, true);
 
     harness.setNow(22_000);
     video.currentTime = 26;
@@ -749,13 +750,13 @@ test("sync controller reproduces repeated soft apply after heartbeat-driven conv
       }),
     );
 
-    assert.ok(Math.abs(video.currentTime - 26.4) < 0.001);
-    assert.ok(Math.abs(video.playbackRate - 1.12) < 0.001);
+    assert.ok(Math.abs(video.currentTime - 26) < 0.001);
+    assert.ok(Math.abs(video.playbackRate - 1) < 0.001);
 
     const startedSoftApplyLogs = harness.debugLogs.filter((message) =>
       message.includes("Started soft apply"),
     );
-    assert.equal(startedSoftApplyLogs.length, 2);
+    assert.equal(startedSoftApplyLogs.length, 1);
     assert.equal(
       harness.debugLogs.some(
         (message) =>
@@ -766,7 +767,8 @@ test("sync controller reproduces repeated soft apply after heartbeat-driven conv
     );
     assert.equal(
       harness.debugLogs.some((message) =>
-        message.includes("Programmatic apply window armed"),
+        message.includes("Ignored remote playback") &&
+        message.includes("result=cooldown-suppress"),
       ),
       true,
     );

@@ -86,6 +86,8 @@ export interface ContentRuntimeState {
   pendingPlaybackApplication: PlaybackState | null;
   programmaticApplyUntil: number;
   programmaticApplySignature: ProgrammaticPlaybackSignature | null;
+  softApplyCooldownUntil: number;
+  softApplyCooldownUrl: string | null;
   remoteFollowPlayingUntil: number;
   remoteFollowPlayingUrl: string | null;
   suppressedRemotePlayback: SuppressedRemotePlayback | null;
@@ -116,6 +118,8 @@ export function createContentRuntimeState(): ContentRuntimeState {
     pendingPlaybackApplication: null,
     programmaticApplyUntil: 0,
     programmaticApplySignature: null,
+    softApplyCooldownUntil: 0,
+    softApplyCooldownUrl: null,
     remoteFollowPlayingUntil: 0,
     remoteFollowPlayingUrl: null,
     suppressedRemotePlayback: null,

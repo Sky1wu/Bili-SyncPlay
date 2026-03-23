@@ -79,6 +79,10 @@ export function createRoomStateApplyController(args: {
     playback: PlaybackState,
     isSelfPlayback: boolean,
   ) => boolean;
+  shouldSuppressRemotePlaybackByCooldown: (
+    video: HTMLVideoElement,
+    playback: PlaybackState,
+  ) => boolean;
   rememberRemoteFollowPlayingWindow: (playback: PlaybackState) => void;
   rememberRemotePlaybackForSuppression: (playback: PlaybackState) => void;
   armProgrammaticApplyWindow: (
@@ -318,6 +322,19 @@ export function createRoomStateApplyController(args: {
         video,
         result: "within-threshold-noop",
         extra: `seq=${state.playback.seq}`,
+      });
+      return;
+    }
+
+    if (args.shouldSuppressRemotePlaybackByCooldown(video, state.playback)) {
+      args.acceptInitialRoomStateHydrationIfPending();
+      args.runtimeState.intendedPlayState = state.playback.playState;
+      args.runtimeState.intendedPlaybackRate = state.playback.playbackRate;
+      args.logIgnoredRemotePlayback({
+        playback: state.playback,
+        video,
+        result: "cooldown-suppress",
+        extra: `seq=${state.playback.seq} cooldownUntil=${args.runtimeState.softApplyCooldownUntil}`,
       });
       return;
     }
