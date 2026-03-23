@@ -776,3 +776,171 @@ test("sync controller suppresses repeated apply during the soft-apply cooldown w
     windowHarness.restore();
   }
 });
+
+test("sync controller cooldown still allows remote pause and resume control", async () => {
+  const windowHarness = installWindowStub();
+  const harness = createControllerHarness();
+  const sharedVideo = {
+    videoId: "BV1xx411c7mD",
+    url: "https://www.bilibili.com/video/BV1xx411c7mD?p=1",
+    title: "Video",
+  };
+  let pauseCalls = 0;
+  let playCalls = 0;
+  const video = createVideo({
+    paused: false,
+    currentTime: 24,
+    playbackRate: 1,
+  });
+  video.pause = () => {
+    pauseCalls += 1;
+    video.paused = true;
+  };
+  video.play = async () => {
+    playCalls += 1;
+    video.paused = false;
+  };
+
+  harness.runtimeState.hydrationReady = true;
+  harness.runtimeState.pendingRoomStateHydration = false;
+  harness.setSharedVideo(sharedVideo);
+  harness.setCurrentPlaybackVideo(sharedVideo);
+  harness.setVideoElement(video);
+
+  try {
+    harness.setNow(20_000);
+    await harness.controller.applyRoomState(
+      createRoomState({
+        actorId: "remote-member",
+        seq: 10,
+        serverTime: 19_900,
+        currentTime: 25.1,
+        playState: "playing",
+        playbackRate: 1,
+      }),
+    );
+
+    video.currentTime = 25;
+    harness.controller.maintainActiveSoftApply(video);
+    assert.equal(harness.runtimeState.softApplyCooldownUntil > 20_000, true);
+    pauseCalls = 0;
+    playCalls = 0;
+
+    harness.setNow(21_000);
+    await harness.controller.applyRoomState(
+      createRoomState({
+        actorId: "remote-member",
+        seq: 11,
+        serverTime: 20_900,
+        currentTime: 25.1,
+        playState: "paused",
+        playbackRate: 1,
+      }),
+    );
+
+    assert.equal(pauseCalls, 1);
+    assert.equal(video.paused, true);
+
+    harness.setNow(21_500);
+    video.currentTime = 25.1;
+    await harness.controller.applyRoomState(
+      createRoomState({
+        actorId: "remote-member",
+        seq: 12,
+        serverTime: 21_400,
+        currentTime: 25.7,
+        playState: "playing",
+        playbackRate: 1,
+      }),
+    );
+
+    assert.equal(playCalls, 1);
+    assert.equal(video.paused, false);
+    assert.equal(
+      harness.debugLogs.some((message) =>
+        message.includes("result=cooldown-suppress"),
+      ),
+      false,
+    );
+  } finally {
+    windowHarness.restore();
+  }
+});
+
+test("sync controller cooldown does not suppress explicit seek or explicit ratechange", async () => {
+  const windowHarness = installWindowStub();
+  const harness = createControllerHarness();
+  const sharedVideo = {
+    videoId: "BV1xx411c7mD",
+    url: "https://www.bilibili.com/video/BV1xx411c7mD?p=1",
+    title: "Video",
+  };
+  const video = createVideo({
+    paused: false,
+    currentTime: 24,
+    playbackRate: 1,
+  });
+
+  harness.runtimeState.hydrationReady = true;
+  harness.runtimeState.pendingRoomStateHydration = false;
+  harness.setSharedVideo(sharedVideo);
+  harness.setCurrentPlaybackVideo(sharedVideo);
+  harness.setVideoElement(video);
+
+  try {
+    harness.setNow(20_000);
+    await harness.controller.applyRoomState(
+      createRoomState({
+        actorId: "remote-member",
+        seq: 10,
+        serverTime: 19_900,
+        currentTime: 25.1,
+        playState: "playing",
+        playbackRate: 1,
+      }),
+    );
+
+    video.currentTime = 25;
+    harness.controller.maintainActiveSoftApply(video);
+    assert.equal(harness.runtimeState.softApplyCooldownUntil > 20_000, true);
+
+    harness.setNow(21_000);
+    await harness.controller.applyRoomState(
+      createRoomState({
+        actorId: "remote-member",
+        seq: 11,
+        serverTime: 20_900,
+        currentTime: 40,
+        playState: "playing",
+        playbackRate: 1,
+        syncIntent: "explicit-seek",
+      }),
+    );
+
+    assert.ok(Math.abs(video.currentTime - 40) < 0.001);
+
+    harness.setNow(21_500);
+    video.currentTime = 40;
+    await harness.controller.applyRoomState(
+      createRoomState({
+        actorId: "remote-member",
+        seq: 12,
+        serverTime: 21_400,
+        currentTime: 40.2,
+        playState: "playing",
+        playbackRate: 1.5,
+        syncIntent: "explicit-ratechange",
+      }),
+    );
+
+    assert.ok(Math.abs(video.playbackRate - 1.5) < 0.001);
+    assert.equal(
+      harness.debugLogs.some((message) =>
+        message.includes("result=cooldown-suppress"),
+      ),
+      false,
+    );
+  } finally {
+    windowHarness.restore();
+  }
+});

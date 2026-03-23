@@ -522,6 +522,7 @@ export function createSyncController(args: {
     if (
       !normalizedUrl ||
       normalizedUrl !== args.runtimeState.softApplyCooldownUrl ||
+      video.paused ||
       playback.playState !== "playing" ||
       playback.syncIntent === "explicit-seek" ||
       playback.syncIntent === "explicit-ratechange"
