@@ -1,6 +1,10 @@
 import type { PlaybackState } from "@bili-syncplay/protocol";
 
-export type PlaybackReconcileMode = "ignore" | "soft-apply" | "hard-seek";
+export type PlaybackReconcileMode =
+  | "ignore"
+  | "rate-only"
+  | "soft-apply"
+  | "hard-seek";
 
 export interface PlaybackReconcileDecision {
   mode: PlaybackReconcileMode;
@@ -8,7 +12,9 @@ export interface PlaybackReconcileDecision {
   reason:
     | "within-threshold"
     | "paused-or-buffering"
-    | "playing-drift"
+    | "playing-rate-adjust"
+    | "playing-soft-drift"
+    | "playing-hard-drift"
     | "explicit-seek";
 }
 
@@ -20,6 +26,7 @@ export function formatPlaybackReconcileDecision(
 
 const PAUSED_HARD_SEEK_THRESHOLD_SECONDS = 0.15;
 const PLAYING_IGNORE_THRESHOLD_SECONDS = 0.35;
+const PLAYING_RATE_ONLY_THRESHOLD_SECONDS = 0.5;
 const PLAYING_SOFT_APPLY_THRESHOLD_SECONDS = 1.2;
 
 export function shouldTreatAsExplicitSeek(args: {
@@ -60,13 +67,19 @@ export function decidePlaybackReconcileMode(args: {
     mode:
       delta <= PLAYING_IGNORE_THRESHOLD_SECONDS
         ? "ignore"
+        : delta <= PLAYING_RATE_ONLY_THRESHOLD_SECONDS
+          ? "rate-only"
         : delta <= PLAYING_SOFT_APPLY_THRESHOLD_SECONDS
           ? "soft-apply"
           : "hard-seek",
     delta,
     reason:
-      delta > PLAYING_IGNORE_THRESHOLD_SECONDS
-        ? "playing-drift"
-        : "within-threshold",
+      delta <= PLAYING_IGNORE_THRESHOLD_SECONDS
+        ? "within-threshold"
+        : delta <= PLAYING_RATE_ONLY_THRESHOLD_SECONDS
+          ? "playing-rate-adjust"
+          : delta <= PLAYING_SOFT_APPLY_THRESHOLD_SECONDS
+            ? "playing-soft-drift"
+            : "playing-hard-drift",
   };
 }

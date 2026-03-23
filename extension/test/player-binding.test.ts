@@ -36,7 +36,7 @@ test("soft apply nudges current time and playback rate toward the remote target"
   assert.equal(applied.restorePlaybackRate, 1);
   assert.equal(applied.currentTime, 12.48);
   assert.equal(applied.playbackRate, 1.12);
-  assert.equal(applied.reason, "playing-drift");
+  assert.equal(applied.reason, "playing-soft-drift");
   assert.ok(Math.abs(applied.delta - 0.8) < 0.001);
   assert.equal(applied.didWriteCurrentTime, true);
   assert.equal(applied.didWritePlaybackRate, true);
@@ -57,7 +57,7 @@ test("soft apply slows down when local playback is ahead of the room timeline", 
   assert.equal(applied.restorePlaybackRate, 1);
   assert.equal(applied.currentTime, 12.32);
   assert.equal(applied.playbackRate, 0.88);
-  assert.equal(applied.reason, "playing-drift");
+  assert.equal(applied.reason, "playing-soft-drift");
   assert.ok(Math.abs(applied.delta - 0.8) < 0.001);
   assert.equal(applied.didWriteCurrentTime, true);
   assert.equal(applied.didWritePlaybackRate, true);

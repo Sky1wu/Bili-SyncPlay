@@ -25,8 +25,20 @@ test("uses soft apply for medium playback drift while playing", () => {
   });
 
   assert.equal(decision.mode, "soft-apply");
-  assert.equal(decision.reason, "playing-drift");
+  assert.equal(decision.reason, "playing-soft-drift");
   assert.ok(Math.abs(decision.delta - 1.1) < 0.001);
+});
+
+test("uses rate-only adjustment for light playing drift above the ignore window", () => {
+  const decision = decidePlaybackReconcileMode({
+    localCurrentTime: 12,
+    targetTime: 12.45,
+    playState: "playing",
+  });
+
+  assert.equal(decision.mode, "rate-only");
+  assert.equal(decision.reason, "playing-rate-adjust");
+  assert.ok(Math.abs(decision.delta - 0.45) < 0.001);
 });
 
 test("forces hard seek for explicit jumps while playing", () => {
@@ -88,7 +100,7 @@ test("uses hard seek once playing drift exceeds the tighter soft-apply window", 
   });
 
   assert.equal(decision.mode, "hard-seek");
-  assert.equal(decision.reason, "playing-drift");
+  assert.equal(decision.reason, "playing-hard-drift");
   assert.ok(Math.abs(decision.delta - 1.35) < 0.001);
 });
 

@@ -12,7 +12,7 @@ const MIN_PLAYBACK_RATE = 0.85;
 const MAX_PLAYBACK_RATE = 1.15;
 
 interface AppliedPlaybackAdjustment {
-  mode: "ignore" | "soft-apply" | "hard-seek";
+  mode: "ignore" | "rate-only" | "soft-apply" | "hard-seek";
   reason: ReturnType<typeof decidePlaybackReconcileMode>["reason"];
   delta: number;
   currentTime: number;
@@ -75,6 +75,11 @@ function getSoftApplySignature(args: {
   targetTime: number;
   basePlaybackRate: number;
 }): { currentTime: number; playbackRate: number } {
+  const playbackRate = getRateAdjustedPlaybackRate({
+    localCurrentTime: args.localCurrentTime,
+    targetTime: args.targetTime,
+    basePlaybackRate: args.basePlaybackRate,
+  });
   const drift = args.targetTime - args.localCurrentTime;
   const stepLimit = Math.min(
     SOFT_APPLY_MAX_STEP_SECONDS,
@@ -82,20 +87,30 @@ function getSoftApplySignature(args: {
   );
   const steppedCurrentTime =
     args.localCurrentTime + clamp(drift, -stepLimit, stepLimit);
+
+  return {
+    currentTime: steppedCurrentTime,
+    playbackRate,
+  };
+}
+
+function getRateAdjustedPlaybackRate(args: {
+  localCurrentTime: number;
+  targetTime: number;
+  basePlaybackRate: number;
+}): number {
+  const drift = args.targetTime - args.localCurrentTime;
   const rateOffset = clamp(
     drift * 0.18,
     -SOFT_APPLY_RATE_OFFSET,
     SOFT_APPLY_RATE_OFFSET,
   );
 
-  return {
-    currentTime: steppedCurrentTime,
-    playbackRate: clamp(
-      args.basePlaybackRate + rateOffset,
-      MIN_PLAYBACK_RATE,
-      MAX_PLAYBACK_RATE,
-    ),
-  };
+  return clamp(
+    args.basePlaybackRate + rateOffset,
+    MIN_PLAYBACK_RATE,
+    MAX_PLAYBACK_RATE,
+  );
 }
 
 export function syncPlaybackPosition(
@@ -168,6 +183,31 @@ export function syncPlaybackPosition(
       didWritePlaybackRate: shouldWritePlaybackRate,
       didChange:
         shouldWriteCurrentTime || shouldWritePlaybackRate,
+    };
+  }
+
+  if (decision.mode === "rate-only") {
+    const adjustedPlaybackRate = getRateAdjustedPlaybackRate({
+      localCurrentTime: video.currentTime,
+      targetTime,
+      basePlaybackRate: playbackRate,
+    });
+    const shouldWritePlaybackRate =
+      Math.abs(video.playbackRate - adjustedPlaybackRate) > 0.01;
+    if (shouldWritePlaybackRate) {
+      video.playbackRate = adjustedPlaybackRate;
+    }
+    return {
+      mode: "rate-only",
+      reason: decision.reason,
+      delta: decision.delta,
+      currentTime: video.currentTime,
+      playbackRate: adjustedPlaybackRate,
+      targetTime,
+      restorePlaybackRate: playbackRate,
+      didWriteCurrentTime: false,
+      didWritePlaybackRate: shouldWritePlaybackRate,
+      didChange: shouldWritePlaybackRate,
     };
   }
 
