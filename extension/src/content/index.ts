@@ -103,6 +103,10 @@ const playbackBindingController = createPlaybackBindingController({
   getLastBroadcastAt: () => lastBroadcastAt,
   broadcastPlayback: (video, eventSource) =>
     syncController.broadcastPlayback(video, eventSource),
+  cancelActiveSoftApply: (video, reason) =>
+    syncController.cancelActiveSoftApply(video, reason),
+  maintainActiveSoftApply: (video) =>
+    syncController.maintainActiveSoftApply(video),
   applyPendingPlaybackApplication: (video) =>
     syncController.applyPendingPlaybackApplication(video),
   activatePauseHold,
@@ -114,6 +118,7 @@ const navigationController = createNavigationController({
   userGestureGraceMs: USER_GESTURE_GRACE_MS,
   initialRoomStatePauseHoldMs: INITIAL_ROOM_STATE_PAUSE_HOLD_MS,
   getCurrentPageUrl: () => window.location.href.split("#")[0],
+  normalizeVideoPageUrl: (url) => normalizeSharedVideoUrl(url),
   isSupportedVideoPage: (url) => Boolean(normalizeSharedVideoUrl(url)),
   clearFestivalSnapshot: () => {
     festivalBridge.clearSnapshot();

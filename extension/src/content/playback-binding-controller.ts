@@ -32,6 +32,11 @@ export function createPlaybackBindingController(args: {
     video: HTMLVideoElement,
     eventSource?: LocalPlaybackEventSource,
   ) => Promise<void>;
+  cancelActiveSoftApply: (
+    video: HTMLVideoElement | null,
+    reason: string,
+  ) => void;
+  maintainActiveSoftApply: (video: HTMLVideoElement) => void;
   applyPendingPlaybackApplication: (video: HTMLVideoElement) => void;
   activatePauseHold: (durationMs?: number) => void;
   debugLog: (message: string) => void;
@@ -39,6 +44,8 @@ export function createPlaybackBindingController(args: {
 }): PlaybackBindingController {
   let videoBindingTimer: number | null = null;
   const nowOf = () => args.getNow?.() ?? Date.now();
+  const hasRecentUserGesture = () =>
+    nowOf() - args.runtimeState.lastUserGestureAt < args.userGestureGraceMs;
 
   function scheduleBroadcast(
     video: HTMLVideoElement,
@@ -70,6 +77,14 @@ export function createPlaybackBindingController(args: {
       nowOf() - args.runtimeState.lastUserGestureAt <
       args.userGestureGraceMs
     ) {
+      if (
+        kind === "play" &&
+        args.runtimeState.lastExplicitUserAction?.kind === "seek" &&
+        nowOf() - args.runtimeState.lastExplicitUserAction.at <
+          args.userGestureGraceMs
+      ) {
+        return;
+      }
       args.runtimeState.lastExplicitUserAction = {
         kind,
         at: nowOf(),
@@ -228,6 +243,9 @@ export function createPlaybackBindingController(args: {
       },
       onPause: () => {
         const currentVideo = args.getSharedVideo();
+        if (hasRecentUserGesture()) {
+          args.cancelActiveSoftApply(video, "pause");
+        }
         rememberExplicitPlaybackAction("paused");
         rememberExplicitUserAction("pause");
         if (
@@ -260,10 +278,16 @@ export function createPlaybackBindingController(args: {
         }
       },
       onSeeking: () => {
+        if (hasRecentUserGesture()) {
+          args.cancelActiveSoftApply(video, "seek");
+        }
         rememberExplicitUserAction("seek");
         scheduleBroadcast(video, "seeking");
       },
       onSeeked: () => {
+        if (hasRecentUserGesture()) {
+          args.cancelActiveSoftApply(video, "seek");
+        }
         rememberExplicitUserAction("seek");
         scheduleBroadcast(video, "seeked", 120);
       },
@@ -272,6 +296,7 @@ export function createPlaybackBindingController(args: {
         scheduleBroadcast(video, "ratechange", 120);
       },
       onTimeUpdate: () => {
+        args.maintainActiveSoftApply(video);
         if (nowOf() - args.getLastBroadcastAt() > 2000 && !video.paused) {
           void args.broadcastPlayback(video, "timeupdate");
         }

@@ -48,6 +48,35 @@ test("accepts a valid room:state message", () => {
   );
 });
 
+test("accepts room:state when playback sync intent is explicit-ratechange", () => {
+  assert.equal(
+    isServerMessage({
+      type: "room:state",
+      payload: {
+        roomCode: "ABC123",
+        sharedVideo: {
+          videoId: "BV1xx411c7mD",
+          url: "https://www.bilibili.com/video/BV1xx411c7mD?p=2",
+          title: "Video",
+        },
+        playback: {
+          url: "https://www.bilibili.com/video/BV1xx411c7mD?p=2",
+          currentTime: 12,
+          playState: "playing",
+          syncIntent: "explicit-ratechange",
+          playbackRate: 1.5,
+          updatedAt: 1,
+          serverTime: 1,
+          actorId: "member-1",
+          seq: 1,
+        },
+        members: [{ id: "member-1", name: "Alice" }],
+      },
+    }),
+    true,
+  );
+});
+
 test("rejects room:state when playback sync intent is invalid", () => {
   assert.equal(
     isServerMessage({

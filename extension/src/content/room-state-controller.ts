@@ -19,6 +19,7 @@ export interface RoomStateController {
     roomCode: string | null;
     connected: boolean;
     memberId: string | null;
+    rttMs: number | null;
   }): void;
 }
 
@@ -83,10 +84,12 @@ export function createRoomStateController(args: {
     roomCode: string | null;
     connected: boolean;
     memberId: string | null;
+    rttMs: number | null;
   }): void {
     const previousRoomCode = args.runtimeState.activeRoomCode;
     args.runtimeState.activeRoomCode = payload.roomCode;
     args.runtimeState.localMemberId = payload.memberId;
+    args.runtimeState.rttMs = payload.rttMs;
     const roomChanged = Boolean(
       previousRoomCode &&
       payload.roomCode &&

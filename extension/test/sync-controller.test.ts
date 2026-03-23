@@ -387,3 +387,106 @@ test("sync controller allows explicit user seek inside the silence window", asyn
     true,
   );
 });
+
+test("sync controller marks explicit user ratechange with explicit-ratechange intent", async () => {
+  const harness = createControllerHarness();
+  const sharedVideo = {
+    videoId: "BV1xx411c7mD",
+    url: "https://www.bilibili.com/video/BV1xx411c7mD?p=1",
+    title: "Video",
+  };
+  const video = createVideo({
+    paused: false,
+    currentTime: 36.1,
+    playbackRate: 1.5,
+  });
+
+  harness.runtimeState.hydrationReady = true;
+  harness.runtimeState.pendingRoomStateHydration = false;
+  harness.runtimeState.localMemberId = "local-member";
+  harness.setSharedVideo(sharedVideo);
+  harness.setCurrentPlaybackVideo(sharedVideo);
+  harness.setVideoElement(video);
+  harness.runtimeState.lastExplicitUserAction = {
+    kind: "ratechange",
+    at: 21_950,
+  };
+
+  harness.setNow(22_000);
+  await harness.controller.broadcastPlayback(video, "ratechange");
+
+  assert.equal(harness.runtimeMessages.length, 1);
+  assert.deepEqual(harness.runtimeMessages[0], {
+    type: "content:playback-update",
+    payload: {
+      url: sharedVideo.url,
+      currentTime: 36.1,
+      playState: "playing",
+      syncIntent: "explicit-ratechange",
+      playbackRate: 1.5,
+      updatedAt: 22_000,
+      serverTime: 0,
+      actorId: "local-member",
+      seq: 1,
+    },
+  });
+});
+
+test("sync controller ignores remote explicit seek while local explicit seek is still pending", async () => {
+  const harness = createControllerHarness();
+  const sharedVideo = {
+    videoId: "BV1xx411c7mD",
+    url: "https://www.bilibili.com/video/BV1xx411c7mD?p=1",
+    title: "Video",
+  };
+  const video = createVideo({
+    paused: false,
+    currentTime: 50.88,
+    playbackRate: 1,
+  });
+
+  harness.runtimeState.hydrationReady = true;
+  harness.runtimeState.localMemberId = "local-member";
+  harness.runtimeState.activeSharedUrl = sharedVideo.url;
+  harness.runtimeState.pendingLocalPlaybackOverride = {
+    kind: "seek",
+    url: sharedVideo.url,
+    targetTime: 50.88,
+    seq: 52,
+    expiresAt: 25_000,
+  };
+  harness.setSharedVideo(sharedVideo);
+  harness.setCurrentPlaybackVideo(sharedVideo);
+  harness.setVideoElement(video);
+  harness.setNow(23_500);
+
+  await harness.controller.applyRoomState(
+    createRoomState({
+      actorId: "remote-member",
+      seq: 75,
+      serverTime: 23_400,
+      currentTime: 250.75,
+      playState: "playing",
+      playbackRate: 1,
+      syncIntent: "explicit-seek",
+    }),
+  );
+
+  assert.notEqual(harness.runtimeState.pendingLocalPlaybackOverride, null);
+  assert.equal(
+    harness.debugLogs.some((message) =>
+      message.includes("result=pending-local-explicit-seek"),
+    ),
+    true,
+  );
+  assert.equal(
+    harness.debugLogs.some((message) =>
+      message.includes("reason=incoming-explicit-seek"),
+    ),
+    false,
+  );
+  assert.equal(
+    harness.debugLogs.some((message) => message.includes("Apply playback")),
+    false,
+  );
+});

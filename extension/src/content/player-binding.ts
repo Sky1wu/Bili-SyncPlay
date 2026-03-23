@@ -5,6 +5,27 @@ import {
 } from "./playback-reconcile";
 import type { ProgrammaticPlaybackSignature } from "./runtime-state";
 
+const SOFT_APPLY_STEP_SECONDS = 0.35;
+const SOFT_APPLY_MAX_STEP_SECONDS = 0.55;
+const SOFT_APPLY_RATE_OFFSET = 0.12;
+const MIN_PLAYBACK_RATE = 0.85;
+const MAX_PLAYBACK_RATE = 1.15;
+
+interface AppliedPlaybackAdjustment {
+  mode: "ignore" | "soft-apply" | "hard-seek";
+  currentTime: number;
+  playbackRate: number;
+  targetTime: number;
+  restorePlaybackRate: number;
+  didChange: boolean;
+}
+
+export interface PlaybackApplicationResult {
+  applied: boolean;
+  didChange: boolean;
+  adjustment: AppliedPlaybackAdjustment | null;
+}
+
 export function getVideoElement(): HTMLVideoElement | null {
   return document.querySelector("video");
 }
@@ -41,15 +62,49 @@ export function createProgrammaticPlaybackSignature(
   };
 }
 
+function clamp(value: number, min: number, max: number): number {
+  return Math.min(Math.max(value, min), max);
+}
+
+function getSoftApplySignature(args: {
+  localCurrentTime: number;
+  targetTime: number;
+  basePlaybackRate: number;
+}): { currentTime: number; playbackRate: number } {
+  const drift = args.targetTime - args.localCurrentTime;
+  const stepLimit = Math.min(
+    SOFT_APPLY_MAX_STEP_SECONDS,
+    Math.max(SOFT_APPLY_STEP_SECONDS, Math.abs(drift) * 0.6),
+  );
+  const steppedCurrentTime =
+    args.localCurrentTime + clamp(drift, -stepLimit, stepLimit);
+  const rateOffset = clamp(
+    drift * 0.18,
+    -SOFT_APPLY_RATE_OFFSET,
+    SOFT_APPLY_RATE_OFFSET,
+  );
+
+  return {
+    currentTime: steppedCurrentTime,
+    playbackRate: clamp(
+      args.basePlaybackRate + rateOffset,
+      MIN_PLAYBACK_RATE,
+      MAX_PLAYBACK_RATE,
+    ),
+  };
+}
+
 export function syncPlaybackPosition(
   video: HTMLVideoElement,
   targetTime: number,
   playState: PlaybackState["playState"],
   syncIntent: PlaybackState["syncIntent"] | undefined,
   playbackRate: number,
-): void {
+): AppliedPlaybackAdjustment {
+  const previousCurrentTime = video.currentTime;
+  const previousPlaybackRate = video.playbackRate;
   const decision = decidePlaybackReconcileMode({
-    localCurrentTime: video.currentTime,
+    localCurrentTime: previousCurrentTime,
     targetTime,
     playState,
     isExplicitSeek: shouldTreatAsExplicitSeek({
@@ -60,54 +115,135 @@ export function syncPlaybackPosition(
 
   if (decision.mode === "hard-seek") {
     video.currentTime = targetTime;
+    if (Math.abs(video.playbackRate - playbackRate) > 0.01) {
+      video.playbackRate = playbackRate;
+    }
+    return {
+      mode: "hard-seek",
+      currentTime: targetTime,
+      playbackRate,
+      targetTime,
+      restorePlaybackRate: playbackRate,
+      didChange:
+        Math.abs(previousCurrentTime - targetTime) > 0.01 ||
+        Math.abs(previousPlaybackRate - playbackRate) > 0.01,
+    };
   }
+
+  if (decision.mode === "soft-apply") {
+    const softApplied = getSoftApplySignature({
+      localCurrentTime: video.currentTime,
+      targetTime,
+      basePlaybackRate: playbackRate,
+    });
+    if (Math.abs(video.currentTime - softApplied.currentTime) > 0.01) {
+      video.currentTime = softApplied.currentTime;
+    }
+    if (Math.abs(video.playbackRate - softApplied.playbackRate) > 0.01) {
+      video.playbackRate = softApplied.playbackRate;
+    }
+    return {
+      mode: "soft-apply",
+      currentTime: softApplied.currentTime,
+      playbackRate: softApplied.playbackRate,
+      targetTime,
+      restorePlaybackRate: playbackRate,
+      didChange:
+        Math.abs(previousCurrentTime - softApplied.currentTime) > 0.01 ||
+        Math.abs(previousPlaybackRate - softApplied.playbackRate) > 0.01,
+    };
+  }
+
   if (Math.abs(video.playbackRate - playbackRate) > 0.01) {
     video.playbackRate = playbackRate;
   }
+  return {
+    mode: "ignore",
+    currentTime: video.currentTime,
+    playbackRate,
+    targetTime,
+    restorePlaybackRate: playbackRate,
+    didChange: Math.abs(previousPlaybackRate - playbackRate) > 0.01,
+  };
 }
 
 export function applyPendingPlaybackApplication(args: {
   video: HTMLVideoElement;
   pendingPlaybackApplication: PlaybackState | null;
   clearPendingPlaybackApplication: () => void;
+  onPlaybackAdjusted?: (
+    adjustment: AppliedPlaybackAdjustment,
+    playback: PlaybackState,
+  ) => void;
   markProgrammaticApply?: (
     signature: ProgrammaticPlaybackSignature,
     playback: PlaybackState,
   ) => void;
   debugLog: (message: string) => void;
-}): boolean {
+}): PlaybackApplicationResult {
   if (
     !args.pendingPlaybackApplication ||
     !canApplyPlaybackImmediately(args.video)
   ) {
-    return false;
+    return {
+      applied: false,
+      didChange: false,
+      adjustment: null,
+    };
   }
 
   const playback = args.pendingPlaybackApplication;
+  const wasPaused = args.video.paused;
   args.clearPendingPlaybackApplication();
-  const signature = createProgrammaticPlaybackSignature(playback);
-  args.markProgrammaticApply?.(signature, playback);
-
-  syncPlaybackPosition(
+  const appliedSignature = syncPlaybackPosition(
     args.video,
     playback.currentTime,
     playback.playState,
     playback.syncIntent,
     playback.playbackRate,
   );
+  args.onPlaybackAdjusted?.(appliedSignature, playback);
+  const needsPlayStateChange =
+    (playback.playState === "playing" && wasPaused) ||
+    (playback.playState === "paused" && !wasPaused);
+  const didChange = appliedSignature.didChange || needsPlayStateChange;
+  const signature = createProgrammaticPlaybackSignature({
+    ...playback,
+    currentTime: appliedSignature.currentTime,
+    playbackRate: appliedSignature.playbackRate,
+  });
+  if (didChange) {
+    args.markProgrammaticApply?.(signature, playback);
+  }
   if (playback.playState === "playing") {
     void args.video.play().catch(() => {
       args.debugLog(
         `Skipped delayed play() after seek ${playback.url} t=${playback.currentTime.toFixed(2)} seq=${playback.seq}`,
       );
     });
-    return true;
+    return {
+      applied: true,
+      didChange,
+      adjustment: appliedSignature,
+    };
+  }
+
+  if (playback.playState === "buffering") {
+    return {
+      applied: true,
+      didChange,
+      adjustment: appliedSignature,
+    };
   }
 
   if (!args.video.paused) {
     args.video.pause();
   }
-  return true;
+  return {
+    applied: true,
+    didChange,
+    adjustment: appliedSignature,
+  };
 }
 
 export function bindVideoElement(args: {

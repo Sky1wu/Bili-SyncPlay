@@ -1,4 +1,7 @@
-import type { PlaybackState } from "@bili-syncplay/protocol";
+import {
+  isExplicitControlSyncIntent,
+  type PlaybackState,
+} from "@bili-syncplay/protocol";
 import type { PlaybackAuthority } from "./types.js";
 
 export type PlaybackAcceptanceDecision =
@@ -33,6 +36,9 @@ export function decidePlaybackAcceptance(args: {
   const incomingIsStopLike =
     args.incomingPlayback.playState === "paused" ||
     args.incomingPlayback.playState === "buffering";
+  const incomingIsExplicitControl = isExplicitControlSyncIntent(
+    args.incomingPlayback.syncIntent,
+  );
   const authority = args.authority;
   const withinAuthorityWindow =
     authority !== null && args.currentTime < authority.until;
@@ -56,6 +62,7 @@ export function decidePlaybackAcceptance(args: {
     args.incomingPlayback.currentTime + 0.6 < args.currentPlayback.currentTime;
 
   if (
+    !incomingIsExplicitControl &&
     withinAuthorityWindow &&
     authority.actorId !== args.incomingPlayback.actorId &&
     incomingIsPlaying &&
@@ -70,6 +77,7 @@ export function decidePlaybackAcceptance(args: {
   }
 
   if (
+    !incomingIsExplicitControl &&
     withinAuthorityWindow &&
     authority.actorId !== args.incomingPlayback.actorId &&
     authorityPrefersPlaybackContinuity &&
@@ -84,7 +92,11 @@ export function decidePlaybackAcceptance(args: {
     };
   }
 
-  if (incomingIsPlaying && driftsBackBehindCurrent) {
+  if (
+    !incomingIsExplicitControl &&
+    incomingIsPlaying &&
+    driftsBackBehindCurrent
+  ) {
     return {
       decision: "ignore-stale-like",
       reason: "timeline-regression",

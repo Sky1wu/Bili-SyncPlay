@@ -17,6 +17,7 @@ export interface PlaybackApplyDecisionInput {
   lastLocalIntentPlayState: PlaybackState["playState"] | null;
   localIntentGuardMs: number;
   lastAppliedVersion: { serverTime: number; seq: number } | null;
+  lastLocalPlaybackVersion: { serverTime: number; seq: number } | null;
   localMemberId: string | null;
 }
 
@@ -30,6 +31,7 @@ export type PlaybackApplyDecision =
     }
   | { kind: "ignore-local-guard" }
   | { kind: "ignore-stale-playback" }
+  | { kind: "ignore-self-playback-version" }
   | {
       kind: "apply";
       isSelfPlayback: boolean;
@@ -83,6 +85,15 @@ export function decidePlaybackApplication(
         input.roomState.playback.seq <= input.lastAppliedVersion.seq))
   ) {
     return { kind: "ignore-stale-playback" };
+  }
+
+  if (
+    input.localMemberId &&
+    input.roomState.playback.actorId === input.localMemberId &&
+    input.lastLocalPlaybackVersion &&
+    input.roomState.playback.seq <= input.lastLocalPlaybackVersion.seq
+  ) {
+    return { kind: "ignore-self-playback-version" };
   }
 
   return {

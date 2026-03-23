@@ -1,6 +1,6 @@
 import type { DebugLogEntry } from "../shared/messages";
 
-export const MAX_LOGS = 30;
+export const MAX_LOGS = 200;
 
 export function appendLog(
   logs: DebugLogEntry[],

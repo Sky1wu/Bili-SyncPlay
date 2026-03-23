@@ -22,6 +22,7 @@ export function createPopupStateController(args: {
     roomCode: string | null;
     connected: boolean;
     memberId: string | null;
+    rttMs: number | null;
   };
 }): PopupStateController {
   const popupPorts = new Set<chrome.runtime.Port>();

@@ -10,6 +10,7 @@ export function createNavigationController(args: {
   userGestureGraceMs: number;
   initialRoomStatePauseHoldMs: number;
   getCurrentPageUrl: () => string;
+  normalizeVideoPageUrl: (url: string) => string | null;
   isSupportedVideoPage: (url: string) => boolean;
   clearFestivalSnapshot: () => void;
   attachPlaybackListeners: () => void;
@@ -21,6 +22,8 @@ export function createNavigationController(args: {
 }): NavigationController {
   let navigationWatchTimer: number | null = null;
   let lastObservedPageUrl = args.getCurrentPageUrl();
+  let lastObservedNormalizedPageUrl =
+    args.normalizeVideoPageUrl(lastObservedPageUrl);
 
   function handlePotentialNavigation(): void {
     const nextPageUrl = args.getCurrentPageUrl();
@@ -28,7 +31,17 @@ export function createNavigationController(args: {
       return;
     }
 
+    const nextNormalizedPageUrl = args.normalizeVideoPageUrl(nextPageUrl);
+    if (
+      nextNormalizedPageUrl !== null &&
+      nextNormalizedPageUrl === lastObservedNormalizedPageUrl
+    ) {
+      lastObservedPageUrl = nextPageUrl;
+      return;
+    }
+
     lastObservedPageUrl = nextPageUrl;
+    lastObservedNormalizedPageUrl = nextNormalizedPageUrl;
     args.clearFestivalSnapshot();
     args.runtimeState.pendingPlaybackApplication = null;
     args.runtimeState.explicitNonSharedPlaybackUrl = null;

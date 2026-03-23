@@ -6,7 +6,13 @@ import type {
   ServerMessage,
   SyncPongMessage,
 } from "../types/server-message.js";
-import type { RoomMember, RoomState } from "../types/domain.js";
+import type {
+  PlaybackState,
+  RoomMember,
+  RoomState,
+  SharedVideo,
+} from "../types/domain.js";
+import { isPlaybackSyncIntent } from "../types/domain.js";
 import {
   isFiniteNumber,
   isPlaybackPlayState,
@@ -31,11 +37,7 @@ function isOptionalBoundedString(
   return value === undefined || isBoundedString(value, maxLength);
 }
 
-function isPlaybackSyncIntent(value: unknown): boolean {
-  return value === "explicit-seek";
-}
-
-function isSharedVideo(value: unknown): boolean {
+function isSharedVideo(value: unknown): value is SharedVideo {
   return (
     isRecord(value) &&
     isBoundedString(value.videoId, TITLE_MAX_LENGTH) &&
@@ -45,7 +47,7 @@ function isSharedVideo(value: unknown): boolean {
   );
 }
 
-function isPlaybackState(value: unknown): boolean {
+function isPlaybackState(value: unknown): value is PlaybackState {
   return (
     isRecord(value) &&
     isBoundedString(value.url, URL_MAX_LENGTH) &&

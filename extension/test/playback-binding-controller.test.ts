@@ -63,6 +63,8 @@ test("playback binding controller forwards ratechange event source", async () =>
     broadcastPlayback: async (_video, eventSource) => {
       events.push(eventSource ?? "manual");
     },
+    cancelActiveSoftApply: () => {},
+    maintainActiveSoftApply: () => {},
     applyPendingPlaybackApplication: () => {},
     activatePauseHold: () => {},
     debugLog: () => {},
@@ -81,6 +83,121 @@ test("playback binding controller forwards ratechange event source", async () =>
     assert.deepEqual(events, ["ratechange"]);
     assert.deepEqual(runtimeState.lastExplicitUserAction, {
       kind: "ratechange",
+      at: 1_100,
+    });
+  } finally {
+    dom.restore();
+  }
+});
+
+test("playback binding controller cancels active soft apply on pause and seek", () => {
+  const dom = installDomStub();
+  const runtimeState = createContentRuntimeState();
+  runtimeState.lastUserGestureAt = 1_000;
+  const reasons: string[] = [];
+
+  const controller = createPlaybackBindingController({
+    runtimeState,
+    videoBindIntervalMs: 250,
+    userGestureGraceMs: 1_200,
+    initialRoomStatePauseHoldMs: 3_000,
+    getSharedVideo: () => null,
+    hasRecentRemoteStopIntent: () => false,
+    normalizeUrl: (url) => url ?? null,
+    getLastBroadcastAt: () => 0,
+    broadcastPlayback: async () => {},
+    cancelActiveSoftApply: (_video, reason) => {
+      reasons.push(reason);
+    },
+    maintainActiveSoftApply: () => {},
+    applyPendingPlaybackApplication: () => {},
+    activatePauseHold: () => {},
+    debugLog: () => {},
+    getNow: () => 1_100,
+  });
+
+  try {
+    controller.attachPlaybackListeners();
+    dom.listeners.get("pause")?.(new Event("pause"));
+    dom.listeners.get("seeking")?.(new Event("seeking"));
+    dom.listeners.get("seeked")?.(new Event("seeked"));
+
+    assert.deepEqual(reasons, ["pause", "seek", "seek"]);
+  } finally {
+    dom.restore();
+  }
+});
+
+test("playback binding controller does not cancel active soft apply for programmatic pause and seek events", () => {
+  const dom = installDomStub();
+  const runtimeState = createContentRuntimeState();
+  runtimeState.lastUserGestureAt = 0;
+  const reasons: string[] = [];
+
+  const controller = createPlaybackBindingController({
+    runtimeState,
+    videoBindIntervalMs: 250,
+    userGestureGraceMs: 1_200,
+    initialRoomStatePauseHoldMs: 3_000,
+    getSharedVideo: () => null,
+    hasRecentRemoteStopIntent: () => false,
+    normalizeUrl: (url) => url ?? null,
+    getLastBroadcastAt: () => 0,
+    broadcastPlayback: async () => {},
+    cancelActiveSoftApply: (_video, reason) => {
+      reasons.push(reason);
+    },
+    maintainActiveSoftApply: () => {},
+    applyPendingPlaybackApplication: () => {},
+    activatePauseHold: () => {},
+    debugLog: () => {},
+    getNow: () => 2_500,
+  });
+
+  try {
+    controller.attachPlaybackListeners();
+    dom.listeners.get("pause")?.(new Event("pause"));
+    dom.listeners.get("seeking")?.(new Event("seeking"));
+    dom.listeners.get("seeked")?.(new Event("seeked"));
+
+    assert.deepEqual(reasons, []);
+  } finally {
+    dom.restore();
+  }
+});
+
+test("playback binding controller preserves explicit seek intent across immediate playing follow-up", () => {
+  const dom = installDomStub();
+  const runtimeState = createContentRuntimeState();
+  runtimeState.lastUserGestureAt = 1_000;
+  let now = 1_100;
+
+  const controller = createPlaybackBindingController({
+    runtimeState,
+    videoBindIntervalMs: 250,
+    userGestureGraceMs: 1_200,
+    initialRoomStatePauseHoldMs: 3_000,
+    getSharedVideo: () => null,
+    hasRecentRemoteStopIntent: () => false,
+    normalizeUrl: (url) => url ?? null,
+    getLastBroadcastAt: () => 0,
+    broadcastPlayback: async () => {},
+    cancelActiveSoftApply: () => {},
+    maintainActiveSoftApply: () => {},
+    applyPendingPlaybackApplication: () => {},
+    activatePauseHold: () => {},
+    debugLog: () => {},
+    getNow: () => now,
+  });
+
+  try {
+    controller.attachPlaybackListeners();
+    dom.listeners.get("seeking")?.(new Event("seeking"));
+    now = 1_150;
+    dom.listeners.get("playing")?.(new Event("playing"));
+
+    assert.deepEqual(runtimeState.lastExplicitUserAction, {
+      kind: "seek",
       at: 1_100,
     });
   } finally {

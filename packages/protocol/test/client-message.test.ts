@@ -295,6 +295,29 @@ test("accepts a valid playback:update message", () => {
   );
 });
 
+test("accepts playback:update with explicit-ratechange sync intent", () => {
+  assert.equal(
+    isClientMessage({
+      type: "playback:update",
+      payload: {
+        memberToken: VALID_TOKEN,
+        playback: {
+          url: "https://www.bilibili.com/video/BV1xx411c7mD",
+          currentTime: 12,
+          playState: "playing",
+          syncIntent: "explicit-ratechange",
+          playbackRate: 1.5,
+          updatedAt: 1,
+          serverTime: 1,
+          actorId: "member-1",
+          seq: 1,
+        },
+      },
+    }),
+    true,
+  );
+});
+
 test("rejects playback:update with an invalid sync intent", () => {
   assert.equal(
     isClientMessage({

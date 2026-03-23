@@ -42,6 +42,16 @@ import { createTabController } from "./tab-controller";
 import { t } from "../shared/i18n";
 
 const normalizeUrl = normalizeSharedVideoUrl;
+let pendingOutgoingPlaybackUpdate: {
+  actorId: string;
+  seq: number;
+  url: string;
+  currentTime: number;
+  playbackRate: number;
+  playState: string;
+  syncIntent: string | null;
+  sentAt: number;
+} | null = null;
 const stateStore = createBackgroundStateStore();
 const connectionState = stateStore.getState().connection;
 const roomSessionState = stateStore.getState().room;
@@ -170,6 +180,7 @@ const popupStateController = createPopupStateController({
     roomCode: roomSessionState.roomCode,
     connected: connectionState.connected,
     memberId: roomSessionState.memberId,
+    rttMs: clockState.rttMs,
   }),
 });
 const messageController = createMessageController({
@@ -322,14 +333,58 @@ function sendToServer(message: ClientMessage): void {
     void socketController.connect();
     return;
   }
-  if (diagnosticsController.shouldLogOutgoingMessage(message.type)) {
+  if (message.type === "playback:update") {
+    pendingOutgoingPlaybackUpdate = {
+      actorId: message.payload.playback.actorId,
+      seq: message.payload.playback.seq,
+      url: message.payload.playback.url,
+      currentTime: message.payload.playback.currentTime,
+      playbackRate: message.payload.playback.playbackRate,
+      playState: message.payload.playback.playState,
+      syncIntent: message.payload.playback.syncIntent ?? null,
+      sentAt: Date.now(),
+    };
+    diagnosticsController.log(
+      "background",
+      `-> playback:update actor=${message.payload.playback.actorId} seq=${message.payload.playback.seq} playState=${message.payload.playback.playState} url=${message.payload.playback.url} t=${message.payload.playback.currentTime.toFixed(2)} rate=${message.payload.playback.playbackRate.toFixed(2)} intent=${message.payload.playback.syncIntent ?? "none"}`,
+    );
+  } else if (diagnosticsController.shouldLogOutgoingMessage(message.type)) {
     diagnosticsController.log("background", `-> ${message.type}`);
   }
   connectionState.socket.send(JSON.stringify(message));
 }
 
 async function handleServerMessage(message: ServerMessage): Promise<void> {
-  if (diagnosticsController.shouldLogIncomingMessage(message.type)) {
+  if (message.type === "room:state") {
+    diagnosticsController.log(
+      "server",
+      `<- room:state room=${message.payload.roomCode} shared=${message.payload.sharedVideo?.url ?? "none"} actor=${message.payload.playback?.actorId ?? "none"} seq=${message.payload.playback?.seq ?? "none"} playState=${message.payload.playback?.playState ?? "none"} t=${message.payload.playback ? message.payload.playback.currentTime.toFixed(2) : "n/a"} rate=${message.payload.playback ? message.payload.playback.playbackRate.toFixed(2) : "n/a"} intent=${message.payload.playback?.syncIntent ?? "none"}`,
+    );
+    if (
+      pendingOutgoingPlaybackUpdate &&
+      message.payload.playback &&
+      normalizeUrl(message.payload.playback.url) ===
+        normalizeUrl(pendingOutgoingPlaybackUpdate.url)
+    ) {
+      const ageMs = Date.now() - pendingOutgoingPlaybackUpdate.sentAt;
+      if (
+        message.payload.playback.actorId ===
+          pendingOutgoingPlaybackUpdate.actorId &&
+        message.payload.playback.seq >= pendingOutgoingPlaybackUpdate.seq
+      ) {
+        diagnosticsController.log(
+          "background",
+          `Confirmed local playback:update actor=${pendingOutgoingPlaybackUpdate.actorId} pendingSeq=${pendingOutgoingPlaybackUpdate.seq} roomSeq=${message.payload.playback.seq} playState=${message.payload.playback.playState} t=${message.payload.playback.currentTime.toFixed(2)} rate=${message.payload.playback.playbackRate.toFixed(2)} intent=${message.payload.playback.syncIntent ?? "none"} ageMs=${ageMs}`,
+        );
+        pendingOutgoingPlaybackUpdate = null;
+      } else {
+        diagnosticsController.log(
+          "background",
+          `Pending local playback:update actor=${pendingOutgoingPlaybackUpdate.actorId} pendingSeq=${pendingOutgoingPlaybackUpdate.seq} pendingState=${pendingOutgoingPlaybackUpdate.playState} pendingT=${pendingOutgoingPlaybackUpdate.currentTime.toFixed(2)} pendingRate=${pendingOutgoingPlaybackUpdate.playbackRate.toFixed(2)} pendingIntent=${pendingOutgoingPlaybackUpdate.syncIntent ?? "none"} sawActor=${message.payload.playback.actorId} sawSeq=${message.payload.playback.seq} sawState=${message.payload.playback.playState} sawT=${message.payload.playback.currentTime.toFixed(2)} sawRate=${message.payload.playback.playbackRate.toFixed(2)} sawIntent=${message.payload.playback.syncIntent ?? "none"} ageMs=${ageMs}`,
+        );
+      }
+    }
+  } else if (diagnosticsController.shouldLogIncomingMessage(message.type)) {
     diagnosticsController.log("server", `<- ${message.type}`);
   }
   if (message.type !== "sync:pong") {

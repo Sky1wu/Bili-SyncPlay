@@ -86,6 +86,7 @@ export type BackgroundToContentMessage =
         roomCode: string | null;
         connected: boolean;
         memberId: string | null;
+        rttMs: number | null;
       };
     }
   | { type: "background:get-current-video" };

@@ -99,6 +99,17 @@ function isRemotePlaybackStateCompatibleForLocalEcho(args: {
   );
 }
 
+function isProgrammaticPlaybackStateCompatible(args: {
+  eventPlayState: PlaybackState["playState"];
+  signaturePlayState: PlaybackState["playState"];
+}): boolean {
+  return (
+    args.eventPlayState === args.signaturePlayState ||
+    (args.eventPlayState === "buffering" &&
+      args.signaturePlayState === "playing")
+  );
+}
+
 function getProgrammaticEventThreshold(
   eventSource: LocalPlaybackEventSource,
   playState: PlaybackState["playState"],
@@ -331,7 +342,10 @@ export function shouldSuppressProgrammaticEvent(
   }
 
   if (
-    input.playState !== input.programmaticApplySignature.playState ||
+    !isProgrammaticPlaybackStateCompatible({
+      eventPlayState: input.playState,
+      signaturePlayState: input.programmaticApplySignature.playState,
+    }) ||
     Math.abs(
       input.playbackRate - input.programmaticApplySignature.playbackRate,
     ) > 0.01
@@ -399,7 +413,8 @@ export function shouldSuppressRemoteFollowupBroadcast(
 
   if (input.playState === "buffering") {
     return {
-      shouldSuppress: false,
+      shouldSuppress:
+        input.eventSource === "waiting" || input.eventSource === "stalled",
       nextRemoteFollowPlayingUntil: input.remoteFollowPlayingUntil,
       nextRemoteFollowPlayingUrl: input.remoteFollowPlayingUrl,
     };
@@ -408,10 +423,17 @@ export function shouldSuppressRemoteFollowupBroadcast(
   const matchedExplicitAction = mapEventSourceToExplicitAction(
     input.eventSource,
   );
+  const hasRecentExplicitSeek =
+    input.lastExplicitUserAction?.kind === "seek" &&
+    input.now - input.lastExplicitUserAction.at < input.userGestureGraceMs;
   if (
-    matchedExplicitAction &&
-    input.lastExplicitUserAction?.kind === matchedExplicitAction &&
-    input.now - input.lastExplicitUserAction.at < input.userGestureGraceMs
+    (matchedExplicitAction &&
+      input.lastExplicitUserAction?.kind === matchedExplicitAction &&
+      input.now - input.lastExplicitUserAction.at < input.userGestureGraceMs) ||
+    (hasRecentExplicitSeek &&
+      (input.eventSource === "play" ||
+        input.eventSource === "playing" ||
+        input.eventSource === "canplay"))
   ) {
     return {
       shouldSuppress: false,

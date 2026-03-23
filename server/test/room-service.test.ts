@@ -531,6 +531,83 @@ test("room service ignores an older position after a seek authority takes over",
   assert.equal(finalState.playback?.actorId, owner.memberId);
 });
 
+test("room service accepts cross-actor explicit ratechange during another actor's authority window", async () => {
+  let currentTime = 1_000;
+  const roomStore = createInMemoryRoomStore({ now: () => currentTime });
+  const service = createRoomService({
+    config: getDefaultSecurityConfig(),
+    persistence: getDefaultPersistenceConfig(),
+    roomStore,
+    activeRooms: createActiveRoomRegistry(),
+    generateToken: (() => {
+      let id = 0;
+      return () => `token-${++id}`.padEnd(16, "x");
+    })(),
+    logEvent: (() => undefined) satisfies LogEvent,
+    now: () => currentTime,
+    createRoomCode: () => "ROOM07B",
+  });
+
+  const owner = createSession("owner");
+  const created = await service.createRoomForSession(owner, "Alice");
+  const guest = createSession("guest");
+  const joined = await service.joinRoomForSession(
+    guest,
+    created.room.code,
+    created.room.joinToken,
+    "Bob",
+  );
+
+  await service.shareVideoForSession(
+    owner,
+    created.memberToken,
+    createSharedVideo(),
+    createPlayback(owner.memberId ?? owner.id, {
+      playState: "playing",
+      currentTime: 42,
+      playbackRate: 1,
+    }),
+  );
+
+  currentTime = 2_000;
+  const ownerUpdate = await service.updatePlaybackForSession(
+    owner,
+    created.memberToken,
+    createPlayback(owner.memberId ?? owner.id, {
+      playState: "playing",
+      currentTime: 42.2,
+      playbackRate: 1,
+      seq: 2,
+    }),
+  );
+  assert.equal(ownerUpdate.ignored, false);
+  assert.notEqual(service.getPlaybackAuthority(created.room.code), null);
+
+  currentTime = 2_100;
+  const guestRatechange = await service.updatePlaybackForSession(
+    guest,
+    joined.memberToken,
+    createPlayback(guest.memberId ?? guest.id, {
+      playState: "playing",
+      currentTime: 42.1,
+      playbackRate: 1.5,
+      syncIntent: "explicit-ratechange",
+      seq: 3,
+    }),
+  );
+
+  assert.equal(guestRatechange.ignored, false);
+
+  const finalState = await service.getRoomStateForSession(
+    owner,
+    created.memberToken,
+    "sync:request",
+  );
+  assert.equal(finalState.playback?.actorId, guest.memberId);
+  assert.equal(finalState.playback?.playbackRate, 1.5);
+  assert.equal(finalState.playback?.syncIntent, "explicit-ratechange");
+});
+
 test("room service ignores a far-ahead playing update while seek authority is active", async () => {
   let currentTime = 1_000;
   const roomStore = createInMemoryRoomStore({ now: () => currentTime });
@@ -601,6 +678,81 @@ test("room service ignores a far-ahead playing update while seek authority is ac
   );
   assert.equal(finalState.playback?.currentTime, 70);
   assert.equal(finalState.playback?.actorId, owner.memberId);
+});
+
+test("room service accepts cross-actor explicit seek during another actor's authority window", async () => {
+  let currentTime = 1_000;
+  const roomStore = createInMemoryRoomStore({ now: () => currentTime });
+  const service = createRoomService({
+    config: getDefaultSecurityConfig(),
+    persistence: getDefaultPersistenceConfig(),
+    roomStore,
+    activeRooms: createActiveRoomRegistry(),
+    generateToken: (() => {
+      let id = 0;
+      return () => `token-${++id}`.padEnd(16, "x");
+    })(),
+    logEvent: (() => undefined) satisfies LogEvent,
+    now: () => currentTime,
+    createRoomCode: () => "ROOM07D",
+  });
+
+  const owner = createSession("owner");
+  const created = await service.createRoomForSession(owner, "Alice");
+  const guest = createSession("guest");
+  const joined = await service.joinRoomForSession(
+    guest,
+    created.room.code,
+    created.room.joinToken,
+    "Bob",
+  );
+
+  await service.shareVideoForSession(
+    owner,
+    created.memberToken,
+    createSharedVideo(),
+    createPlayback(owner.memberId ?? owner.id, {
+      playState: "playing",
+      currentTime: 80,
+      seq: 4,
+    }),
+  );
+
+  currentTime = 1_200;
+  const ownerFollow = await service.updatePlaybackForSession(
+    owner,
+    created.memberToken,
+    createPlayback(owner.memberId ?? owner.id, {
+      playState: "playing",
+      currentTime: 81.9,
+      seq: 5,
+    }),
+  );
+  assert.equal(ownerFollow.ignored, false);
+  assert.equal(service.getPlaybackAuthority(created.room.code) !== null, true);
+
+  currentTime = 1_300;
+  const guestSeek = await service.updatePlaybackForSession(
+    guest,
+    joined.memberToken,
+    createPlayback(guest.memberId ?? guest.id, {
+      playState: "playing",
+      currentTime: 47.1,
+      syncIntent: "explicit-seek",
+      seq: 1,
+    }),
+  );
+
+  assert.equal(guestSeek.ignored, false);
+  assert.equal(service.getPlaybackAuthority(created.room.code)?.kind, "seek");
+  const finalState = await service.getRoomStateForSession(
+    owner,
+    created.memberToken,
+    "sync:request",
+  );
+  assert.equal(finalState.playback?.actorId, guest.memberId);
+  assert.equal(finalState.playback?.currentTime, 47.1);
+  assert.equal(finalState.playback?.syncIntent, "explicit-seek");
 });
 
 test("room service treats explicit seek intent as seek authority even for a small delta", async () => {

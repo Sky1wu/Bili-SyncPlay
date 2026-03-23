@@ -208,6 +208,31 @@ test("suppresses programmatic play, pause, and seek events inside the apply wind
   );
 });
 
+test("treats buffering after a programmatic playing apply as the same suppression chain", () => {
+  const playSignature = {
+    url: "https://www.bilibili.com/video/BV1xx411c7mD?p=1",
+    playState: "playing" as const,
+    currentTime: 25,
+    playbackRate: 1.25,
+  };
+
+  assert.equal(
+    shouldSuppressProgrammaticEvent({
+      programmaticApplyUntil: 10_500,
+      programmaticApplySignature: playSignature,
+      normalizedCurrentUrl: playSignature.url,
+      playState: "buffering",
+      currentTime: 25.05,
+      playbackRate: 1.25,
+      eventSource: "waiting",
+      lastExplicitUserAction: null,
+      now: 10_120,
+      userGestureGraceMs: 1_200,
+    }).shouldSuppress,
+    true,
+  );
+});
+
 test("allows explicit user actions to bypass programmatic suppression", () => {
   assert.equal(
     shouldSuppressProgrammaticEvent({
@@ -271,6 +296,38 @@ test("allows explicit user seek to bypass the remote playing window", () => {
   assert.equal(decision.shouldSuppress, false);
 });
 
+test("allows canplay and playing to bypass the remote playing window after an explicit seek", () => {
+  const canplayDecision = shouldSuppressRemoteFollowupBroadcast({
+    remoteFollowPlayingUntil: 13_000,
+    remoteFollowPlayingUrl: "https://www.bilibili.com/video/BV1xx411c7mD?p=1",
+    normalizedCurrentUrl: "https://www.bilibili.com/video/BV1xx411c7mD?p=1",
+    playState: "playing",
+    eventSource: "canplay",
+    lastExplicitUserAction: {
+      kind: "seek",
+      at: 12_250,
+    },
+    now: 12_300,
+    userGestureGraceMs: 1_200,
+  });
+  const playingDecision = shouldSuppressRemoteFollowupBroadcast({
+    remoteFollowPlayingUntil: 13_000,
+    remoteFollowPlayingUrl: "https://www.bilibili.com/video/BV1xx411c7mD?p=1",
+    normalizedCurrentUrl: "https://www.bilibili.com/video/BV1xx411c7mD?p=1",
+    playState: "playing",
+    eventSource: "playing",
+    lastExplicitUserAction: {
+      kind: "seek",
+      at: 12_250,
+    },
+    now: 12_300,
+    userGestureGraceMs: 1_200,
+  });
+
+  assert.equal(canplayDecision.shouldSuppress, false);
+  assert.equal(playingDecision.shouldSuppress, false);
+});
+
 test("clears the remote playing window on pause or url mismatch but keeps it through buffering", () => {
   const pausedDecision = shouldSuppressRemoteFollowupBroadcast({
     remoteFollowPlayingUntil: 13_000,
@@ -298,7 +355,7 @@ test("clears the remote playing window on pause or url mismatch but keeps it thr
     userGestureGraceMs: 1_200,
   });
 
-  assert.equal(bufferingDecision.shouldSuppress, false);
+  assert.equal(bufferingDecision.shouldSuppress, true);
   assert.equal(bufferingDecision.nextRemoteFollowPlayingUntil, 13_000);
   assert.equal(
     bufferingDecision.nextRemoteFollowPlayingUrl,

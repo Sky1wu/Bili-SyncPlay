@@ -687,6 +687,26 @@ export function createRoomService(options: {
         currentTime,
       });
       if (acceptance.decision !== "accept") {
+        const authority = getPlaybackAuthority(access.persistedRoom.code);
+        logEvent("playback_update_ignored", {
+          roomCode: access.persistedRoom.code,
+          sessionId: session.id,
+          actorId: nextPlayback.actorId,
+          seq: nextPlayback.seq,
+          playState: nextPlayback.playState,
+          currentTime: nextPlayback.currentTime,
+          playbackRate: nextPlayback.playbackRate,
+          syncIntent: nextPlayback.syncIntent ?? "none",
+          result: "ignored",
+          reason: acceptance.reason,
+          authorityActorId: authority?.actorId ?? null,
+          authorityKind: authority?.kind ?? null,
+          authorityUntil: authority?.until ?? null,
+          currentActorId: access.persistedRoom.playback?.actorId ?? null,
+          currentPlayState: access.persistedRoom.playback?.playState ?? null,
+          currentPlaybackTime:
+            access.persistedRoom.playback?.currentTime ?? null,
+        });
         return { room: access.persistedRoom, ignored: true };
       }
 
@@ -724,6 +744,22 @@ export function createRoomService(options: {
           source: "playback:update",
         });
       }
+
+      const nextAuthority = getPlaybackAuthority(access.persistedRoom.code);
+      logEvent("playback_update_applied", {
+        roomCode: access.persistedRoom.code,
+        sessionId: session.id,
+        actorId: nextPlayback.actorId,
+        seq: nextPlayback.seq,
+        playState: nextPlayback.playState,
+        currentTime: nextPlayback.currentTime,
+        playbackRate: nextPlayback.playbackRate,
+        syncIntent: nextPlayback.syncIntent ?? "none",
+        result: "ok",
+        authorityKind: nextAuthority?.kind ?? null,
+        authorityActorId: nextAuthority?.actorId ?? null,
+        authorityUntil: nextAuthority?.until ?? null,
+      });
 
       return { room: result.room, ignored: false };
     },

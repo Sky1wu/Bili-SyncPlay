@@ -10,11 +10,8 @@ import type {
   SyncPingMessage,
   SyncRequestMessage,
 } from "../types/client-message.js";
-import type {
-  PlaybackState,
-  PlaybackSyncIntent,
-  SharedVideo,
-} from "../types/domain.js";
+import type { PlaybackState, SharedVideo } from "../types/domain.js";
+import { isPlaybackSyncIntent } from "../types/domain.js";
 import {
   isFiniteNumber,
   isPlaybackPlayState,
@@ -37,10 +34,6 @@ function isOptionalBoundedString(
   maxLength: number,
 ): value is string | undefined {
   return value === undefined || isBoundedString(value, maxLength);
-}
-
-function isPlaybackSyncIntent(value: unknown): value is PlaybackSyncIntent {
-  return value === "explicit-seek";
 }
 
 export function isClientHelloPayload(

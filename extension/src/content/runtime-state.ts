@@ -54,14 +54,29 @@ export interface ProgrammaticPlaybackSignature {
   playbackRate: number;
 }
 
+export type PendingLocalPlaybackOverrideKind = "seek" | "ratechange";
+
+export interface PendingLocalPlaybackOverride {
+  kind: PendingLocalPlaybackOverrideKind;
+  url: string;
+  seq: number;
+  expiresAt: number;
+  targetTime?: number;
+  playbackRate?: number;
+}
+
 export interface ContentRuntimeState {
   localMemberId: string | null;
+  rttMs: number | null;
+  lastLocalPlaybackVersion: { serverTime: number; seq: number } | null;
+  pendingLocalPlaybackOverride: PendingLocalPlaybackOverride | null;
   activeSharedUrl: string | null;
   activeRoomCode: string | null;
   hydrationReady: boolean;
   hasReceivedInitialRoomState: boolean;
   pendingRoomStateHydration: boolean;
   intendedPlayState: PlaybackState["playState"];
+  intendedPlaybackRate: number;
   lastLocalIntentAt: number;
   lastLocalIntentPlayState: PlaybackState["playState"] | null;
   lastUserGestureAt: number;
@@ -82,12 +97,16 @@ export interface ContentRuntimeState {
 export function createContentRuntimeState(): ContentRuntimeState {
   return {
     localMemberId: null,
+    rttMs: null,
+    lastLocalPlaybackVersion: null,
+    pendingLocalPlaybackOverride: null,
     activeSharedUrl: null,
     activeRoomCode: null,
     hydrationReady: false,
     hasReceivedInitialRoomState: false,
     pendingRoomStateHydration: true,
     intendedPlayState: "paused",
+    intendedPlaybackRate: 1,
     lastLocalIntentAt: 0,
     lastLocalIntentPlayState: null,
     lastUserGestureAt: 0,

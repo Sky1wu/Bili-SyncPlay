@@ -1,6 +1,8 @@
 import type { PlaybackState, SharedVideo } from "@bili-syncplay/protocol";
 import type { LocalPlaybackEventSource } from "./runtime-state";
 
+const EXPLICIT_SEEK_BROADCAST_GRACE_MS = 2_500;
+
 export function shouldSkipBroadcastWhileHydrating(args: {
   pendingRoomStateHydration: boolean;
   now: number;
@@ -82,10 +84,24 @@ export function derivePlaybackSyncIntent(args: {
   userGestureGraceMs: number;
 }): PlaybackState["syncIntent"] | undefined {
   if (
-    (args.eventSource !== "seeking" && args.eventSource !== "seeked") ||
+    args.eventSource === "ratechange" &&
+    args.lastExplicitUserAction?.kind === "ratechange" &&
+    args.now - args.lastExplicitUserAction.at < args.userGestureGraceMs
+  ) {
+    return "explicit-ratechange";
+  }
+
+  if (
+    (args.eventSource !== "seeking" &&
+      args.eventSource !== "seeked" &&
+      args.eventSource !== "play" &&
+      args.eventSource !== "playing" &&
+      args.eventSource !== "canplay" &&
+      args.eventSource !== "timeupdate") ||
     !args.lastExplicitUserAction ||
     args.lastExplicitUserAction.kind !== "seek" ||
-    args.now - args.lastExplicitUserAction.at >= args.userGestureGraceMs
+    args.now - args.lastExplicitUserAction.at >=
+      Math.max(args.userGestureGraceMs, EXPLICIT_SEEK_BROADCAST_GRACE_MS)
   ) {
     return undefined;
   }
