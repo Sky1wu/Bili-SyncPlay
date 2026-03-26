@@ -5,7 +5,7 @@ import { createAuditLogService } from "../admin/audit-log.js";
 import { createInMemoryAdminSessionStore } from "../admin/auth-store.js";
 import { createAdminAuthService } from "../admin/auth-service.js";
 import { createAdminConfigService } from "../admin/config-service.js";
-import { createEventStore } from "../admin/event-store.js";
+import type { GlobalEventStore } from "../admin/global-event-store.js";
 import { createMetricsService } from "../admin/metrics.js";
 import { createAdminOverviewService } from "../admin/overview-service.js";
 import { createAdminRoomQueryService } from "../admin/room-query-service.js";
@@ -30,7 +30,7 @@ export function createAdminServices(args: {
   runtimeRegistry: ReturnType<
     typeof import("../admin/runtime-registry.js").createRuntimeRegistry
   >;
-  eventStore: ReturnType<typeof createEventStore>;
+  eventStore: GlobalEventStore;
   activeRooms: ReturnType<
     typeof import("../active-room-registry.js").createActiveRoomRegistry
   >;

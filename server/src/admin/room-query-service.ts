@@ -1,4 +1,4 @@
-import type { EventStore } from "./event-store.js";
+import type { GlobalEventStore } from "./global-event-store.js";
 import type { RuntimeRegistry } from "./runtime-registry.js";
 import type { RoomDetail, RoomListQuery, RoomSummary } from "./types.js";
 import type { PersistedRoom, Session } from "../types.js";
@@ -24,7 +24,7 @@ export function createAdminRoomQueryService(options: {
   instanceId: string;
   roomStore: RoomStore;
   runtimeRegistry: RuntimeRegistry;
-  eventStore: EventStore;
+  eventStore: GlobalEventStore;
 }) {
   function filterByStatus(
     items: PersistedRoom[],

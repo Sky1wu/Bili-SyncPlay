@@ -1,10 +1,10 @@
 import type { LogEvent } from "./types.js";
-import type { EventStore } from "./admin/event-store.js";
+import type { GlobalEventStore } from "./admin/global-event-store.js";
 import type { RuntimeRegistry } from "./admin/runtime-registry.js";
 
 export function createStructuredLogger(
   writeLine?: (line: string) => void,
-  eventStore?: EventStore,
+  eventStore?: GlobalEventStore,
   runtimeRegistry?: RuntimeRegistry,
 ): LogEvent {
   return (event, data) => {

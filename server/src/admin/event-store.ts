@@ -1,27 +1,12 @@
 import { randomUUID } from "node:crypto";
 import type { RuntimeEvent } from "./types.js";
+import type {
+  GlobalEventStore,
+  GlobalEventStoreQuery,
+} from "./global-event-store.js";
 
-export type EventStoreQuery = {
-  event?: string;
-  roomCode?: string;
-  sessionId?: string;
-  remoteAddress?: string;
-  origin?: string;
-  result?: string;
-  from?: number;
-  to?: number;
-  page: number;
-  pageSize: number;
-};
-
-export type EventStore = {
-  append: (input: {
-    event: string;
-    timestamp?: string;
-    data: Record<string, unknown>;
-  }) => RuntimeEvent;
-  query: (query: EventStoreQuery) => { items: RuntimeEvent[]; total: number };
-};
+export type EventStore = GlobalEventStore;
+export type EventStoreQuery = GlobalEventStoreQuery;
 
 export function createEventStore(capacity = 1_000): EventStore {
   const events: RuntimeEvent[] = [];

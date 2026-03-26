@@ -1,6 +1,6 @@
 import type { IncomingMessage, ServerResponse } from "node:http";
 import type { AdminAuthService } from "./auth-service.js";
-import type { EventStore } from "./event-store.js";
+import type { GlobalEventStore } from "./global-event-store.js";
 import type {
   AdminRole,
   AdminSession,
@@ -43,7 +43,7 @@ export type AdminRouterOptions = {
     sessionId: string,
     reason?: string,
   ) => Promise<unknown>;
-  eventStore: EventStore;
+  eventStore: GlobalEventStore;
   serviceName: string;
   now?: () => number;
 };

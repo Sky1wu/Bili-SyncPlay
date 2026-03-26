@@ -1,4 +1,4 @@
-import type { EventStore } from "./event-store.js";
+import type { GlobalEventStore } from "./global-event-store.js";
 import type { RuntimeRegistry } from "./runtime-registry.js";
 import type { RoomStore } from "../room-store.js";
 import type { PersistenceConfig } from "../types.js";
@@ -10,7 +10,7 @@ export function createAdminOverviewService(options: {
   persistenceConfig: PersistenceConfig;
   roomStore: RoomStore;
   runtimeRegistry: RuntimeRegistry;
-  eventStore: EventStore;
+  eventStore: GlobalEventStore;
   now?: () => number;
 }) {
   const now = options.now ?? Date.now;
