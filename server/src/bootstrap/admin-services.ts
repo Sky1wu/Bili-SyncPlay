@@ -1,6 +1,7 @@
 import type { ServerMessage } from "@bili-syncplay/protocol";
 import type { WebSocket } from "ws";
 import { createAdminActionService } from "../admin/action-service.js";
+import type { AdminCommandBus } from "../admin-command-bus.js";
 import { createAuditLogService } from "../admin/audit-log.js";
 import { createInMemoryAdminSessionStore } from "../admin/auth-store.js";
 import { createAdminAuthService } from "../admin/auth-service.js";
@@ -36,6 +37,7 @@ export function createAdminServices(args: {
   roomService: ReturnType<typeof createRoomService>;
   send: (socket: WebSocket, message: ServerMessage) => void;
   publishRoomEvent: (message: RoomEventBusMessage) => Promise<void>;
+  requestAdminCommand: AdminCommandBus["request"];
   logEvent: LogEvent;
   now: () => number;
   adminConfig?: AdminConfig;
@@ -121,13 +123,15 @@ export function createAdminServices(args: {
       instanceId: args.persistenceConfig.instanceId,
       roomStore: args.roomStore,
       runtimeStore: args.runtimeStore,
+      listClusterSessions: () => args.runtimeStore.listClusterSessions(),
+      listClusterSessionsByRoom: (roomCode) =>
+        args.runtimeStore.listClusterSessionsByRoom(roomCode),
+      requestAdminCommand: args.requestAdminCommand,
       auditLogService,
       getRoomStateByCode: (roomCode) =>
         args.roomService.getRoomStateByCode(roomCode),
       publishRoomStateUpdate,
       disconnectSessionSocket,
-      blockMemberToken: (roomCode, memberToken, expiresAt) =>
-        args.runtimeStore.blockMemberToken(roomCode, memberToken, expiresAt),
       logEvent: args.logEvent,
       now: args.now,
     });

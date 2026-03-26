@@ -1,3 +1,4 @@
+import type { AdminCommandBus, AdminCommandResult } from "../admin-command-bus.js";
 import type { GlobalAuditStore } from "./global-audit-store.js";
 import type { AdminSession } from "./types.js";
 import {
@@ -7,7 +8,7 @@ import {
   ROOM_VERSION_CONFLICT_MESSAGE,
   SESSION_NOT_FOUND_MESSAGE,
 } from "../messages.js";
-import type { LogEvent, PersistedRoom, Session } from "../types.js";
+import type { LogEvent, PersistedRoom } from "../types.js";
 import type { RoomStore, RoomUpdateResult } from "../room-store.js";
 import type { RuntimeStore } from "../runtime-store.js";
 
@@ -26,15 +27,18 @@ export class AdminActionError extends Error {
 export function createAdminActionService(options: {
   instanceId: string;
   roomStore: RoomStore;
-  runtimeStore: RuntimeStore;
+  runtimeStore: Pick<RuntimeStore, "listSessionsByRoom" | "getSession">;
+  listClusterSessions: () => Promise<Awaited<ReturnType<RuntimeStore["listClusterSessions"]>>>;
+  listClusterSessionsByRoom: (
+    roomCode: string,
+  ) => Promise<Awaited<ReturnType<RuntimeStore["listClusterSessionsByRoom"]>>>;
+  requestAdminCommand: AdminCommandBus["request"];
   auditLogService: GlobalAuditStore;
   getRoomStateByCode: (roomCode: string) => Promise<unknown | null>;
   publishRoomStateUpdate: (roomCode: string) => Promise<void>;
-  disconnectSessionSocket: (session: Session, reason: string) => void;
-  blockMemberToken: (
-    roomCode: string,
-    memberToken: string,
-    expiresAt: number,
+  disconnectSessionSocket: (
+    session: Awaited<ReturnType<RuntimeStore["listClusterSessions"]>>[number],
+    reason: string,
   ) => void;
   logEvent: LogEvent;
   now?: () => number;
@@ -178,8 +182,7 @@ export function createAdminActionService(options: {
       reason?: string,
     ) {
       await getRoomOrThrow(roomCode);
-      const session = options.runtimeStore
-        .listSessionsByRoom(roomCode)
+      const session = (await options.listClusterSessionsByRoom(roomCode))
         .find((entry) => entry.memberId === memberId);
       if (!session) {
         throw new AdminActionError(
@@ -188,18 +191,25 @@ export function createAdminActionService(options: {
           MEMBER_NOT_FOUND_MESSAGE,
         );
       }
-      if (session.memberToken) {
-        options.blockMemberToken(
-          roomCode,
-          session.memberToken,
-          now() + KICK_REJOIN_BLOCK_MS,
-        );
+
+      const targetInstanceId = session.instanceId ?? options.instanceId;
+      const commandResult = await options.requestAdminCommand({
+        kind: "kick_member",
+        requestId: `kick-member:${memberId}:${now()}`,
+        targetInstanceId,
+        roomCode,
+        memberId,
+        reason,
+        requestedAt: now(),
+      });
+      if (commandResult.status !== "ok") {
+        throw new AdminActionError(502, commandResult.code, commandResult.message);
       }
-      options.disconnectSessionSocket(session, "Admin kicked member");
+
       options.logEvent("admin_member_kicked", {
         roomCode,
         memberId,
-        sessionId: session.id,
+        sessionId: commandResult.sessionId ?? session.id,
         result: "ok",
         actor: actor.username,
       });
@@ -214,7 +224,7 @@ export function createAdminActionService(options: {
       return {
         roomCode,
         memberId,
-        sessionId: session.id,
+        sessionId: commandResult.sessionId ?? session.id,
       };
     },
 
@@ -223,7 +233,9 @@ export function createAdminActionService(options: {
       sessionId: string,
       reason?: string,
     ) {
-      const session = options.runtimeStore.getSession(sessionId);
+      const session =
+        (await options.listClusterSessions()).find((entry) => entry.id === sessionId) ??
+        options.runtimeStore.getSession(sessionId);
       if (!session) {
         throw new AdminActionError(
           404,
@@ -231,7 +243,19 @@ export function createAdminActionService(options: {
           SESSION_NOT_FOUND_MESSAGE,
         );
       }
-      options.disconnectSessionSocket(session, "Admin disconnected session");
+      const targetInstanceId = session.instanceId ?? options.instanceId;
+      const commandResult = await options.requestAdminCommand({
+        kind: "disconnect_session",
+        requestId: `disconnect-session:${sessionId}:${now()}`,
+        targetInstanceId,
+        sessionId,
+        reason,
+        requestedAt: now(),
+      });
+      if (commandResult.status !== "ok") {
+        throw new AdminActionError(502, commandResult.code, commandResult.message);
+      }
+
       options.logEvent("admin_session_disconnected", {
         sessionId,
         roomCode: session.roomCode,
@@ -248,7 +272,7 @@ export function createAdminActionService(options: {
       );
       return {
         sessionId,
-        roomCode: session.roomCode,
+        roomCode: commandResult.roomCode ?? session.roomCode,
       };
     },
   };

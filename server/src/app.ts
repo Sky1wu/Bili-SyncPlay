@@ -436,6 +436,8 @@ export async function createSyncServer(
     roomService,
     send,
     publishRoomEvent,
+    requestAdminCommand: (command, timeoutMs) =>
+      adminCommandBus.request(command, timeoutMs),
     logEvent,
     now,
     adminConfig: dependencies.adminConfig,
