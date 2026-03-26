@@ -26,9 +26,15 @@ export function loadPersistenceConfig(
     "ROOM_STORE_PROVIDER",
     defaults.provider,
   );
+  const runtimeStoreProvider = parseProviderEnv(
+    env,
+    "RUNTIME_STORE_PROVIDER",
+    provider === "redis" ? "redis" : defaults.runtimeStoreProvider,
+  );
 
   return {
     provider,
+    runtimeStoreProvider,
     emptyRoomTtlMs: parsePositiveIntegerEnv(
       env,
       "EMPTY_ROOM_TTL_MS",

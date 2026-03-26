@@ -73,6 +73,7 @@ export type RequestContext = {
 
 export type PersistenceConfig = {
   provider: "memory" | "redis";
+  runtimeStoreProvider: "memory" | "redis";
   emptyRoomTtlMs: number;
   roomCleanupIntervalMs: number;
   redisUrl: string;

@@ -20,7 +20,11 @@ import { createInMemoryRoomStore, type RoomStore } from "./room-store.js";
 import { createRoomReaper } from "./room-reaper.js";
 import { createRoomService } from "./room-service.js";
 import { createRedisRoomStore } from "./redis-room-store.js";
-import { createInMemoryRuntimeStore } from "./runtime-store.js";
+import { createRedisRuntimeStore } from "./redis-runtime-store.js";
+import {
+  createInMemoryRuntimeStore,
+  type RuntimeStore,
+} from "./runtime-store.js";
 import { createSecurityPolicy } from "./security.js";
 import type { GlobalEventStore } from "./admin/global-event-store.js";
 import type {
@@ -71,6 +75,91 @@ export type SyncServerDependencies = {
   adminUiConfig?: AdminUiConfig;
   serviceVersion?: string;
 };
+
+function createMirroredRuntimeStore(
+  localRuntimeStore: RuntimeStore,
+  sharedRuntimeStore: RuntimeStore,
+): RuntimeStore {
+  return {
+    registerSession(session) {
+      localRuntimeStore.registerSession(session);
+      sharedRuntimeStore.registerSession(session);
+    },
+    unregisterSession(sessionId) {
+      localRuntimeStore.unregisterSession(sessionId);
+      sharedRuntimeStore.unregisterSession(sessionId);
+    },
+    markSessionJoinedRoom(sessionId, roomCode) {
+      localRuntimeStore.markSessionJoinedRoom(sessionId, roomCode);
+      sharedRuntimeStore.markSessionJoinedRoom(sessionId, roomCode);
+    },
+    markSessionLeftRoom(sessionId, roomCode) {
+      localRuntimeStore.markSessionLeftRoom(sessionId, roomCode);
+      sharedRuntimeStore.markSessionLeftRoom(sessionId, roomCode);
+    },
+    recordEvent(event, timestamp) {
+      localRuntimeStore.recordEvent(event, timestamp);
+      sharedRuntimeStore.recordEvent(event, timestamp);
+    },
+    getSession(sessionId) {
+      return localRuntimeStore.getSession(sessionId);
+    },
+    listSessionsByRoom(roomCode) {
+      return localRuntimeStore.listSessionsByRoom(roomCode);
+    },
+    getConnectionCount() {
+      return localRuntimeStore.getConnectionCount();
+    },
+    getActiveRoomCount() {
+      return localRuntimeStore.getActiveRoomCount();
+    },
+    getActiveMemberCount() {
+      return localRuntimeStore.getActiveMemberCount();
+    },
+    getStartedAt() {
+      return localRuntimeStore.getStartedAt();
+    },
+    getRecentEventCounts(currentTime) {
+      return localRuntimeStore.getRecentEventCounts(currentTime);
+    },
+    getLifetimeEventCounts() {
+      return localRuntimeStore.getLifetimeEventCounts();
+    },
+    getActiveRoomCodes() {
+      return localRuntimeStore.getActiveRoomCodes();
+    },
+    getRoom(code) {
+      return localRuntimeStore.getRoom(code);
+    },
+    getOrCreateRoom(code) {
+      return localRuntimeStore.getOrCreateRoom(code);
+    },
+    addMember(code, memberId, session, memberToken) {
+      const room = localRuntimeStore.addMember(code, memberId, session, memberToken);
+      sharedRuntimeStore.addMember(code, memberId, session, memberToken);
+      return room;
+    },
+    findMemberIdByToken(code, memberToken) {
+      return localRuntimeStore.findMemberIdByToken(code, memberToken);
+    },
+    blockMemberToken(code, memberToken, expiresAt) {
+      localRuntimeStore.blockMemberToken(code, memberToken, expiresAt);
+      sharedRuntimeStore.blockMemberToken(code, memberToken, expiresAt);
+    },
+    isMemberTokenBlocked(code, memberToken, currentTime) {
+      return localRuntimeStore.isMemberTokenBlocked(code, memberToken, currentTime);
+    },
+    removeMember(code, memberId, session) {
+      const removal = localRuntimeStore.removeMember(code, memberId, session);
+      void sharedRuntimeStore.removeMember(code, memberId, session);
+      return removal;
+    },
+    deleteRoom(code) {
+      localRuntimeStore.deleteRoom(code);
+      sharedRuntimeStore.deleteRoom(code);
+    },
+  };
+}
 
 async function resolveServiceVersion(): Promise<string> {
   if (process.env.npm_package_version) {
@@ -125,6 +214,7 @@ export function getDefaultSecurityConfig(): SecurityConfig {
 export function getDefaultPersistenceConfig(): PersistenceConfig {
   return {
     provider: "memory",
+    runtimeStoreProvider: "memory",
     emptyRoomTtlMs: 15 * 60 * 1000,
     roomCleanupIntervalMs: 60 * 1000,
     redisUrl: "redis://localhost:6379",
@@ -147,7 +237,15 @@ export async function createSyncServer(
     (persistenceConfig.provider === "redis"
       ? await createRedisRoomStore(persistenceConfig.redisUrl)
       : createInMemoryRoomStore({ now }));
-  const runtimeStore = createInMemoryRuntimeStore(now);
+  const localRuntimeStore = createInMemoryRuntimeStore(now);
+  const sharedRuntimeStore =
+    persistenceConfig.runtimeStoreProvider === "redis"
+      ? await createRedisRuntimeStore(persistenceConfig.redisUrl, { now })
+      : localRuntimeStore;
+  const runtimeStore =
+    sharedRuntimeStore === localRuntimeStore
+      ? localRuntimeStore
+      : createMirroredRuntimeStore(localRuntimeStore, sharedRuntimeStore);
   const eventStore =
     dependencies.adminConfig?.eventStoreProvider === "redis"
       ? await createRedisEventStore(persistenceConfig.redisUrl)
@@ -174,9 +272,11 @@ export async function createSyncServer(
     send,
     sendError,
     onRoomJoined: (session, roomCode) => {
+      runtimeStore.registerSession(session);
       runtimeStore.markSessionJoinedRoom(session.id, roomCode);
     },
     onRoomLeft: (session, roomCode) => {
+      runtimeStore.registerSession(session);
       runtimeStore.markSessionLeftRoom(session.id, roomCode);
     },
     now,
@@ -420,6 +520,14 @@ export async function createSyncServer(
       };
       if (typeof maybeClosableEventStore.close === "function") {
         await maybeClosableEventStore.close();
+      }
+      if (sharedRuntimeStore !== localRuntimeStore) {
+        const maybeClosableRuntimeStore = sharedRuntimeStore as typeof sharedRuntimeStore & {
+          close?: () => Promise<void>;
+        };
+        if (typeof maybeClosableRuntimeStore.close === "function") {
+          await maybeClosableRuntimeStore.close();
+        }
       }
       await closeAdminServices();
     },

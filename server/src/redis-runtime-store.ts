@@ -135,64 +135,82 @@ export async function createRedisRuntimeStore(
   const keyPrefix = options.keyPrefix ?? "bsp:runtime:";
   const now = options.now ?? Date.now;
   const localRuntimeStore = createInMemoryRuntimeStore(now);
+  const pendingOperations = new Set<Promise<unknown>>();
 
   await redis.connect();
+
+  function trackOperation<T>(operation: Promise<T>): void {
+    pendingOperations.add(operation);
+    void operation.finally(() => {
+      pendingOperations.delete(operation);
+    });
+  }
 
   const store = {
     registerSession(session: Session) {
       localRuntimeStore.registerSession(session);
       const serialized = serializeSession(session);
-      void redis
-        .multi()
-        .sadd(`${keyPrefix}sessions`, session.id)
-        .hset(sessionKey(keyPrefix, session.id), {
-          id: serialized.id,
-          remoteAddress: encodeNullable(serialized.remoteAddress),
-          origin: encodeNullable(serialized.origin),
-          roomCode: encodeNullable(serialized.roomCode),
-          memberId: encodeNullable(serialized.memberId),
-          displayName: serialized.displayName,
-          memberToken: encodeNullable(serialized.memberToken),
-          joinedAt:
-            serialized.joinedAt === null ? "" : String(serialized.joinedAt),
-          invalidMessageCount: String(serialized.invalidMessageCount),
-        })
-        .exec();
+      trackOperation(
+        redis
+          .multi()
+          .sadd(`${keyPrefix}sessions`, session.id)
+          .hset(sessionKey(keyPrefix, session.id), {
+            id: serialized.id,
+            remoteAddress: encodeNullable(serialized.remoteAddress),
+            origin: encodeNullable(serialized.origin),
+            roomCode: encodeNullable(serialized.roomCode),
+            memberId: encodeNullable(serialized.memberId),
+            displayName: serialized.displayName,
+            memberToken: encodeNullable(serialized.memberToken),
+            joinedAt:
+              serialized.joinedAt === null ? "" : String(serialized.joinedAt),
+            invalidMessageCount: String(serialized.invalidMessageCount),
+          })
+          .exec(),
+      );
     },
     unregisterSession(sessionId: string) {
       const session = localRuntimeStore.getSession(sessionId);
       localRuntimeStore.unregisterSession(sessionId);
-      void (async () => {
-        const roomCode =
-          session?.roomCode ?? (await loadSession(redis, keyPrefix, sessionId))?.roomCode;
-        const transaction = redis.multi();
-        transaction.srem(`${keyPrefix}sessions`, sessionId);
-        transaction.del(sessionKey(keyPrefix, sessionId));
-        if (roomCode) {
-          transaction.srem(roomSessionsKey(keyPrefix, roomCode), sessionId);
-        }
-        await transaction.exec();
-        if (roomCode) {
-          await cleanupEmptyRoomIndex(redis, keyPrefix, roomCode);
-        }
-      })();
+      trackOperation(
+        (async () => {
+          const roomCode =
+            session?.roomCode ??
+            (await loadSession(redis, keyPrefix, sessionId))?.roomCode;
+          const transaction = redis.multi();
+          transaction.srem(`${keyPrefix}sessions`, sessionId);
+          transaction.del(sessionKey(keyPrefix, sessionId));
+          if (roomCode) {
+            transaction.srem(roomSessionsKey(keyPrefix, roomCode), sessionId);
+          }
+          await transaction.exec();
+          if (roomCode) {
+            await cleanupEmptyRoomIndex(redis, keyPrefix, roomCode);
+          }
+        })(),
+      );
     },
     markSessionJoinedRoom(sessionId: string, roomCode: string) {
       const previousRoomCode = localRuntimeStore.getSession(sessionId)?.roomCode;
       localRuntimeStore.markSessionJoinedRoom(sessionId, roomCode);
-      void (async () => {
-        const transaction = redis.multi();
-        if (previousRoomCode && previousRoomCode !== roomCode) {
-          transaction.srem(roomSessionsKey(keyPrefix, previousRoomCode), sessionId);
-        }
-        transaction.hset(sessionKey(keyPrefix, sessionId), "roomCode", roomCode);
-        transaction.sadd(roomSessionsKey(keyPrefix, roomCode), sessionId);
-        transaction.sadd(`${keyPrefix}rooms`, roomCode);
-        await transaction.exec();
-        if (previousRoomCode && previousRoomCode !== roomCode) {
-          await cleanupEmptyRoomIndex(redis, keyPrefix, previousRoomCode);
-        }
-      })();
+      trackOperation(
+        (async () => {
+          const transaction = redis.multi();
+          if (previousRoomCode && previousRoomCode !== roomCode) {
+            transaction.srem(
+              roomSessionsKey(keyPrefix, previousRoomCode),
+              sessionId,
+            );
+          }
+          transaction.hset(sessionKey(keyPrefix, sessionId), "roomCode", roomCode);
+          transaction.sadd(roomSessionsKey(keyPrefix, roomCode), sessionId);
+          transaction.sadd(`${keyPrefix}rooms`, roomCode);
+          await transaction.exec();
+          if (previousRoomCode && previousRoomCode !== roomCode) {
+            await cleanupEmptyRoomIndex(redis, keyPrefix, previousRoomCode);
+          }
+        })(),
+      );
     },
     markSessionLeftRoom(sessionId: string, roomCode?: string | null) {
       const targetRoomCode =
@@ -201,14 +219,16 @@ export async function createRedisRuntimeStore(
       if (!targetRoomCode) {
         return;
       }
-      void (async () => {
-        await redis
-          .multi()
-          .hset(sessionKey(keyPrefix, sessionId), "roomCode", "")
-          .srem(roomSessionsKey(keyPrefix, targetRoomCode), sessionId)
-          .exec();
-        await cleanupEmptyRoomIndex(redis, keyPrefix, targetRoomCode);
-      })();
+      trackOperation(
+        (async () => {
+          await redis
+            .multi()
+            .hset(sessionKey(keyPrefix, sessionId), "roomCode", "")
+            .srem(roomSessionsKey(keyPrefix, targetRoomCode), sessionId)
+            .exec();
+          await cleanupEmptyRoomIndex(redis, keyPrefix, targetRoomCode);
+        })(),
+      );
     },
     recordEvent(event: string, timestamp?: number) {
       localRuntimeStore.recordEvent(event, timestamp);
@@ -276,11 +296,13 @@ export async function createRedisRuntimeStore(
       memberToken: string,
     ) {
       const room = localRuntimeStore.addMember(code, memberId, session, memberToken);
-      void redis
-        .multi()
-        .hset(roomMembersKey(keyPrefix, code), memberId, session.id)
-        .hset(roomMemberTokensKey(keyPrefix, code), memberId, memberToken)
-        .exec();
+      trackOperation(
+        redis
+          .multi()
+          .hset(roomMembersKey(keyPrefix, code), memberId, session.id)
+          .hset(roomMemberTokensKey(keyPrefix, code), memberId, memberToken)
+          .exec(),
+      );
       return room;
     },
     async findMemberIdByToken(code: string, memberToken: string) {
@@ -294,7 +316,13 @@ export async function createRedisRuntimeStore(
     },
     blockMemberToken(code: string, memberToken: string, expiresAt: number) {
       localRuntimeStore.blockMemberToken(code, memberToken, expiresAt);
-      void redis.zadd(blockedTokensKey(keyPrefix, code), String(expiresAt), memberToken);
+      trackOperation(
+        redis.zadd(
+          blockedTokensKey(keyPrefix, code),
+          String(expiresAt),
+          memberToken,
+        ),
+      );
     },
     async isMemberTokenBlocked(
       code: string,
@@ -326,16 +354,19 @@ export async function createRedisRuntimeStore(
     },
     deleteRoom(code: string) {
       localRuntimeStore.deleteRoom(code);
-      void redis
-        .multi()
-        .del(roomMembersKey(keyPrefix, code))
-        .del(roomMemberTokensKey(keyPrefix, code))
-        .del(blockedTokensKey(keyPrefix, code))
-        .del(roomSessionsKey(keyPrefix, code))
-        .srem(`${keyPrefix}rooms`, code)
-        .exec();
+      trackOperation(
+        redis
+          .multi()
+          .del(roomMembersKey(keyPrefix, code))
+          .del(roomMemberTokensKey(keyPrefix, code))
+          .del(blockedTokensKey(keyPrefix, code))
+          .del(roomSessionsKey(keyPrefix, code))
+          .srem(`${keyPrefix}rooms`, code)
+          .exec(),
+      );
     },
     async close() {
+      await Promise.allSettled(Array.from(pendingOperations));
       await redis.quit();
     },
   };

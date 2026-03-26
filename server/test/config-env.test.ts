@@ -27,11 +27,13 @@ test("security config reads overrides and keeps defaults for missing values", ()
 test("persistence config validates provider and trims string env values", () => {
   const config = loadPersistenceConfig({
     ROOM_STORE_PROVIDER: "redis",
+    RUNTIME_STORE_PROVIDER: "redis",
     REDIS_URL: " redis://cache.internal:6379 ",
     INSTANCE_ID: " node-a ",
   });
 
   assert.equal(config.provider, "redis");
+  assert.equal(config.runtimeStoreProvider, "redis");
   assert.equal(config.redisUrl, "redis://cache.internal:6379");
   assert.equal(config.instanceId, "node-a");
 });
