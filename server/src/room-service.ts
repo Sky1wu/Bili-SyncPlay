@@ -17,7 +17,12 @@ import {
   ROOM_NOT_FOUND_MESSAGE,
 } from "./messages.js";
 import { decidePlaybackAcceptance } from "./playback-authority.js";
-import { createRoomCode, roomStateOf, type RoomStore } from "./room-store.js";
+import {
+  createRoomCode,
+  roomStateFromSessions,
+  roomStateOf,
+  type RoomStore,
+} from "./room-store.js";
 import type { RuntimeStore } from "./runtime-store.js";
 import type {
   LogEvent,
@@ -798,9 +803,9 @@ export function createRoomService(options: {
           "room_not_found",
         );
       }
-      return roomStateOf(
+      return roomStateFromSessions(
         persistedRoom,
-        runtimeStore.getRoom(persistedRoom.code),
+        await runtimeStore.listClusterSessionsByRoom(persistedRoom.code),
       );
     },
 
@@ -817,7 +822,10 @@ export function createRoomService(options: {
       if (!room) {
         return null;
       }
-      return roomStateOf(room, runtimeStore.getRoom(roomCode));
+      return roomStateFromSessions(
+        room,
+        await runtimeStore.listClusterSessionsByRoom(roomCode),
+      );
     },
 
     async deleteExpiredRooms(currentTime = now()) {

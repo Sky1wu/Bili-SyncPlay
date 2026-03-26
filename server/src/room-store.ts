@@ -191,13 +191,30 @@ export function roomStateOf(
   room: PersistedRoom,
   activeRoom: ActiveRoom | null,
 ): RoomStoreRoomState {
+  return roomStateFromSessions(room, Array.from(activeRoom?.members.values() ?? []));
+}
+
+export function roomStateFromSessions(
+  room: PersistedRoom,
+  sessions: Array<{
+    id: string;
+    memberId: string | null;
+    displayName: string;
+  }>,
+): RoomStoreRoomState {
+  const members = new Map<string, { id: string; name: string }>();
+  for (const session of sessions) {
+    const memberId = session.memberId ?? session.id;
+    members.set(memberId, {
+      id: memberId,
+      name: session.displayName,
+    });
+  }
+
   return {
     roomCode: room.code,
     sharedVideo: room.sharedVideo,
     playback: room.playback,
-    members: Array.from(activeRoom?.members.values() ?? []).map((member) => ({
-      id: member.memberId ?? member.id,
-      name: member.displayName,
-    })),
+    members: Array.from(members.values()),
   };
 }
