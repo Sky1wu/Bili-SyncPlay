@@ -2,10 +2,10 @@ import assert from "node:assert/strict";
 import test from "node:test";
 import { createEventStore } from "../src/admin/event-store.js";
 
-test("in-memory event store keeps query semantics through the global interface", () => {
+test("in-memory event store keeps query semantics through the global interface", async () => {
   const store = createEventStore(2);
 
-  const created = store.append({
+  const created = await store.append({
     event: "room_created",
     timestamp: "2026-03-26T10:00:00.000Z",
     data: {
@@ -16,7 +16,7 @@ test("in-memory event store keeps query semantics through the global interface",
       result: "ok",
     },
   });
-  const joined = store.append({
+  const joined = await store.append({
     event: "room_joined",
     timestamp: "2026-03-26T10:00:01.000Z",
     data: {
@@ -26,7 +26,7 @@ test("in-memory event store keeps query semantics through the global interface",
       result: "ok",
     },
   });
-  store.append({
+  await store.append({
     event: "room_closed",
     timestamp: "2026-03-26T10:00:02.000Z",
     data: {
@@ -36,7 +36,7 @@ test("in-memory event store keeps query semantics through the global interface",
     },
   });
 
-  const room01Events = store.query({
+  const room01Events = await store.query({
     roomCode: "ROOM01",
     page: 1,
     pageSize: 10,
@@ -44,7 +44,7 @@ test("in-memory event store keeps query semantics through the global interface",
   assert.equal(room01Events.total, 1);
   assert.equal(room01Events.items[0]?.id, joined.id);
 
-  const joinedEvents = store.query({
+  const joinedEvents = await store.query({
     event: "room_joined",
     from: Date.parse("2026-03-26T10:00:00.500Z"),
     to: Date.parse("2026-03-26T10:00:01.500Z"),
@@ -54,7 +54,7 @@ test("in-memory event store keeps query semantics through the global interface",
   assert.equal(joinedEvents.total, 1);
   assert.equal(joinedEvents.items[0]?.sessionId, "session-2");
 
-  const evicted = store.query({
+  const evicted = await store.query({
     event: "room_created",
     page: 1,
     pageSize: 10,

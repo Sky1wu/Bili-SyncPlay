@@ -25,6 +25,10 @@ export type GlobalEventStoreAppendInput = {
 };
 
 export type GlobalEventStore = {
-  append: (input: GlobalEventStoreAppendInput) => RuntimeEvent;
-  query: (query: GlobalEventStoreQuery) => GlobalEventStoreQueryResult;
+  append: (
+    input: GlobalEventStoreAppendInput,
+  ) => RuntimeEvent | Promise<RuntimeEvent>;
+  query: (
+    query: GlobalEventStoreQuery,
+  ) => GlobalEventStoreQueryResult | Promise<GlobalEventStoreQueryResult>;
 };

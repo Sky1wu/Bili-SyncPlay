@@ -103,7 +103,7 @@ export const handleReadRoutes: AdminRouteHandler = async ({
       ),
     };
     sendOk(response, {
-      ...options.eventStore.query(query),
+      ...(await options.eventStore.query(query)),
       pagination: {
         page: query.page,
         pageSize: query.pageSize,

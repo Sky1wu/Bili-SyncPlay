@@ -101,11 +101,13 @@ export function createAdminRoomQueryService(options: {
           remoteAddress: session.remoteAddress,
           origin: session.origin,
         })),
-        recentEvents: options.eventStore.query({
+        recentEvents: (
+          await options.eventStore.query({
           roomCode,
           page: 1,
           pageSize: 20,
-        }).items,
+          })
+        ).items,
       };
     },
   };

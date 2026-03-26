@@ -10,7 +10,13 @@ export function createStructuredLogger(
   return (event, data) => {
     const timestamp = new Date().toISOString();
     (writeLine ?? console.log)(JSON.stringify({ event, timestamp, ...data }));
-    eventStore?.append({ event, timestamp, data });
+    if (eventStore) {
+      void Promise.resolve(eventStore.append({ event, timestamp, data })).catch(
+        (error: unknown) => {
+          console.error("Failed to append runtime event", error);
+        },
+      );
+    }
     runtimeRegistry?.recordEvent(event, Date.parse(timestamp));
   };
 }

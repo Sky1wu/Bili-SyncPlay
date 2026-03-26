@@ -16,7 +16,7 @@ export function createEventStore(capacity = 1_000): EventStore {
   }
 
   return {
-    append(input) {
+    async append(input) {
       const event: RuntimeEvent = {
         id: randomUUID(),
         timestamp: input.timestamp ?? new Date().toISOString(),
@@ -44,7 +44,7 @@ export function createEventStore(capacity = 1_000): EventStore {
       }
       return event;
     },
-    query(query) {
+    async query(query) {
       const filtered = events.filter((event) => {
         const timestamp = eventTime(event);
         if (query.event && event.event !== query.event) {
