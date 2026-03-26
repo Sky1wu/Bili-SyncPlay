@@ -28,6 +28,11 @@ export function createAuditLogService(capacity = 1_000): AuditLogService {
         result: input.result,
         reason: input.reason,
         instanceId: input.instanceId,
+        targetInstanceId: input.targetInstanceId,
+        executorInstanceId: input.executorInstanceId,
+        commandRequestId: input.commandRequestId,
+        commandStatus: input.commandStatus,
+        commandCode: input.commandCode,
       };
 
       records.push(record);

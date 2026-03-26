@@ -86,6 +86,10 @@ export function createAdminActionService(options: {
     request: Record<string, unknown>,
     result: "ok" | "rejected" | "error",
     reason?: string,
+    commandDetails?: {
+      targetInstanceId?: string;
+      commandResult?: AdminCommandResult;
+    },
   ): void {
     void Promise.resolve(
       options.auditLogService.append({
@@ -97,6 +101,14 @@ export function createAdminActionService(options: {
         result,
         reason,
         instanceId: options.instanceId,
+        targetInstanceId: commandDetails?.targetInstanceId,
+        executorInstanceId: commandDetails?.commandResult?.executorInstanceId,
+        commandRequestId: commandDetails?.commandResult?.requestId,
+        commandStatus: commandDetails?.commandResult?.status,
+        commandCode:
+          commandDetails?.commandResult?.status === "ok"
+            ? undefined
+            : commandDetails?.commandResult?.code,
       }),
     ).catch((error: unknown) => {
       console.error("Failed to append audit log", error);
@@ -220,6 +232,8 @@ export function createAdminActionService(options: {
         memberId,
         { roomCode, reason },
         "ok",
+        undefined,
+        { targetInstanceId, commandResult },
       );
       return {
         roomCode,
@@ -269,6 +283,8 @@ export function createAdminActionService(options: {
         sessionId,
         { reason },
         "ok",
+        undefined,
+        { targetInstanceId, commandResult },
       );
       return {
         sessionId,

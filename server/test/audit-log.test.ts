@@ -32,6 +32,10 @@ test("in-memory audit log service keeps query semantics through the global inter
     request: { roomCode: "ROOM01" },
     result: "ok",
     instanceId: "instance-a",
+    targetInstanceId: "instance-b",
+    executorInstanceId: "instance-b",
+    commandRequestId: "req-1",
+    commandStatus: "ok",
   });
   await store.append({
     actor: ACTOR,
@@ -51,6 +55,10 @@ test("in-memory audit log service keeps query semantics through the global inter
   assert.equal(filtered.total, 1);
   assert.equal(filtered.items[0]?.id, kicked.id);
   assert.equal(filtered.items[0]?.targetId, "member-2");
+  assert.equal(filtered.items[0]?.targetInstanceId, "instance-b");
+  assert.equal(filtered.items[0]?.executorInstanceId, "instance-b");
+  assert.equal(filtered.items[0]?.commandRequestId, "req-1");
+  assert.equal(filtered.items[0]?.commandStatus, "ok");
 
   const evicted = await store.query({
     action: "close_room",

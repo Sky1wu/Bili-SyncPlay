@@ -9,6 +9,11 @@ export type GlobalAuditAppendInput = {
   result: AuditLogRecord["result"];
   reason?: string;
   instanceId?: string;
+  targetInstanceId?: string;
+  executorInstanceId?: string;
+  commandRequestId?: string;
+  commandStatus?: AuditLogRecord["commandStatus"];
+  commandCode?: string;
 };
 
 export type GlobalAuditQueryResult = {

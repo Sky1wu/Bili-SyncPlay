@@ -51,6 +51,12 @@ function parseAuditRecord(
     result: result as AuditLogRecord["result"],
     reason: normalizeNullable(fields.reason),
     instanceId: normalizeNullable(fields.instanceId),
+    targetInstanceId: normalizeNullable(fields.targetInstanceId),
+    executorInstanceId: normalizeNullable(fields.executorInstanceId),
+    commandRequestId: normalizeNullable(fields.commandRequestId),
+    commandStatus:
+      normalizeNullable(fields.commandStatus) as AuditLogRecord["commandStatus"],
+    commandCode: normalizeNullable(fields.commandCode),
   };
 }
 
@@ -137,6 +143,16 @@ export async function createRedisAuditStore(
           encodeNullable(input.reason),
           "instanceId",
           encodeNullable(input.instanceId),
+          "targetInstanceId",
+          encodeNullable(input.targetInstanceId),
+          "executorInstanceId",
+          encodeNullable(input.executorInstanceId),
+          "commandRequestId",
+          encodeNullable(input.commandRequestId),
+          "commandStatus",
+          encodeNullable(input.commandStatus),
+          "commandCode",
+          encodeNullable(input.commandCode),
         );
         if (!streamId) {
           throw new Error("Redis did not return a stream id for appended audit log.");
@@ -154,6 +170,11 @@ export async function createRedisAuditStore(
           result: input.result,
           reason: input.reason,
           instanceId: input.instanceId,
+          targetInstanceId: input.targetInstanceId,
+          executorInstanceId: input.executorInstanceId,
+          commandRequestId: input.commandRequestId,
+          commandStatus: input.commandStatus,
+          commandCode: input.commandCode,
         } satisfies AuditLogRecord;
       });
 

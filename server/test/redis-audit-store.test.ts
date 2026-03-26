@@ -52,6 +52,10 @@ test("redis audit store appends, trims, and queries records across store instanc
       request: { roomCode: "ROOM01" },
       result: "ok",
       instanceId: "instance-b",
+      targetInstanceId: "instance-a",
+      executorInstanceId: "instance-a",
+      commandRequestId: "req-2",
+      commandStatus: "ok",
     });
     await storeA.append({
       actor: ACTOR,
@@ -71,6 +75,10 @@ test("redis audit store appends, trims, and queries records across store instanc
     assert.equal(filtered.total, 1);
     assert.equal(filtered.items[0]?.id, kicked.id);
     assert.equal(filtered.items[0]?.instanceId, "instance-b");
+    assert.equal(filtered.items[0]?.targetInstanceId, "instance-a");
+    assert.equal(filtered.items[0]?.executorInstanceId, "instance-a");
+    assert.equal(filtered.items[0]?.commandRequestId, "req-2");
+    assert.equal(filtered.items[0]?.commandStatus, "ok");
 
     const trimmed = await storeB.query({
       page: 1,
