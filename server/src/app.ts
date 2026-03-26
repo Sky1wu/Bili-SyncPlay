@@ -20,6 +20,7 @@ import { createSessionRateLimitState } from "./rate-limit.js";
 import { createInMemoryRoomStore, type RoomStore } from "./room-store.js";
 import { createRoomReaper } from "./room-reaper.js";
 import { createRoomService } from "./room-service.js";
+import { createRuntimeIndexReaper } from "./runtime-index-reaper.js";
 import { createRedisRoomStore } from "./redis-room-store.js";
 import { createRedisRuntimeStore } from "./redis-runtime-store.js";
 import {
@@ -171,6 +172,9 @@ function createMirroredRuntimeStore(
     listClusterSessionsByRoom(roomCode) {
       return sharedRuntimeStore.listClusterSessionsByRoom(roomCode);
     },
+    listClusterSessions() {
+      return sharedRuntimeStore.listClusterSessions();
+    },
   };
 }
 
@@ -315,6 +319,16 @@ export async function createSyncServer(
     logEvent,
   });
   nodeHeartbeat.start();
+  const runtimeIndexReaper = createRuntimeIndexReaper({
+    enabled:
+      persistenceConfig.nodeHeartbeatEnabled &&
+      persistenceConfig.runtimeStoreProvider === "redis",
+    runtimeStore,
+    intervalMs: persistenceConfig.nodeHeartbeatIntervalMs,
+    now,
+    logEvent,
+  });
+  runtimeIndexReaper.start();
   const { adminRouter, close: closeAdminServices } = await createAdminServices({
     securityConfig,
     persistenceConfig,
@@ -525,6 +539,7 @@ export async function createSyncServer(
     close: async () => {
       roomReaper.stop();
       await nodeHeartbeat.stop();
+      await runtimeIndexReaper.stop();
       for (const client of wss.clients) {
         client.terminate();
       }

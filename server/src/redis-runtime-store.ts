@@ -450,6 +450,13 @@ export async function createRedisRuntimeStore(
       );
       return sessions.filter((session): session is Session => session !== null);
     },
+    async listClusterSessions() {
+      const sessionIds = await redis.smembers(`${keyPrefix}sessions`);
+      const sessions = await Promise.all(
+        sessionIds.map((sessionId) => loadSession(redis, keyPrefix, sessionId)),
+      );
+      return sessions.filter((session): session is Session => session !== null);
+    },
   };
 
   return store as unknown as RuntimeStore & { close: () => Promise<void> };
