@@ -115,6 +115,18 @@ export function createAdminActionService(options: {
     });
   }
 
+  function throwCommandFailure(
+    result: Exclude<AdminCommandResult, { status: "ok" }>,
+  ): never {
+    const statusCode =
+      result.status === "not_found"
+        ? 404
+        : result.status === "stale_target"
+          ? 409
+          : 502;
+    throw new AdminActionError(statusCode, result.code, result.message);
+  }
+
   return {
     async closeRoom(actor: AdminSession, roomCode: string, reason?: string) {
       await getRoomOrThrow(roomCode);
@@ -215,7 +227,7 @@ export function createAdminActionService(options: {
         requestedAt: now(),
       });
       if (commandResult.status !== "ok") {
-        throw new AdminActionError(502, commandResult.code, commandResult.message);
+        throwCommandFailure(commandResult);
       }
 
       options.logEvent("admin_member_kicked", {
@@ -267,7 +279,7 @@ export function createAdminActionService(options: {
         requestedAt: now(),
       });
       if (commandResult.status !== "ok") {
-        throw new AdminActionError(502, commandResult.code, commandResult.message);
+        throwCommandFailure(commandResult);
       }
 
       options.logEvent("admin_session_disconnected", {

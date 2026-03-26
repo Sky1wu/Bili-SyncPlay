@@ -1078,3 +1078,63 @@ test("operator can close an active room", async () => {
     await server.close();
   }
 });
+
+test("admin action endpoints return stale target errors when command routing is unavailable", async () => {
+  const server = await startAdminServerWithPersistence(
+    {
+      ...getDefaultPersistenceConfig(),
+      adminCommandBusProvider: "none",
+    },
+    adminDependencies("operator"),
+  );
+
+  try {
+    const token = await login(server.httpBaseUrl);
+    const owner = await connectClient(server.wsUrl);
+    const collector = createMessageCollector(owner);
+
+    try {
+      owner.send(
+        JSON.stringify({
+          type: "room:create",
+          payload: { displayName: "Alice" },
+        }),
+      );
+      const created = await collector.next("room:created");
+      await collector.next("room:state");
+      const roomCode = (created.payload as { roomCode: string }).roomCode;
+
+      const detail = await requestJson(
+        server.httpBaseUrl,
+        `/api/admin/rooms/${roomCode}`,
+        { token },
+      );
+      assert.equal(detail.status, 200);
+      const sessionId = (
+        detail.body.data as {
+          members: Array<{ sessionId: string; displayName: string }>;
+        }
+      ).members.find((member) => member.displayName === "Alice")?.sessionId;
+      assert.ok(sessionId);
+
+      const disconnect = await requestJson(
+        server.httpBaseUrl,
+        `/api/admin/sessions/${sessionId}/disconnect`,
+        {
+          method: "POST",
+          token,
+          body: { reason: "simulate stale target" },
+        },
+      );
+      assert.equal(disconnect.status, 409);
+      assert.deepEqual(disconnect.body.error, {
+        code: "command_bus_disabled",
+        message: "Admin command bus is disabled.",
+      });
+    } finally {
+      await closeClient(owner);
+    }
+  } finally {
+    await server.close();
+  }
+});
