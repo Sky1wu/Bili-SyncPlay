@@ -28,12 +28,18 @@ test("persistence config validates provider and trims string env values", () => 
   const config = loadPersistenceConfig({
     ROOM_STORE_PROVIDER: "redis",
     RUNTIME_STORE_PROVIDER: "redis",
+    NODE_HEARTBEAT_ENABLED: "true",
+    NODE_HEARTBEAT_INTERVAL_MS: "5000",
+    NODE_HEARTBEAT_TTL_MS: "15000",
     REDIS_URL: " redis://cache.internal:6379 ",
     INSTANCE_ID: " node-a ",
   });
 
   assert.equal(config.provider, "redis");
   assert.equal(config.runtimeStoreProvider, "redis");
+  assert.equal(config.nodeHeartbeatEnabled, true);
+  assert.equal(config.nodeHeartbeatIntervalMs, 5000);
+  assert.equal(config.nodeHeartbeatTtlMs, 15000);
   assert.equal(config.redisUrl, "redis://cache.internal:6379");
   assert.equal(config.instanceId, "node-a");
 });

@@ -1,6 +1,10 @@
 import { getDefaultPersistenceConfig, type PersistenceConfig } from "../app.js";
 import type { EnvSource } from "./env.js";
-import { parsePositiveIntegerEnv, readTrimmedEnv } from "./env.js";
+import {
+  parseBooleanEnv,
+  parsePositiveIntegerEnv,
+  readTrimmedEnv,
+} from "./env.js";
 
 function parseProviderEnv(
   env: EnvSource,
@@ -35,6 +39,21 @@ export function loadPersistenceConfig(
   return {
     provider,
     runtimeStoreProvider,
+    nodeHeartbeatEnabled: parseBooleanEnv(
+      env,
+      "NODE_HEARTBEAT_ENABLED",
+      defaults.nodeHeartbeatEnabled,
+    ),
+    nodeHeartbeatIntervalMs: parsePositiveIntegerEnv(
+      env,
+      "NODE_HEARTBEAT_INTERVAL_MS",
+      defaults.nodeHeartbeatIntervalMs,
+    ),
+    nodeHeartbeatTtlMs: parsePositiveIntegerEnv(
+      env,
+      "NODE_HEARTBEAT_TTL_MS",
+      defaults.nodeHeartbeatTtlMs,
+    ),
     emptyRoomTtlMs: parsePositiveIntegerEnv(
       env,
       "EMPTY_ROOM_TTL_MS",

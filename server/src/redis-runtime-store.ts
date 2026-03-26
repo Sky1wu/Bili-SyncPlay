@@ -1,5 +1,5 @@
 import { Redis } from "ioredis";
-import type { ActiveRoom, Session } from "./types.js";
+import type { ActiveRoom, ClusterNodeStatus, Session } from "./types.js";
 import {
   createInMemoryRuntimeStore,
   type RuntimeStore,
@@ -48,6 +48,14 @@ function roomMemberTokensKey(prefix: string, roomCode: string): string {
 
 function blockedTokensKey(prefix: string, roomCode: string): string {
   return `${prefix}room:${roomCode}:blocked-member-tokens`;
+}
+
+function nodesKey(prefix: string): string {
+  return `${prefix}nodes`;
+}
+
+function nodeStatusKey(prefix: string, instanceId: string): string {
+  return `${prefix}node:${instanceId}`;
 }
 
 const DETACHED_SOCKET = {
@@ -368,6 +376,65 @@ export async function createRedisRuntimeStore(
     async close() {
       await Promise.allSettled(Array.from(pendingOperations));
       await redis.quit();
+    },
+    async heartbeatNode(status: ClusterNodeStatus) {
+      await localRuntimeStore.heartbeatNode(status);
+      await redis
+        .multi()
+        .sadd(nodesKey(keyPrefix), status.instanceId)
+        .hset(nodeStatusKey(keyPrefix, status.instanceId), {
+          instanceId: status.instanceId,
+          version: status.version,
+          startedAt: String(status.startedAt),
+          lastHeartbeatAt: String(status.lastHeartbeatAt),
+          staleAt: String(status.staleAt),
+          expiresAt: String(status.expiresAt),
+          connectionCount: String(status.connectionCount),
+          activeRoomCount: String(status.activeRoomCount),
+          activeMemberCount: String(status.activeMemberCount),
+        })
+        .pexpire(
+          nodeStatusKey(keyPrefix, status.instanceId),
+          Math.max(1, status.expiresAt - status.lastHeartbeatAt),
+        )
+        .exec();
+    },
+    async listNodeStatuses(currentTime = now()) {
+      const instanceIds = await redis.smembers(nodesKey(keyPrefix));
+      const statuses = await Promise.all(
+        instanceIds.map(async (instanceId) => {
+          const fields = await redis.hgetall(nodeStatusKey(keyPrefix, instanceId));
+          if (Object.keys(fields).length === 0) {
+            await redis.srem(nodesKey(keyPrefix), instanceId);
+            return null;
+          }
+
+          const status: ClusterNodeStatus = {
+            instanceId: fields.instanceId || instanceId,
+            version: fields.version || "unknown",
+            startedAt: Number(fields.startedAt ?? "0"),
+            lastHeartbeatAt: Number(fields.lastHeartbeatAt ?? "0"),
+            staleAt: Number(fields.staleAt ?? "0"),
+            expiresAt: Number(fields.expiresAt ?? "0"),
+            connectionCount: Number(fields.connectionCount ?? "0"),
+            activeRoomCount: Number(fields.activeRoomCount ?? "0"),
+            activeMemberCount: Number(fields.activeMemberCount ?? "0"),
+            health: "ok",
+          };
+
+          status.health =
+            currentTime > status.expiresAt
+              ? "offline"
+              : currentTime > status.staleAt
+                ? "stale"
+                : "ok";
+          return status;
+        }),
+      );
+
+      return statuses
+        .filter((status): status is ClusterNodeStatus => status !== null)
+        .sort((left, right) => left.instanceId.localeCompare(right.instanceId));
     },
   };
 

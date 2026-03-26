@@ -1,4 +1,4 @@
-import type { ActiveRoom, Session } from "./types.js";
+import type { ActiveRoom, ClusterNodeStatus, Session } from "./types.js";
 
 type TimedEvent = {
   event: string;
@@ -52,6 +52,8 @@ export type RuntimeStore = {
     session?: Session,
   ) => { room: ActiveRoom | null; roomEmpty: boolean };
   deleteRoom: (code: string) => void;
+  heartbeatNode: (status: ClusterNodeStatus) => Promise<void>;
+  listNodeStatuses: (currentTime?: number) => Promise<ClusterNodeStatus[]>;
 };
 
 export function createInMemoryRuntimeStore(
@@ -65,6 +67,7 @@ export function createInMemoryRuntimeStore(
   const lifetimeEventCounts: Record<string, number> = {};
   const rooms = new Map<string, ActiveRoom>();
   const blockedMemberTokensByRoom = new Map<string, KickedMemberBlock[]>();
+  const nodeStatuses = new Map<string, ClusterNodeStatus>();
 
   function pruneEvents(currentTime: number): void {
     while (
@@ -289,6 +292,26 @@ export function createInMemoryRuntimeStore(
       rooms.delete(code);
       roomSessionIds.delete(code);
       blockedMemberTokensByRoom.delete(code);
+    },
+    async heartbeatNode(status) {
+      nodeStatuses.set(status.instanceId, { ...status });
+    },
+    async listNodeStatuses(currentTime = now()) {
+      return Array.from(nodeStatuses.values())
+        .map((status): ClusterNodeStatus => {
+          const health: ClusterNodeStatus["health"] =
+            currentTime > status.expiresAt
+              ? "offline"
+              : currentTime > status.staleAt
+                ? "stale"
+                : "ok";
+
+          return {
+            ...status,
+            health,
+          };
+        })
+        .sort((left, right) => left.instanceId.localeCompare(right.instanceId));
     },
   };
 }

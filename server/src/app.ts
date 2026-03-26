@@ -15,6 +15,7 @@ import { createAdminServices } from "./bootstrap/admin-services.js";
 import { createHttpRequestHandler } from "./bootstrap/http-handler.js";
 import { createStructuredLogger } from "./logger.js";
 import { createMessageHandler } from "./message-handler.js";
+import { createNodeHeartbeat } from "./node-heartbeat.js";
 import { createSessionRateLimitState } from "./rate-limit.js";
 import { createInMemoryRoomStore, type RoomStore } from "./room-store.js";
 import { createRoomReaper } from "./room-reaper.js";
@@ -158,6 +159,12 @@ function createMirroredRuntimeStore(
       localRuntimeStore.deleteRoom(code);
       sharedRuntimeStore.deleteRoom(code);
     },
+    heartbeatNode(status) {
+      return sharedRuntimeStore.heartbeatNode(status);
+    },
+    listNodeStatuses(currentTime) {
+      return sharedRuntimeStore.listNodeStatuses(currentTime);
+    },
   };
 }
 
@@ -215,6 +222,9 @@ export function getDefaultPersistenceConfig(): PersistenceConfig {
   return {
     provider: "memory",
     runtimeStoreProvider: "memory",
+    nodeHeartbeatEnabled: false,
+    nodeHeartbeatIntervalMs: 15_000,
+    nodeHeartbeatTtlMs: 45_000,
     emptyRoomTtlMs: 15 * 60 * 1000,
     roomCleanupIntervalMs: 60 * 1000,
     redisUrl: "redis://localhost:6379",
@@ -288,6 +298,17 @@ export async function createSyncServer(
     logEvent,
     now,
   });
+  const nodeHeartbeat = createNodeHeartbeat({
+    enabled: persistenceConfig.nodeHeartbeatEnabled,
+    instanceId: persistenceConfig.instanceId,
+    serviceVersion,
+    runtimeStore,
+    intervalMs: persistenceConfig.nodeHeartbeatIntervalMs,
+    ttlMs: persistenceConfig.nodeHeartbeatTtlMs,
+    now,
+    logEvent,
+  });
+  nodeHeartbeat.start();
   const { adminRouter, close: closeAdminServices } = await createAdminServices({
     securityConfig,
     persistenceConfig,
@@ -491,6 +512,7 @@ export async function createSyncServer(
     httpServer,
     close: async () => {
       roomReaper.stop();
+      nodeHeartbeat.stop();
       for (const client of wss.clients) {
         client.terminate();
       }

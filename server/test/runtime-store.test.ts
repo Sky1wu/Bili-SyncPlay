@@ -64,3 +64,33 @@ test("runtime store tracks room membership and kicked member tokens", () => {
   assert.equal(store.getConnectionCount(), 0);
   assert.equal(store.getActiveRoomCount(), 0);
 });
+
+test("runtime store tracks node heartbeat state and derives health", async () => {
+  let currentTime = 1_000;
+  const store = createInMemoryRuntimeStore(() => currentTime);
+
+  await store.heartbeatNode({
+    instanceId: "node-a",
+    version: "0.9.0",
+    startedAt: 100,
+    lastHeartbeatAt: currentTime,
+    staleAt: currentTime + 200,
+    expiresAt: currentTime + 400,
+    connectionCount: 3,
+    activeRoomCount: 2,
+    activeMemberCount: 5,
+    health: "ok",
+  });
+
+  let statuses = await store.listNodeStatuses(currentTime);
+  assert.equal(statuses.length, 1);
+  assert.equal(statuses[0]?.health, "ok");
+
+  currentTime += 250;
+  statuses = await store.listNodeStatuses(currentTime);
+  assert.equal(statuses[0]?.health, "stale");
+
+  currentTime += 250;
+  statuses = await store.listNodeStatuses(currentTime);
+  assert.equal(statuses[0]?.health, "offline");
+});

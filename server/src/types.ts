@@ -74,10 +74,28 @@ export type RequestContext = {
 export type PersistenceConfig = {
   provider: "memory" | "redis";
   runtimeStoreProvider: "memory" | "redis";
+  nodeHeartbeatEnabled: boolean;
+  nodeHeartbeatIntervalMs: number;
+  nodeHeartbeatTtlMs: number;
   emptyRoomTtlMs: number;
   roomCleanupIntervalMs: number;
   redisUrl: string;
   instanceId: string;
+};
+
+export type ClusterNodeHealth = "ok" | "stale" | "offline";
+
+export type ClusterNodeStatus = {
+  instanceId: string;
+  version: string;
+  startedAt: number;
+  lastHeartbeatAt: number;
+  staleAt: number;
+  expiresAt: number;
+  connectionCount: number;
+  activeRoomCount: number;
+  activeMemberCount: number;
+  health: ClusterNodeHealth;
 };
 
 export type AdminConfig = {
