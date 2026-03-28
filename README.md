@@ -136,6 +136,21 @@ To use the management UI locally, start the server with admin auth configured an
 http://localhost:8787/admin
 ```
 
+This is the single-process local development mode, where the admin UI and WebSocket service share the same `npm run dev:server` process.
+
+If you run a dedicated global admin process instead, the entrypoint is usually one of these:
+
+```text
+http://localhost:8788/admin
+https://admin.example.com/admin
+```
+
+In practice:
+
+- `http://localhost:8787/admin`: single-process development or non-separated admin mode
+- `http://localhost:8788/admin`: local direct access to `server/dist/global-admin-index.js`
+- `https://admin.example.com/admin`: production admin URL behind a reverse proxy
+
 PowerShell example:
 
 ```powershell
@@ -451,12 +466,28 @@ The current server implementation:
 
 The server now supports a full multi-node topology with shared admin sessions, shared event and audit streams, shared runtime indexes, cross-node room-state fanout, cross-node admin commands, and a dedicated global admin entrypoint.
 
+#### Core model
+
+- end users connect to a single public URL such as `wss://sync.example.com`
+- the edge layer handles TLS termination, reverse proxying, and connection distribution
+- room nodes carry WebSocket traffic and health probes
+- the global admin process serves `/admin` and `/api/admin/*`
+- Redis backs shared persistence, runtime indexes, buses, and admin sessions
+
 Recommended production topology:
 
+- edge entrypoint: `Nginx`, `HAProxy`, `SLB/ALB`, or another reverse proxy / load balancer for TLS termination and WebSocket fan-in
 - `room-node-a`: WebSocket room traffic plus health probes
 - `room-node-b`: WebSocket room traffic plus health probes
 - `global-admin`: `/admin` and `/api/admin/*`
 - `redis`: shared persistence, runtime index, event bus, and command bus backend
+
+The server does not implement L4/L7 load balancing inside the application process. Multi-node deployments require an external entrypoint layer that accepts user connections on a single public URL and forwards them to room nodes. End users should connect to one public address such as `wss://sync.example.com`, not pick node addresses manually.
+
+> Note
+> If you are only doing local development or one-node deployment, you can stay on the single-node setup. The rest of this section is mainly for production multi-node rollout.
+
+#### Minimum required shared settings
 
 Recommended provider settings for a full multi-node rollout:
 
@@ -496,6 +527,125 @@ node server/dist/global-admin-index.js
 ```
 
 If the admin UI should talk to a separate API origin, set `GLOBAL_ADMIN_API_BASE_URL=https://admin.example.com`.
+
+#### Node role configuration matrix
+
+| Role | Typical process | External responsibility | Must be unique | Must stay aligned | Recommended value / note |
+| --- | --- | --- | --- | --- | --- |
+| `room-node` | `server/dist/index.js` | WebSocket, `/`, `/healthz`, `/readyz` | `INSTANCE_ID`, bind address / port | `REDIS_URL`, shared `*_PROVIDER` values, security and rate-limit settings | `GLOBAL_ADMIN_ENABLED=false` |
+| `global-admin` | `server/dist/global-admin-index.js` | `/admin`, `/api/admin/*` | `INSTANCE_ID`, `GLOBAL_ADMIN_PORT` | `REDIS_URL`, admin auth settings, shared provider settings | `GLOBAL_ADMIN_ENABLED=true` |
+| `edge` | `nginx` / `haproxy` / cloud LB | TLS termination, single public entrypoint, reverse proxy, connection distribution | public hostname, certificate, upstream definitions | backend node list | end users connect only to the edge URL |
+| `redis` | `redis-server` | shared persistence, runtime indexes, buses | instance address, password, ACL | every node must point to the same Redis | production should keep it private |
+
+#### Which settings must match and which must differ
+
+##### Shared across nodes
+
+Settings that should stay aligned across every room node and the global admin process:
+
+- `REDIS_URL`
+- `ROOM_STORE_PROVIDER=redis`
+- `ADMIN_SESSION_STORE_PROVIDER=redis`
+- `ADMIN_EVENT_STORE_PROVIDER=redis`
+- `ADMIN_AUDIT_STORE_PROVIDER=redis`
+- `RUNTIME_STORE_PROVIDER=redis`
+- `ROOM_EVENT_BUS_PROVIDER=redis`
+- `ADMIN_COMMAND_BUS_PROVIDER=redis`
+- `NODE_HEARTBEAT_ENABLED=true`
+- correctness-sensitive room, security, and rate-limit settings such as `MAX_MEMBERS_PER_ROOM`, `MAX_MESSAGE_BYTES`, and `ALLOWED_ORIGINS`
+- admin auth settings such as `ADMIN_USERNAME`, `ADMIN_PASSWORD_HASH`, and `ADMIN_SESSION_SECRET`
+
+##### Unique per node
+
+Settings that must differ per process or by role:
+
+- `INSTANCE_ID`: every process must use a unique value such as `room-node-a`, `room-node-b`, or `global-admin`
+- `PORT`: used by each room node
+- `GLOBAL_ADMIN_PORT`: used only by `global-admin`
+- `GLOBAL_ADMIN_ENABLED`: `false` on room nodes, `true` on the dedicated admin process
+- bind addresses, firewall rules, systemd unit names, and log paths
+
+#### Two-server deployment example
+
+If you currently have only two machines, a practical rollout looks like this:
+
+- server 1: `Nginx + Redis + room-node-a + global-admin`
+- server 2: `room-node-b`
+
+##### Port layout
+
+Suggested port layout:
+
+| Machine | Role | Suggested bind | Publicly exposed | Notes |
+| --- | --- | --- | --- | --- |
+| server 1 | `nginx` | `80/443` | yes | single public entrypoint |
+| server 1 | `room-node-a` | `127.0.0.1:8787` or private IP | no | proxied by the edge |
+| server 1 | `global-admin` | `127.0.0.1:8788` or private IP | no | proxied by the edge |
+| server 1 | `redis` | `127.0.0.1:6379` or private IP | no | allow only node access |
+| server 2 | `room-node-b` | private IP such as `10.0.0.12:8787` | no | proxied by server 1 edge |
+
+##### Environment examples
+
+Example room node environment on server 1:
+
+```bash
+BILI_SYNCPLAY_CONFIG=/etc/bili-syncplay/server.config.json \
+PORT=8787 \
+INSTANCE_ID=room-node-a \
+REDIS_URL=redis://10.0.0.11:6379 \
+ROOM_STORE_PROVIDER=redis \
+ADMIN_SESSION_STORE_PROVIDER=redis \
+ADMIN_EVENT_STORE_PROVIDER=redis \
+ADMIN_AUDIT_STORE_PROVIDER=redis \
+RUNTIME_STORE_PROVIDER=redis \
+ROOM_EVENT_BUS_PROVIDER=redis \
+ADMIN_COMMAND_BUS_PROVIDER=redis \
+NODE_HEARTBEAT_ENABLED=true \
+GLOBAL_ADMIN_ENABLED=false \
+node server/dist/index.js
+```
+
+Example room node environment on server 2:
+
+```bash
+BILI_SYNCPLAY_CONFIG=/etc/bili-syncplay/server.config.json \
+PORT=8787 \
+INSTANCE_ID=room-node-b \
+REDIS_URL=redis://10.0.0.11:6379 \
+ROOM_STORE_PROVIDER=redis \
+ADMIN_SESSION_STORE_PROVIDER=redis \
+ADMIN_EVENT_STORE_PROVIDER=redis \
+ADMIN_AUDIT_STORE_PROVIDER=redis \
+RUNTIME_STORE_PROVIDER=redis \
+ROOM_EVENT_BUS_PROVIDER=redis \
+ADMIN_COMMAND_BUS_PROVIDER=redis \
+NODE_HEARTBEAT_ENABLED=true \
+GLOBAL_ADMIN_ENABLED=false \
+node server/dist/index.js
+```
+
+Example global admin environment on server 1:
+
+```bash
+BILI_SYNCPLAY_CONFIG=/etc/bili-syncplay/server.config.json \
+GLOBAL_ADMIN_PORT=8788 \
+INSTANCE_ID=global-admin \
+REDIS_URL=redis://10.0.0.11:6379 \
+ROOM_STORE_PROVIDER=redis \
+ADMIN_SESSION_STORE_PROVIDER=redis \
+ADMIN_EVENT_STORE_PROVIDER=redis \
+ADMIN_AUDIT_STORE_PROVIDER=redis \
+RUNTIME_STORE_PROVIDER=redis \
+ROOM_EVENT_BUS_PROVIDER=redis \
+ADMIN_COMMAND_BUS_PROVIDER=redis \
+NODE_HEARTBEAT_ENABLED=true \
+GLOBAL_ADMIN_ENABLED=true \
+node server/dist/global-admin-index.js
+```
+
+##### Weighting advice
+
+If the edge machine also carries `room-node-a`, `global-admin`, and `redis`, it will usually absorb more network and CPU pressure than the other nodes. In that case, prefer `least_conn` at the edge and consider giving the remote room node a higher weight rather than splitting long-lived WebSocket traffic 1:1.
 
 Redis key families used by the multi-node control plane:
 
@@ -732,9 +882,15 @@ WorkingDirectory=/opt/bili-syncplay
 Environment=BILI_SYNCPLAY_CONFIG=/etc/bili-syncplay/server.config.json
 Environment=PORT=8787
 Environment=INSTANCE_ID=room-node-a
+Environment=REDIS_URL=redis://127.0.0.1:6379
+Environment=ROOM_STORE_PROVIDER=redis
 Environment=ADMIN_SESSION_STORE_PROVIDER=redis
 Environment=ADMIN_EVENT_STORE_PROVIDER=redis
 Environment=ADMIN_AUDIT_STORE_PROVIDER=redis
+Environment=RUNTIME_STORE_PROVIDER=redis
+Environment=ROOM_EVENT_BUS_PROVIDER=redis
+Environment=ADMIN_COMMAND_BUS_PROVIDER=redis
+Environment=NODE_HEARTBEAT_ENABLED=true
 Environment=GLOBAL_ADMIN_ENABLED=false
 Environment=ADMIN_USERNAME=admin
 Environment=ADMIN_PASSWORD_HASH=sha256:<hex-password-hash>
@@ -762,9 +918,15 @@ WorkingDirectory=/opt/bili-syncplay
 Environment=BILI_SYNCPLAY_CONFIG=/etc/bili-syncplay/server.config.json
 Environment=GLOBAL_ADMIN_PORT=8788
 Environment=INSTANCE_ID=global-admin
+Environment=REDIS_URL=redis://127.0.0.1:6379
+Environment=ROOM_STORE_PROVIDER=redis
 Environment=ADMIN_SESSION_STORE_PROVIDER=redis
 Environment=ADMIN_EVENT_STORE_PROVIDER=redis
 Environment=ADMIN_AUDIT_STORE_PROVIDER=redis
+Environment=RUNTIME_STORE_PROVIDER=redis
+Environment=ROOM_EVENT_BUS_PROVIDER=redis
+Environment=ADMIN_COMMAND_BUS_PROVIDER=redis
+Environment=NODE_HEARTBEAT_ENABLED=true
 Environment=GLOBAL_ADMIN_ENABLED=true
 Environment=ADMIN_USERNAME=admin
 Environment=ADMIN_PASSWORD_HASH=sha256:<hex-password-hash>
@@ -820,6 +982,13 @@ sudo journalctl -u bili-syncplay-global-admin -f
 
 ### 4. Put Nginx in front of the WebSocket server
 
+The following section starts with a single-node example, then shows a multi-node upstream example. Use the single-node example for local development or one-node production. Use the multi-node example once you enable the full shared Redis-backed topology.
+
+> Recommendation
+> WebSocket traffic is long-lived. For multi-node entrypoints, prefer `least_conn` first and plain round-robin second. Keep sticky only as an operational fallback during rollout, not as a correctness requirement.
+
+#### Single-node example
+
 Create `/etc/nginx/sites-available/bili-syncplay.conf`:
 
 ```nginx
@@ -870,6 +1039,74 @@ server {
 
 Keep the stricter request-rate limit on the default WebSocket entrypoint, but do not reuse it for `/admin` and `/api/admin/*`. The admin UI issues several parallel requests on load and during actions, and the server already enforces its own auth and room-level rate limits.
 
+#### Multi-node upstream example
+
+If the entrypoint machine should distribute WebSocket connections across multiple room nodes, switch to an upstream configuration. The example below uses `least_conn`, which is usually a better fit than plain round-robin for long-lived WebSocket connections:
+
+```nginx
+map $http_upgrade $connection_upgrade {
+    default upgrade;
+    ''      close;
+}
+
+limit_conn_zone $binary_remote_addr zone=conn_per_ip:10m;
+limit_req_zone $binary_remote_addr zone=req_per_ip:10m rate=20r/m;
+limit_req_zone $binary_remote_addr zone=admin_req_per_ip:10m rate=5r/s;
+
+upstream bili_syncplay_ws {
+    least_conn;
+    server 127.0.0.1:8787;
+    server 10.0.0.12:8787;
+}
+
+upstream bili_syncplay_admin {
+    server 127.0.0.1:8788;
+}
+
+server {
+    listen 80;
+    server_name sync.example.com;
+
+    location ^~ /admin {
+        proxy_pass http://bili_syncplay_admin;
+        proxy_http_version 1.1;
+        proxy_set_header Host $host;
+        proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
+        proxy_set_header X-Forwarded-Proto $scheme;
+    }
+
+    location ^~ /api/admin/ {
+        limit_req zone=admin_req_per_ip burst=20 nodelay;
+        proxy_pass http://bili_syncplay_admin;
+        proxy_http_version 1.1;
+        proxy_set_header Host $host;
+        proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
+        proxy_set_header X-Forwarded-Proto $scheme;
+    }
+
+    location / {
+        limit_conn conn_per_ip 10;
+        limit_req zone=req_per_ip burst=10 nodelay;
+        proxy_pass http://bili_syncplay_ws;
+        proxy_http_version 1.1;
+        proxy_set_header Host $host;
+        proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
+        proxy_set_header X-Forwarded-Proto $scheme;
+        proxy_set_header Upgrade $http_upgrade;
+        proxy_set_header Connection $connection_upgrade;
+        proxy_read_timeout 3600;
+    }
+}
+```
+
+In this topology:
+
+- end users connect only to `wss://sync.example.com`
+- the edge entrypoint chooses a room node for each new WebSocket connection
+- once established, a WebSocket connection stays on the selected node
+- the recommended production setup still keeps `/admin` and `/api/admin/*` on a dedicated `global-admin` process
+- when all Redis-backed sharing is enabled, room-state correctness no longer depends on sticky routing, though keeping a sticky fallback during initial rollout can still be useful operationally
+
 Enable the site and validate config:
 
 ```bash
@@ -916,22 +1153,41 @@ Room invites are now shared as `roomCode:joinToken`. The popup copy action copie
 
 ### 7. Deploy updates
 
-When you update the server code:
+When you update the server code, pull and rebuild from the application directory first:
 
 ```bash
 cd /opt/bili-syncplay
 git pull
 npm install
+npm run build
+```
+
+If you know only `server/` changed and `packages/protocol` is unchanged, you can rebuild only the server package:
+
+```bash
 npm run build -w @bili-syncplay/server
+```
+
+Single-node / single-process restart flow:
+
+```bash
 sudo systemctl restart bili-syncplay
 ```
 
-If the shared protocol package changed, rebuild both packages instead:
+Multi-node restart flow:
 
 ```bash
-npm run build -w @bili-syncplay/protocol
-npm run build -w @bili-syncplay/server
+sudo systemctl restart bili-syncplay-room-node-a
+sudo systemctl restart bili-syncplay-room-node-b
+sudo systemctl restart bili-syncplay-global-admin
 ```
+
+If you run multiple room nodes, prefer a rolling restart instead of restarting everything at once:
+
+1. restart one room node
+2. verify `GET /readyz`, logs, and the global admin overview recover cleanly
+3. continue with the next room node
+4. restart `global-admin` last
 
 ### 8. Operational notes
 

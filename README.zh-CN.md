@@ -136,6 +136,21 @@ Bili-SyncPlay/
 http://localhost:8787/admin
 ```
 
+这对应的是单进程本地开发模式，也就是管理面和 WebSocket 服务共用同一个 `npm run dev:server` 进程。
+
+如果你使用的是独立 Global Admin 进程，则入口通常会变成下面两种之一：
+
+```text
+http://localhost:8788/admin
+https://admin.example.com/admin
+```
+
+其中：
+
+- `http://localhost:8787/admin`：单进程开发或未拆分管理面的场景
+- `http://localhost:8788/admin`：本机直接启动 `server/dist/global-admin-index.js`
+- `https://admin.example.com/admin`：生产环境经反向代理后的统一管理面地址
+
 PowerShell 示例：
 
 ```powershell
@@ -451,12 +466,28 @@ npm run build:release
 
 现在服务端已经支持完整多节点拓扑，包括共享管理员会话、共享事件与审计流、共享运行时索引、跨节点房间状态广播、跨节点管理命令，以及独立的全局管理入口。
 
+#### 核心结论
+
+- 普通用户始终连接单一公共地址，例如 `wss://sync.example.com`
+- 入口层负责 TLS 终止、反向代理和连接分发
+- Room Node 负责承载 WebSocket 长连接和健康检查
+- Global Admin 负责 `/admin` 与 `/api/admin/*`
+- Redis 负责共享持久化、运行时索引、事件总线和命令总线
+
 推荐生产拓扑：
 
+- 统一入口层：`Nginx`、`HAProxy`、`SLB/ALB` 等，负责 TLS 终止和 WebSocket 反向代理
 - `room-node-a`：承载 WebSocket 房间流量和探活
 - `room-node-b`：承载 WebSocket 房间流量和探活
 - `global-admin`：承载 `/admin` 与 `/api/admin/*`
 - `redis`：共享持久化、运行时索引、事件总线和命令总线
+
+服务端不会在应用进程内实现 L4/L7 负载均衡；多节点部署需要依赖外部入口层，把用户连接统一接入后再转发到各个 Room Node。普通用户应始终连接单一公共地址，例如 `wss://sync.example.com`，而不是手动选择节点地址。
+
+> 提示
+> 如果你只是本地开发或单机部署，可以继续使用单节点模式。下面这部分主要面向生产多节点部署。
+
+#### 最小必配项
 
 完整多节点上线建议统一开启以下 provider：
 
@@ -496,6 +527,125 @@ node server/dist/global-admin-index.js
 ```
 
 如果管理 UI 需要请求一个独立 API 域名，可设置 `GLOBAL_ADMIN_API_BASE_URL=https://admin.example.com`。
+
+#### 节点角色配置矩阵
+
+| 角色 | 典型进程 | 对外职责 | 必须唯一 | 必须保持一致 | 推荐值 / 说明 |
+| --- | --- | --- | --- | --- | --- |
+| `room-node` | `server/dist/index.js` | WebSocket、`/`、`/healthz`、`/readyz` | `INSTANCE_ID`、监听地址/端口 | `REDIS_URL`、各类 `*_PROVIDER`、安全与限流参数 | `GLOBAL_ADMIN_ENABLED=false` |
+| `global-admin` | `server/dist/global-admin-index.js` | `/admin`、`/api/admin/*` | `INSTANCE_ID`、`GLOBAL_ADMIN_PORT` | `REDIS_URL`、管理员认证参数、共享 provider 配置 | `GLOBAL_ADMIN_ENABLED=true` |
+| `edge` | `nginx` / `haproxy` / 云 LB | TLS 终止、统一入口、反向代理、连接分发 | 对外域名、证书、upstream 定义 | 指向的后端节点列表 | 用户只连接统一入口地址 |
+| `redis` | `redis-server` | 共享持久化、运行时索引、总线 | 实例地址、密码、ACL | 所有节点都要指向同一个 Redis | 生产建议仅内网开放 |
+
+#### 哪些配置必须一致，哪些必须不同
+
+##### 所有节点保持一致
+
+所有 Room Node 与 Global Admin 都应保持一致的配置：
+
+- `REDIS_URL`
+- `ROOM_STORE_PROVIDER=redis`
+- `ADMIN_SESSION_STORE_PROVIDER=redis`
+- `ADMIN_EVENT_STORE_PROVIDER=redis`
+- `ADMIN_AUDIT_STORE_PROVIDER=redis`
+- `RUNTIME_STORE_PROVIDER=redis`
+- `ROOM_EVENT_BUS_PROVIDER=redis`
+- `ADMIN_COMMAND_BUS_PROVIDER=redis`
+- `NODE_HEARTBEAT_ENABLED=true`
+- 与业务正确性相关的限流、安全和房间容量参数，例如 `MAX_MEMBERS_PER_ROOM`、`MAX_MESSAGE_BYTES`、`ALLOWED_ORIGINS`
+- 管理员认证配置，例如 `ADMIN_USERNAME`、`ADMIN_PASSWORD_HASH`、`ADMIN_SESSION_SECRET`
+
+##### 每个节点保持唯一
+
+每个节点必须不同或按角色区分的配置：
+
+- `INSTANCE_ID`：每个进程都必须唯一，例如 `room-node-a`、`room-node-b`、`global-admin`
+- `PORT`：Room Node 自己监听的 HTTP/WebSocket 端口
+- `GLOBAL_ADMIN_PORT`：仅 `global-admin` 使用
+- `GLOBAL_ADMIN_ENABLED`：Room Node 设为 `false`，独立管理面设为 `true`
+- 监听地址、防火墙规则、systemd 服务名、日志路径
+
+#### 两机部署样例
+
+如果当前只有两台服务器，推荐先按下面的方式部署：
+
+- 服务器 1：`Nginx + Redis + room-node-a + global-admin`
+- 服务器 2：`room-node-b`
+
+##### 端口规划
+
+建议端口规划：
+
+| 机器 | 角色 | 建议监听 | 是否公网开放 | 说明 |
+| --- | --- | --- | --- | --- |
+| 服务器 1 | `nginx` | `80/443` | 是 | 用户统一入口 |
+| 服务器 1 | `room-node-a` | `127.0.0.1:8787` 或内网地址 | 否 | 由入口层反代 |
+| 服务器 1 | `global-admin` | `127.0.0.1:8788` 或内网地址 | 否 | 由入口层反代 |
+| 服务器 1 | `redis` | `127.0.0.1:6379` 或内网地址 | 否 | 只允许节点访问 |
+| 服务器 2 | `room-node-b` | `10.0.0.12:8787` 等内网地址 | 否 | 由服务器 1 的入口层反代 |
+
+##### 环境变量示意
+
+服务器 1 的 Room Node 环境变量示意：
+
+```bash
+BILI_SYNCPLAY_CONFIG=/etc/bili-syncplay/server.config.json \
+PORT=8787 \
+INSTANCE_ID=room-node-a \
+REDIS_URL=redis://10.0.0.11:6379 \
+ROOM_STORE_PROVIDER=redis \
+ADMIN_SESSION_STORE_PROVIDER=redis \
+ADMIN_EVENT_STORE_PROVIDER=redis \
+ADMIN_AUDIT_STORE_PROVIDER=redis \
+RUNTIME_STORE_PROVIDER=redis \
+ROOM_EVENT_BUS_PROVIDER=redis \
+ADMIN_COMMAND_BUS_PROVIDER=redis \
+NODE_HEARTBEAT_ENABLED=true \
+GLOBAL_ADMIN_ENABLED=false \
+node server/dist/index.js
+```
+
+服务器 2 的 Room Node 环境变量示意：
+
+```bash
+BILI_SYNCPLAY_CONFIG=/etc/bili-syncplay/server.config.json \
+PORT=8787 \
+INSTANCE_ID=room-node-b \
+REDIS_URL=redis://10.0.0.11:6379 \
+ROOM_STORE_PROVIDER=redis \
+ADMIN_SESSION_STORE_PROVIDER=redis \
+ADMIN_EVENT_STORE_PROVIDER=redis \
+ADMIN_AUDIT_STORE_PROVIDER=redis \
+RUNTIME_STORE_PROVIDER=redis \
+ROOM_EVENT_BUS_PROVIDER=redis \
+ADMIN_COMMAND_BUS_PROVIDER=redis \
+NODE_HEARTBEAT_ENABLED=true \
+GLOBAL_ADMIN_ENABLED=false \
+node server/dist/index.js
+```
+
+服务器 1 的 Global Admin 环境变量示意：
+
+```bash
+BILI_SYNCPLAY_CONFIG=/etc/bili-syncplay/server.config.json \
+GLOBAL_ADMIN_PORT=8788 \
+INSTANCE_ID=global-admin \
+REDIS_URL=redis://10.0.0.11:6379 \
+ROOM_STORE_PROVIDER=redis \
+ADMIN_SESSION_STORE_PROVIDER=redis \
+ADMIN_EVENT_STORE_PROVIDER=redis \
+ADMIN_AUDIT_STORE_PROVIDER=redis \
+RUNTIME_STORE_PROVIDER=redis \
+ROOM_EVENT_BUS_PROVIDER=redis \
+ADMIN_COMMAND_BUS_PROVIDER=redis \
+NODE_HEARTBEAT_ENABLED=true \
+GLOBAL_ADMIN_ENABLED=true \
+node server/dist/global-admin-index.js
+```
+
+##### 权重建议
+
+如果入口机同时承载 `room-node-a`、`global-admin` 和 `redis`，它通常会比其他节点承担更多网络和 CPU 压力。此时建议在入口层给远端 Room Node 更高权重，或者至少使用 `least_conn`，不要按 1:1 平均分配长连接。
 
 多节点控制面当前使用的 Redis 键族：
 
@@ -732,9 +882,15 @@ WorkingDirectory=/opt/bili-syncplay
 Environment=BILI_SYNCPLAY_CONFIG=/etc/bili-syncplay/server.config.json
 Environment=PORT=8787
 Environment=INSTANCE_ID=room-node-a
+Environment=REDIS_URL=redis://127.0.0.1:6379
+Environment=ROOM_STORE_PROVIDER=redis
 Environment=ADMIN_SESSION_STORE_PROVIDER=redis
 Environment=ADMIN_EVENT_STORE_PROVIDER=redis
 Environment=ADMIN_AUDIT_STORE_PROVIDER=redis
+Environment=RUNTIME_STORE_PROVIDER=redis
+Environment=ROOM_EVENT_BUS_PROVIDER=redis
+Environment=ADMIN_COMMAND_BUS_PROVIDER=redis
+Environment=NODE_HEARTBEAT_ENABLED=true
 Environment=GLOBAL_ADMIN_ENABLED=false
 Environment=ADMIN_USERNAME=admin
 Environment=ADMIN_PASSWORD_HASH=sha256:<hex-password-hash>
@@ -762,9 +918,15 @@ WorkingDirectory=/opt/bili-syncplay
 Environment=BILI_SYNCPLAY_CONFIG=/etc/bili-syncplay/server.config.json
 Environment=GLOBAL_ADMIN_PORT=8788
 Environment=INSTANCE_ID=global-admin
+Environment=REDIS_URL=redis://127.0.0.1:6379
+Environment=ROOM_STORE_PROVIDER=redis
 Environment=ADMIN_SESSION_STORE_PROVIDER=redis
 Environment=ADMIN_EVENT_STORE_PROVIDER=redis
 Environment=ADMIN_AUDIT_STORE_PROVIDER=redis
+Environment=RUNTIME_STORE_PROVIDER=redis
+Environment=ROOM_EVENT_BUS_PROVIDER=redis
+Environment=ADMIN_COMMAND_BUS_PROVIDER=redis
+Environment=NODE_HEARTBEAT_ENABLED=true
 Environment=GLOBAL_ADMIN_ENABLED=true
 Environment=ADMIN_USERNAME=admin
 Environment=ADMIN_PASSWORD_HASH=sha256:<hex-password-hash>
@@ -820,6 +982,13 @@ sudo journalctl -u bili-syncplay-global-admin -f
 
 ### 4. 在 WebSocket 服务器前配置 Nginx
 
+下面先给出单机部署示例，再给出多节点 upstream 示例。单机示例适合本地或单节点生产；如果你已经启用完整多节点拓扑，应优先使用多节点示例。
+
+> 建议
+> WebSocket 是长连接场景。多节点入口优先考虑 `least_conn`，其次再考虑默认轮询；只有在上线初期需要运维兜底时再额外保留 sticky。
+
+#### 单机 / 单节点示例
+
 创建 `/etc/nginx/sites-available/bili-syncplay.conf`：
 
 ```nginx
@@ -870,6 +1039,74 @@ server {
 
 建议把更严格的请求频率限制保留在默认的 WebSocket 入口上，不要直接复用到 `/admin` 和 `/api/admin/*`。管理后台在首屏加载和执行操作时会并发请求多个接口，而服务端本身已经对认证和房间相关操作做了限流控制。
 
+#### 多节点 upstream 示例
+
+如果入口机需要把 WebSocket 连接分发到多个 Room Node，可改成 upstream。下面示例使用 `least_conn`，对长连接场景通常比默认轮询更稳妥：
+
+```nginx
+map $http_upgrade $connection_upgrade {
+    default upgrade;
+    ''      close;
+}
+
+limit_conn_zone $binary_remote_addr zone=conn_per_ip:10m;
+limit_req_zone $binary_remote_addr zone=req_per_ip:10m rate=20r/m;
+limit_req_zone $binary_remote_addr zone=admin_req_per_ip:10m rate=5r/s;
+
+upstream bili_syncplay_ws {
+    least_conn;
+    server 127.0.0.1:8787;
+    server 10.0.0.12:8787;
+}
+
+upstream bili_syncplay_admin {
+    server 127.0.0.1:8788;
+}
+
+server {
+    listen 80;
+    server_name sync.example.com;
+
+    location ^~ /admin {
+        proxy_pass http://bili_syncplay_admin;
+        proxy_http_version 1.1;
+        proxy_set_header Host $host;
+        proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
+        proxy_set_header X-Forwarded-Proto $scheme;
+    }
+
+    location ^~ /api/admin/ {
+        limit_req zone=admin_req_per_ip burst=20 nodelay;
+        proxy_pass http://bili_syncplay_admin;
+        proxy_http_version 1.1;
+        proxy_set_header Host $host;
+        proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
+        proxy_set_header X-Forwarded-Proto $scheme;
+    }
+
+    location / {
+        limit_conn conn_per_ip 10;
+        limit_req zone=req_per_ip burst=10 nodelay;
+        proxy_pass http://bili_syncplay_ws;
+        proxy_http_version 1.1;
+        proxy_set_header Host $host;
+        proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
+        proxy_set_header X-Forwarded-Proto $scheme;
+        proxy_set_header Upgrade $http_upgrade;
+        proxy_set_header Connection $connection_upgrade;
+        proxy_read_timeout 3600;
+    }
+}
+```
+
+在这个拓扑里：
+
+- 普通用户只连接 `wss://sync.example.com`
+- 入口层负责把新建 WebSocket 连接分发到某个 Room Node
+- 现有长连接一旦建立，就固定驻留在被选中的节点上
+- 全局管理面建议继续收敛到独立的 `global-admin` 进程
+- 当所有 Redis 共享能力都已开启时，正确性上不再依赖 sticky 路由；但上线初期仍可保留 sticky 作为运维兜底开关
+
 启用站点并校验配置：
 
 ```bash
@@ -916,22 +1153,41 @@ ws://localhost:8787
 
 ### 7. 部署更新
 
-当你更新服务器代码时：
+当你更新服务器代码时，先在应用目录里拉取并重新构建：
 
 ```bash
 cd /opt/bili-syncplay
 git pull
 npm install
+npm run build
+```
+
+如果你确认只有 `server/` 发生变化，且 `packages/protocol` 没有变化，也可以只构建服务端：
+
+```bash
 npm run build -w @bili-syncplay/server
+```
+
+单机 / 单进程部署重启方式：
+
+```bash
 sudo systemctl restart bili-syncplay
 ```
 
-如果共享协议包也发生变化，则改为同时构建两个包：
+多节点部署重启方式：
 
 ```bash
-npm run build -w @bili-syncplay/protocol
-npm run build -w @bili-syncplay/server
+sudo systemctl restart bili-syncplay-room-node-a
+sudo systemctl restart bili-syncplay-room-node-b
+sudo systemctl restart bili-syncplay-global-admin
 ```
+
+如果有多台 Room Node，建议滚动重启，而不是一次性全部重启：
+
+1. 先重启一个 Room Node
+2. 观察 `GET /readyz`、日志和全局管理面是否恢复正常
+3. 再继续重启下一个 Room Node
+4. 最后重启 `global-admin`
 
 ### 8. 运维说明
 
