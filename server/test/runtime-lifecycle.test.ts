@@ -174,3 +174,87 @@ test("websocket lifecycle mirrors sessions into the shared redis runtime store",
     await serverB.close();
   }
 });
+
+test("profile updates are reflected in redis-backed room state views", async (t) => {
+  if (!REDIS_URL) {
+    t.skip("REDIS_URL is not configured.");
+    return;
+  }
+
+  const serverA = await startRedisServer();
+  const serverB = await startRedisServer();
+  const runtimeStore = await createRedisRuntimeStore(REDIS_URL);
+  const roomStore = await createRedisRoomStore(REDIS_URL);
+  let roomCode = "";
+
+  try {
+    const owner = await connectClient(serverA.wsUrl);
+    const ownerCollector = createMessageCollector(owner);
+    const joiner = await connectClient(serverB.wsUrl);
+    const joinerCollector = createMessageCollector(joiner);
+
+    try {
+      owner.send(
+        JSON.stringify({
+          type: "room:create",
+          payload: { displayName: "Guest-123" },
+        }),
+      );
+      const created = await ownerCollector.next("room:created");
+      roomCode = (created.payload as { roomCode: string }).roomCode;
+      const joinToken = (created.payload as { joinToken: string }).joinToken;
+      await ownerCollector.next("room:state");
+
+      joiner.send(
+        JSON.stringify({
+          type: "room:join",
+          payload: {
+            roomCode,
+            joinToken,
+            displayName: "Bob",
+          },
+        }),
+      );
+      await joinerCollector.next("room:joined");
+      await joinerCollector.next("room:state");
+      await ownerCollector.next("room:state");
+
+      owner.send(
+        JSON.stringify({
+          type: "profile:update",
+          payload: {
+            memberToken: (created.payload as { memberToken: string }).memberToken,
+            displayName: "Alice",
+          },
+        }),
+      );
+
+      const ownerState = await ownerCollector.next("room:state");
+      const joinerState = await joinerCollector.next("room:state");
+      assert.deepEqual(
+        (ownerState.payload as { members: Array<{ name: string }> }).members.map(
+          (member) => member.name,
+        ),
+        ["Alice", "Bob"],
+      );
+      assert.deepEqual(
+        (joinerState.payload as { members: Array<{ name: string }> }).members.map(
+          (member) => member.name,
+        ),
+        ["Alice", "Bob"],
+      );
+    } finally {
+      await closeClient(owner);
+      await closeClient(joiner);
+    }
+  } finally {
+    if (roomCode) {
+      await roomStore.deleteRoom(roomCode);
+      await runtimeStore.deleteRoom(roomCode);
+    }
+    await roomStore.close();
+    await runtimeStore.close();
+    await serverA.close();
+    await serverB.close();
+  }
+});

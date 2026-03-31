@@ -151,7 +151,13 @@ export function createRoomService(options: {
       ));
 
   function setSessionDisplayName(session: Session, displayName?: string): void {
-    session.displayName = displayName?.trim() || session.displayName;
+    const nextDisplayName = displayName?.trim();
+    if (!nextDisplayName || nextDisplayName === session.displayName) {
+      return;
+    }
+
+    session.displayName = nextDisplayName;
+    runtimeStore.registerSession?.(session);
   }
 
   function clearSessionRoom(session: Session): void {

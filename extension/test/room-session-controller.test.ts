@@ -228,3 +228,55 @@ test("room session controller confirms pending local share and notifies content 
   );
   assert.equal(harness.notifyAllCalls, 1);
 });
+
+test("room session controller syncs display name after room creation completes", async () => {
+  const harness = createControllerHarness();
+  harness.runtimeState.connection.connected = true;
+  harness.runtimeState.room.displayName = "Alice";
+
+  await harness.controller.handleServerMessage({
+    type: "room:created",
+    payload: {
+      roomCode: "ROOM04",
+      joinToken: "join-token-4",
+      memberToken: "member-token-4",
+      memberId: "member-4",
+    },
+  } satisfies ServerMessage);
+
+  assert.deepEqual(harness.sendToServerCalls, [
+    {
+      type: "profile:update",
+      payload: {
+        memberToken: "member-token-4",
+        displayName: "Alice",
+      },
+    },
+  ]);
+});
+
+test("room session controller syncs display name after room join completes", async () => {
+  const harness = createControllerHarness();
+  harness.runtimeState.connection.connected = true;
+  harness.runtimeState.room.displayName = "Alice";
+  harness.runtimeState.room.pendingJoinToken = "join-token-5";
+
+  await harness.controller.handleServerMessage({
+    type: "room:joined",
+    payload: {
+      roomCode: "ROOM05",
+      memberToken: "member-token-5",
+      memberId: "member-5",
+    },
+  } satisfies ServerMessage);
+
+  assert.deepEqual(harness.sendToServerCalls, [
+    {
+      type: "profile:update",
+      payload: {
+        memberToken: "member-token-5",
+        displayName: "Alice",
+      },
+    },
+  ]);
+});

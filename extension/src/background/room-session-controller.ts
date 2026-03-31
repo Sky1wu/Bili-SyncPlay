@@ -67,6 +67,24 @@ export function createRoomSessionController(args: {
   let pendingJoinAttemptResolvers: Array<(result: JoinAttemptResult) => void> =
     [];
 
+  function syncProfileAfterRoomEstablished(): void {
+    if (
+      !args.connectionState.connected ||
+      !args.roomSessionState.memberToken ||
+      !args.roomSessionState.displayName
+    ) {
+      return;
+    }
+
+    args.sendToServer({
+      type: "profile:update",
+      payload: {
+        memberToken: args.roomSessionState.memberToken,
+        displayName: args.roomSessionState.displayName,
+      },
+    });
+  }
+
   function sendJoinRequest(
     targetRoomCode: string,
     targetJoinToken: string,
@@ -127,6 +145,7 @@ export function createRoomSessionController(args: {
         args.roomSessionState.memberToken = message.payload.memberToken;
         args.roomSessionState.memberId = message.payload.memberId;
         args.connectionState.lastError = null;
+        syncProfileAfterRoomEstablished();
         await args.persistState();
         args.flushPendingShare();
         args.notifyAll();
@@ -143,6 +162,7 @@ export function createRoomSessionController(args: {
         args.roomSessionState.pendingJoinToken = null;
         args.connectionState.lastError = null;
         settlePendingJoinAttempt("joined");
+        syncProfileAfterRoomEstablished();
         await args.persistState();
         args.flushPendingShare();
         args.notifyAll();

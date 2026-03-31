@@ -100,3 +100,39 @@ test("redis runtime store shares room sessions and member token state across ins
     await storeB.close();
   }
 });
+
+test("redis runtime store updates session display names when the session is re-registered", async (t) => {
+  if (!REDIS_URL) {
+    t.skip("REDIS_URL is not configured.");
+    return;
+  }
+
+  const keyPrefix = createKeyPrefix();
+  const storeA = await createRedisRuntimeStore(REDIS_URL, {
+    keyPrefix,
+  });
+  const storeB = await createRedisRuntimeStore(REDIS_URL, {
+    keyPrefix,
+  });
+  const session = createSession("session-display");
+
+  try {
+    storeA.registerSession(session);
+    storeA.markSessionJoinedRoom(session.id, "ROOM02");
+    session.memberId = "member-display";
+    session.memberToken = "token-display";
+    storeA.addMember("ROOM02", session.memberId, session, session.memberToken);
+    await new Promise((resolve) => setTimeout(resolve, 25));
+
+    session.displayName = "Alice";
+    storeA.registerSession(session);
+    await new Promise((resolve) => setTimeout(resolve, 25));
+
+    const room = await storeB.getRoom("ROOM02");
+    assert.ok(room);
+    assert.equal(room.members.get("member-display")?.displayName, "Alice");
+  } finally {
+    await storeA.close();
+    await storeB.close();
+  }
+});
