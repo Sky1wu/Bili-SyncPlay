@@ -624,6 +624,7 @@ export function createRoomService(options: {
             ? {
                 ...playback,
                 url: video.url,
+                syncIntent: undefined,
                 actorId: session.memberId ?? session.id,
                 serverTime: currentTime,
               }

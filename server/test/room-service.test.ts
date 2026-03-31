@@ -101,6 +101,51 @@ test("room service keeps empty rooms for TTL and allows rejoin before expiry", a
   assert.ok(joiner.memberToken);
 });
 
+test("room service clears sync intent when sharing a new video with playback", async () => {
+  const currentTime = 1_000;
+  const roomStore = createInMemoryRoomStore({ now: () => currentTime });
+  const service = createRoomService({
+    config: getDefaultSecurityConfig(),
+    persistence: getDefaultPersistenceConfig(),
+    roomStore,
+    activeRooms: createActiveRoomRegistry(),
+    generateToken: (() => {
+      let id = 0;
+      return () => `token-${++id}`.padEnd(16, "x");
+    })(),
+    logEvent: (() => undefined) satisfies LogEvent,
+    now: () => currentTime,
+    createRoomCode: () => "ROOM01A",
+  });
+
+  const owner = createSession("owner");
+  const created = await service.createRoomForSession(owner, "Alice");
+  await service.shareVideoForSession(
+    owner,
+    created.memberToken,
+    createSharedVideo("https://www.bilibili.com/video/BV199W9zEEcH"),
+    createPlayback(owner.memberId ?? owner.id, {
+      url: "https://www.bilibili.com/video/BV1xx411c7mD?p=1",
+      currentTime: 95,
+      playState: "playing",
+      playbackRate: 1.08,
+      syncIntent: "explicit-seek",
+    }),
+  );
+
+  const roomState = await service.getRoomStateForSession(
+    owner,
+    created.memberToken,
+    "sync:request",
+  );
+
+  assert.equal(
+    roomState.playback?.url,
+    "https://www.bilibili.com/video/BV199W9zEEcH",
+  );
+  assert.equal(roomState.playback?.syncIntent, undefined);
+});
+
 test("room service rejects expired rooms and old member tokens after restart semantics", async () => {
   let currentTime = 1_000;
   const roomStore = createInMemoryRoomStore({ now: () => currentTime });

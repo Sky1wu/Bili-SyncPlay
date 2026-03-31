@@ -20,6 +20,18 @@ export interface ShareController {
   refreshFestivalSnapshot(maxAgeMs?: number): Promise<SharedVideo | null>;
 }
 
+export function shouldIncludePlaybackInSharePayload(args: {
+  activeRoomCode: string | null;
+  activeSharedUrl: string | null;
+  nextSharedUrl: string;
+}): boolean {
+  if (!args.activeRoomCode || !args.activeSharedUrl) {
+    return true;
+  }
+
+  return args.activeSharedUrl === args.nextSharedUrl;
+}
+
 export function createShareController(args: {
   runtimeState: ContentRuntimeState;
   festivalSnapshotTtlMs: number;
@@ -55,6 +67,21 @@ export function createShareController(args: {
     video: SharedVideo;
     playback: PlaybackState | null;
   } {
+    const shouldIncludePlayback = shouldIncludePlaybackInSharePayload({
+      activeRoomCode: args.runtimeState.activeRoomCode,
+      activeSharedUrl: args.runtimeState.activeSharedUrl,
+      nextSharedUrl: sharedVideo.url,
+    });
+    if (!shouldIncludePlayback) {
+      args.debugLog(
+        `Omitted playback snapshot while switching shared video to ${sharedVideo.url}`,
+      );
+      return {
+        video: sharedVideo,
+        playback: null,
+      };
+    }
+
     const video = getVideoElement();
     return createPageSharePayload({
       sharedVideo,

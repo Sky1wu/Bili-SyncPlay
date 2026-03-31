@@ -720,6 +720,68 @@ test("applies shared video playback atomically when video:share includes playbac
   }
 });
 
+test("sanitizes carried playback intent when sharing a different video over websocket", async () => {
+  const server = await startTestServer();
+
+  try {
+    const owner = await connectClient(server.url);
+    const collector = createMessageCollector(owner);
+    try {
+      owner.send(
+        JSON.stringify({
+          type: "room:create",
+          payload: { displayName: "Alice" },
+        }),
+      );
+      const created = await collector.next("room:created");
+      await collector.next("room:state");
+
+      owner.send(
+        JSON.stringify({
+          type: "video:share",
+          payload: {
+            memberToken: created.payload.memberToken,
+            video: {
+              videoId: "BV199W9zEEcH",
+              url: "https://www.bilibili.com/video/BV199W9zEEcH",
+              title: "New Video",
+            },
+            playback: {
+              url: "https://www.bilibili.com/video/BV1xx411c7mD?p=2",
+              currentTime: 95.03,
+              playState: "playing",
+              playbackRate: 1.08,
+              updatedAt: Date.now(),
+              serverTime: 0,
+              actorId: created.payload.memberId,
+              seq: 8,
+              syncIntent: "explicit-seek",
+            },
+          },
+        }),
+      );
+
+      const sharedState = await collector.next("room:state");
+
+      assert.equal(
+        sharedState.payload.sharedVideo?.url,
+        "https://www.bilibili.com/video/BV199W9zEEcH",
+      );
+      assert.equal(
+        sharedState.payload.playback?.url,
+        "https://www.bilibili.com/video/BV199W9zEEcH",
+      );
+      assert.equal(sharedState.payload.playback?.currentTime, 95.03);
+      assert.equal(sharedState.payload.playback?.playbackRate, 1.08);
+      assert.equal(sharedState.payload.playback?.syncIntent, undefined);
+    } finally {
+      await closeClient(owner);
+    }
+  } finally {
+    await server.close();
+  }
+});
+
 test("rate limits sync:ping bursts by dropping extra requests", async () => {
   const server = await startTestServer({
     security: {
