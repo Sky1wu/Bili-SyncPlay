@@ -19,7 +19,6 @@ import {
 import { decidePlaybackAcceptance } from "./playback-authority.js";
 import {
   createRoomCode,
-  formatRoomMembersForDebug,
   roomStateFromSessions,
   roomStateOf,
   type RoomStore,
@@ -808,21 +807,8 @@ export function createRoomService(options: {
         memberToken,
         "profile:update",
       );
-      const previousDisplayName = session.displayName;
       setSessionDisplayName(session, displayName);
       await runtimeStore.flush?.();
-      const sessions = await runtimeStore.listClusterSessionsByRoom(
-        access.persistedRoom.code,
-      );
-      logEvent("profile_update_debug", {
-        roomCode: access.persistedRoom.code,
-        sessionId: session.id,
-        memberId: session.memberId,
-        previousDisplayName,
-        nextDisplayName: session.displayName,
-        members: formatRoomMembersForDebug(sessions),
-        result: "ok",
-      });
       return { room: access.persistedRoom };
     },
 
@@ -859,15 +845,10 @@ export function createRoomService(options: {
       if (!room) {
         return null;
       }
-      const sessions = await runtimeStore.listClusterSessionsByRoom(roomCode);
-      const state = roomStateFromSessions(room, sessions);
-      logEvent("room_state_view_debug", {
-        roomCode,
-        members: formatRoomMembersForDebug(sessions),
-        memberCount: state.members.length,
-        result: "ok",
-      });
-      return state;
+      return roomStateFromSessions(
+        room,
+        await runtimeStore.listClusterSessionsByRoom(roomCode),
+      );
     },
 
     async deleteExpiredRooms(currentTime = now()) {
