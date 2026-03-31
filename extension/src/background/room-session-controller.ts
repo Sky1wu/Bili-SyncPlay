@@ -222,6 +222,14 @@ export function createRoomSessionController(args: {
   }
 
   async function handleRoomStateMessage(nextState: RoomState): Promise<void> {
+    args.log(
+      "background",
+      `Incoming room members ${nextState.roomCode}: ${
+        nextState.members
+          .map((member) => `${member.id}:${member.name}`)
+          .join(", ") || "none"
+      }`,
+    );
     args.expirePendingLocalShareIfNeeded();
     const decision = decideIncomingRoomState({
       currentRoomState: args.roomSessionState.roomState,

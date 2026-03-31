@@ -221,3 +221,18 @@ export function roomStateFromSessions(
     members: Array.from(members.values()),
   };
 }
+
+export function formatRoomMembersForDebug(
+  sessions: Array<{
+    id: string;
+    memberId: string | null;
+    displayName: string;
+  }>,
+): string {
+  return sessions
+    .map((session) => {
+      const memberId = session.memberId ?? session.id;
+      return `${memberId}:${session.displayName}(session=${session.id})`;
+    })
+    .join(", ");
+}
