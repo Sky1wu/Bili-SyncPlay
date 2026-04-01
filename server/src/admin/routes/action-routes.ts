@@ -112,12 +112,7 @@ export const handleActionRoutes: AdminRouteHandler = async ({
     const body = await readJsonBody<{ reason?: string }>(request);
     sendOk(
       response,
-      await options.kickMember(
-        session,
-        roomCode,
-        memberId,
-        body.reason,
-      ),
+      await options.kickMember(session, roomCode, memberId, body.reason),
     );
     return true;
   }
