@@ -18,6 +18,7 @@
     "test": "npm run --ignore-scripts test -w @bili-syncplay/protocol && npm run --ignore-scripts test -w @bili-syncplay/server && npm run --ignore-scripts test -w @bili-syncplay/extension",
     "coverage": "npm run --ignore-scripts coverage -w @bili-syncplay/protocol && npm run --ignore-scripts coverage -w @bili-syncplay/server && npm run --ignore-scripts coverage -w @bili-syncplay/extension",
     "audit": "npm audit",
+    "test:e2e:smoke:plan": "node scripts/e2e-smoke-plan.mjs",
     "test:server:redis": "npm run --ignore-scripts test:redis -w @bili-syncplay/server",
     "dev:server": "npm run dev -w @bili-syncplay/server",
     "build:extension": "npm run build -w @bili-syncplay/extension",
