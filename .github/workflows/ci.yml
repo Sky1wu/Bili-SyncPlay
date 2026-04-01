@@ -39,3 +39,7 @@ jobs:
 
       - name: Report coverage
         run: npm run coverage
+
+      - name: Report dependency audit
+        run: npm run audit
+        continue-on-error: true
