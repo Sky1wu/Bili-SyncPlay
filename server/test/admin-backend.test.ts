@@ -511,6 +511,59 @@ test("admin login rejects invalid credentials", async () => {
   }
 });
 
+test("admin auth routes reject oversized credentials and tokens", async () => {
+  const server = await startAdminServer();
+
+  try {
+    const longUsername = await requestJson(
+      server.httpBaseUrl,
+      "/api/admin/auth/login",
+      {
+        method: "POST",
+        body: { username: "a".repeat(129), password: "secret-123" },
+      },
+    );
+    assert.equal(longUsername.status, 400);
+    assert.deepEqual(longUsername.body.error, {
+      code: "input_too_long",
+      message: "username is too long.",
+      details: { name: "username", maxLength: 128 },
+    });
+
+    const longPassword = await requestJson(
+      server.httpBaseUrl,
+      "/api/admin/auth/login",
+      {
+        method: "POST",
+        body: { username: "admin", password: "p".repeat(513) },
+      },
+    );
+    assert.equal(longPassword.status, 400);
+    assert.deepEqual(longPassword.body.error, {
+      code: "input_too_long",
+      message: "password is too long.",
+      details: { name: "password", maxLength: 512 },
+    });
+
+    const logout = await requestJson(
+      server.httpBaseUrl,
+      "/api/admin/auth/logout",
+      {
+        method: "POST",
+        token: "t".repeat(1025),
+      },
+    );
+    assert.equal(logout.status, 400);
+    assert.deepEqual(logout.body.error, {
+      code: "input_too_long",
+      message: "token is too long.",
+      details: { name: "token", maxLength: 1024 },
+    });
+  } finally {
+    await server.close();
+  }
+});
+
 test("admin action routes reject invalid path params with 400", async () => {
   const server = await startAdminServer();
 

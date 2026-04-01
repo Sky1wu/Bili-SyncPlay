@@ -6,6 +6,11 @@ import {
 import { getBearerToken, readJsonBody } from "../request.js";
 import { sendError, sendOk } from "../response.js";
 import type { AdminRouteHandler } from "../router-types.js";
+import { assertMaxLength } from "./validation.js";
+
+const MAX_ADMIN_USERNAME_LENGTH = 128;
+const MAX_ADMIN_PASSWORD_LENGTH = 512;
+const MAX_ADMIN_TOKEN_LENGTH = 1024;
 
 export const handleAuthRoutes: AdminRouteHandler = async ({
   request,
@@ -28,8 +33,16 @@ export const handleAuthRoutes: AdminRouteHandler = async ({
       username?: string;
       password?: string;
     }>(request);
-    const username = body.username?.trim() ?? "";
-    const password = body.password ?? "";
+    const username = assertMaxLength(
+      body.username?.trim() ?? "",
+      MAX_ADMIN_USERNAME_LENGTH,
+      "username",
+    );
+    const password = assertMaxLength(
+      body.password ?? "",
+      MAX_ADMIN_PASSWORD_LENGTH,
+      "password",
+    );
     try {
       const result = await options.authService.login(username, password);
       sendOk(response, {
@@ -54,6 +67,9 @@ export const handleAuthRoutes: AdminRouteHandler = async ({
 
   if (request.method === "POST" && pathname === "/api/admin/auth/logout") {
     const token = getBearerToken(request);
+    if (token) {
+      assertMaxLength(token, MAX_ADMIN_TOKEN_LENGTH, "token");
+    }
     if (!token || !options.authService) {
       sendError(response, 401, "unauthorized", UNAUTHORIZED_MESSAGE);
       return true;
