@@ -6,6 +6,14 @@ import {
 } from "./rate-limit.js";
 import type { SecurityConfig, UpgradeDecision } from "./types.js";
 
+type AttemptWindowEntry = {
+  counter: ReturnType<typeof createWindowCounter>;
+  lastSeenAt: number;
+};
+
+const ATTEMPT_WINDOW_TTL_MS = 10 * WINDOW_MINUTE_MS;
+const ATTEMPT_WINDOW_SWEEP_INTERVAL = 64;
+
 export function createSecurityPolicy(config: SecurityConfig): {
   evaluateUpgrade: (request: IncomingMessage) => UpgradeDecision;
   incrementConnectionCount: (remoteAddress: string | null) => void;
@@ -15,11 +23,9 @@ export function createSecurityPolicy(config: SecurityConfig): {
     origin: string | null,
   ) => { ok: true } | { ok: false; reason: string };
 } {
-  const ipAttemptWindows = new Map<
-    string,
-    ReturnType<typeof createWindowCounter>
-  >();
+  const ipAttemptWindows = new Map<string, AttemptWindowEntry>();
   const ipConnectionCounts = new Map<string, number>();
+  let evaluateCount = 0;
 
   function getRemoteAddress(request: IncomingMessage): string | null {
     const forwarded = request.headers["x-forwarded-for"];
@@ -73,20 +79,52 @@ export function createSecurityPolicy(config: SecurityConfig): {
     ipConnectionCounts.set(remoteAddress, nextValue);
   }
 
+  function getAttemptWindow(ipKey: string, currentTime: number) {
+    const existing = ipAttemptWindows.get(ipKey);
+    if (existing) {
+      existing.lastSeenAt = currentTime;
+      return existing.counter;
+    }
+
+    const entry: AttemptWindowEntry = {
+      counter: createWindowCounter(currentTime),
+      lastSeenAt: currentTime,
+    };
+    ipAttemptWindows.set(ipKey, entry);
+    return entry.counter;
+  }
+
+  function maybeSweepAttemptWindows(currentTime: number): void {
+    evaluateCount += 1;
+    if (evaluateCount % ATTEMPT_WINDOW_SWEEP_INTERVAL !== 0) {
+      return;
+    }
+
+    for (const [ipKey, entry] of ipAttemptWindows) {
+      if (
+        currentTime - entry.lastSeenAt >= ATTEMPT_WINDOW_TTL_MS &&
+        (ipConnectionCounts.get(ipKey) ?? 0) <= 0
+      ) {
+        ipAttemptWindows.delete(ipKey);
+      }
+    }
+  }
+
   function evaluateUpgrade(request: IncomingMessage): UpgradeDecision {
+    const currentTime = Date.now();
     const originHeader = request.headers.origin;
     const origin = typeof originHeader === "string" ? originHeader : null;
     const remoteAddress = getRemoteAddress(request);
     const context = { remoteAddress, origin };
     const ipKey = remoteAddress ?? "unknown";
-    const attemptWindow = ipAttemptWindows.get(ipKey) ?? createWindowCounter();
-    ipAttemptWindows.set(ipKey, attemptWindow);
+    const attemptWindow = getAttemptWindow(ipKey, currentTime);
+    maybeSweepAttemptWindows(currentTime);
     if (
       !consumeFixedWindow(
         attemptWindow,
         config.connectionAttemptsPerMinute,
         WINDOW_MINUTE_MS,
-        Date.now(),
+        currentTime,
       )
     ) {
       return {

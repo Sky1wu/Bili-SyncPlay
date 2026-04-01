@@ -24,6 +24,20 @@ function createRequest(
   } as IncomingMessage;
 }
 
+async function withMockedNow<T>(
+  nowValues: number[],
+  run: () => T | Promise<T>,
+): Promise<T> {
+  const originalNow = Date.now;
+  let index = 0;
+  Date.now = () => nowValues[Math.min(index++, nowValues.length - 1)] ?? 0;
+  try {
+    return await run();
+  } finally {
+    Date.now = originalNow;
+  }
+}
+
 test("security policy allows configured origins and rejects missing origins by default", () => {
   const config = getDefaultSecurityConfig();
   config.allowedOrigins = ["chrome-extension://allowed-extension"];
@@ -141,4 +155,41 @@ test("security policy counts missing origin requests toward the attempt window",
     throw new Error("Expected missing origin to be rate limited.");
   }
   assert.equal(secondDecision.reason, "connection_attempt_rate_limited");
+});
+
+test("security policy lazily removes stale attempt windows after the TTL elapses", async () => {
+  await withMockedNow(
+    [
+      0,
+      ...Array.from({ length: 62 }, (_, index) => (index + 1) * 1_000),
+      11 * 60_000,
+    ],
+    () => {
+      const config = getDefaultSecurityConfig();
+      config.allowedOrigins = ["chrome-extension://allowed-extension"];
+      config.connectionAttemptsPerMinute = 1;
+      const security = createSecurityPolicy(config);
+
+      const staleRequest = createRequest({
+        origin: "chrome-extension://allowed-extension",
+        remoteAddress: "198.51.100.10",
+      });
+
+      const firstDecision = security.evaluateUpgrade(staleRequest);
+      assert.equal(firstDecision.ok, true);
+
+      for (let index = 0; index < 62; index += 1) {
+        const decision = security.evaluateUpgrade(
+          createRequest({
+            origin: "chrome-extension://allowed-extension",
+            remoteAddress: `198.51.100.${index + 20}`,
+          }),
+        );
+        assert.equal(decision.ok, true);
+      }
+
+      const recycledDecision = security.evaluateUpgrade(staleRequest);
+      assert.equal(recycledDecision.ok, true);
+    },
+  );
 });
