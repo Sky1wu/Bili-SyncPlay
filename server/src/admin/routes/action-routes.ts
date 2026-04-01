@@ -1,6 +1,7 @@
 import { readJsonBody } from "../request.js";
 import { sendOk } from "../response.js";
 import type { AdminRouteHandler } from "../router-types.js";
+import { requireNonEmptyString, requireSegment } from "./validation.js";
 
 export const handleActionRoutes: AdminRouteHandler = async ({
   request,
@@ -17,6 +18,10 @@ export const handleActionRoutes: AdminRouteHandler = async ({
     segments[2] === "rooms" &&
     segments[4] === "close"
   ) {
+    const roomCode = requireNonEmptyString(
+      requireSegment(segments, 3, "roomCode"),
+      "roomCode",
+    );
     const session = await helpers.requireAdmin(request, response);
     if (!session) {
       return true;
@@ -25,10 +30,7 @@ export const handleActionRoutes: AdminRouteHandler = async ({
       return true;
     }
     const body = await readJsonBody<{ reason?: string }>(request);
-    sendOk(
-      response,
-      await options.closeRoom(session, segments[3] ?? "", body.reason),
-    );
+    sendOk(response, await options.closeRoom(session, roomCode, body.reason));
     return true;
   }
 
@@ -40,6 +42,10 @@ export const handleActionRoutes: AdminRouteHandler = async ({
     segments[2] === "rooms" &&
     segments[4] === "expire"
   ) {
+    const roomCode = requireNonEmptyString(
+      requireSegment(segments, 3, "roomCode"),
+      "roomCode",
+    );
     const session = await helpers.requireAdmin(request, response);
     if (!session) {
       return true;
@@ -48,10 +54,7 @@ export const handleActionRoutes: AdminRouteHandler = async ({
       return true;
     }
     const body = await readJsonBody<{ reason?: string }>(request);
-    sendOk(
-      response,
-      await options.expireRoom(session, segments[3] ?? "", body.reason),
-    );
+    sendOk(response, await options.expireRoom(session, roomCode, body.reason));
     return true;
   }
 
@@ -63,6 +66,10 @@ export const handleActionRoutes: AdminRouteHandler = async ({
     segments[2] === "rooms" &&
     segments[4] === "clear-video"
   ) {
+    const roomCode = requireNonEmptyString(
+      requireSegment(segments, 3, "roomCode"),
+      "roomCode",
+    );
     const session = await helpers.requireAdmin(request, response);
     if (!session) {
       return true;
@@ -73,7 +80,7 @@ export const handleActionRoutes: AdminRouteHandler = async ({
     const body = await readJsonBody<{ reason?: string }>(request);
     sendOk(
       response,
-      await options.clearRoomVideo(session, segments[3] ?? "", body.reason),
+      await options.clearRoomVideo(session, roomCode, body.reason),
     );
     return true;
   }
@@ -87,6 +94,14 @@ export const handleActionRoutes: AdminRouteHandler = async ({
     segments[4] === "members" &&
     segments[6] === "kick"
   ) {
+    const roomCode = requireNonEmptyString(
+      requireSegment(segments, 3, "roomCode"),
+      "roomCode",
+    );
+    const memberId = requireNonEmptyString(
+      requireSegment(segments, 5, "memberId"),
+      "memberId",
+    );
     const session = await helpers.requireAdmin(request, response);
     if (!session) {
       return true;
@@ -99,8 +114,8 @@ export const handleActionRoutes: AdminRouteHandler = async ({
       response,
       await options.kickMember(
         session,
-        segments[3] ?? "",
-        segments[5] ?? "",
+        roomCode,
+        memberId,
         body.reason,
       ),
     );
@@ -115,6 +130,10 @@ export const handleActionRoutes: AdminRouteHandler = async ({
     segments[2] === "sessions" &&
     segments[4] === "disconnect"
   ) {
+    const targetSessionId = requireNonEmptyString(
+      requireSegment(segments, 3, "sessionId"),
+      "sessionId",
+    );
     const session = await helpers.requireAdmin(request, response);
     if (!session) {
       return true;
@@ -125,7 +144,7 @@ export const handleActionRoutes: AdminRouteHandler = async ({
     const body = await readJsonBody<{ reason?: string }>(request);
     sendOk(
       response,
-      await options.disconnectSession(session, segments[3] ?? "", body.reason),
+      await options.disconnectSession(session, targetSessionId, body.reason),
     );
     return true;
   }

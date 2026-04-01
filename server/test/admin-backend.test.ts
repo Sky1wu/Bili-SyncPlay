@@ -511,6 +511,48 @@ test("admin login rejects invalid credentials", async () => {
   }
 });
 
+test("admin action routes reject invalid path params with 400", async () => {
+  const server = await startAdminServer();
+
+  try {
+    const token = await login(server.httpBaseUrl);
+
+    const closeRoom = await requestJson(
+      server.httpBaseUrl,
+      "/api/admin/rooms/%20/close",
+      {
+        method: "POST",
+        token,
+        body: { reason: "invalid room" },
+      },
+    );
+    assert.equal(closeRoom.status, 400);
+    assert.deepEqual(closeRoom.body.error, {
+      code: "invalid_path_param",
+      message: "Invalid roomCode.",
+      details: { name: "roomCode" },
+    });
+
+    const disconnectSession = await requestJson(
+      server.httpBaseUrl,
+      "/api/admin/sessions/%20/disconnect",
+      {
+        method: "POST",
+        token,
+        body: { reason: "invalid session" },
+      },
+    );
+    assert.equal(disconnectSession.status, 400);
+    assert.deepEqual(disconnectSession.body.error, {
+      code: "invalid_path_param",
+      message: "Invalid sessionId.",
+      details: { name: "sessionId" },
+    });
+  } finally {
+    await server.close();
+  }
+});
+
 test("redis-backed admin sessions authenticate across server instances and logout globally", async (t) => {
   const redisUrl = process.env.REDIS_URL;
   if (!redisUrl) {
