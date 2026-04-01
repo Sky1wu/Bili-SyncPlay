@@ -63,6 +63,17 @@ type JoinedRoomAccess = {
   activeRoom: ReturnType<RuntimeStore["getOrCreateRoom"]>;
 };
 
+type JoinTargetState = {
+  activeRoom: ActiveRoom | null;
+  reconnectMemberId: string | null;
+  activeMemberCount: number;
+};
+
+type JoinIdentity = {
+  memberId: string;
+  memberToken: string;
+};
+
 export function createRoomService(options: {
   config: SecurityConfig;
   persistence: PersistenceConfig;
@@ -369,6 +380,158 @@ export function createRoomService(options: {
     return null;
   }
 
+  async function resolveJoinTargetState(
+    roomCode: string,
+    previousMemberToken?: string,
+  ): Promise<JoinTargetState> {
+    const activeRoom = await resolveActiveRoom(roomCode);
+    const reconnectMemberId =
+      previousMemberToken && activeRoom
+        ? await resolveMemberIdByToken(roomCode, previousMemberToken)
+        : null;
+
+    return {
+      activeRoom,
+      reconnectMemberId,
+      activeMemberCount: activeRoom?.members.size ?? 0,
+    };
+  }
+
+  function rejectJoinToken(
+    session: Session,
+    roomCode: string,
+    reason: "join_token_invalid" | "member_kicked",
+    message: string,
+  ): never {
+    logEvent("auth_failed", {
+      sessionId: session.id,
+      roomCode,
+      remoteAddress: session.remoteAddress,
+      origin: session.origin,
+      messageType: "room:join",
+      result: "rejected",
+      reason,
+    });
+    throw new RoomServiceError(
+      "join_token_invalid",
+      message,
+      "join_token_invalid",
+    );
+  }
+
+  async function ensureJoinRequestAllowed(args: {
+    session: Session;
+    room: PersistedRoom;
+    roomCode: string;
+    joinToken: string;
+    previousMemberToken?: string;
+  }): Promise<JoinTargetState> {
+    if (args.room.joinToken !== args.joinToken) {
+      rejectJoinToken(
+        args.session,
+        args.roomCode,
+        "join_token_invalid",
+        JOIN_TOKEN_INVALID_MESSAGE,
+      );
+    }
+
+    if (
+      args.previousMemberToken &&
+      (await resolveBlockedMemberToken(
+        args.roomCode,
+        args.previousMemberToken,
+        now(),
+      ))
+    ) {
+      rejectJoinToken(
+        args.session,
+        args.roomCode,
+        "member_kicked",
+        MEMBER_KICKED_REJOIN_MESSAGE,
+      );
+    }
+
+    const joinTargetState = await resolveJoinTargetState(
+      args.roomCode,
+      args.previousMemberToken,
+    );
+    if (
+      joinTargetState.activeMemberCount >= config.maxMembersPerRoom &&
+      joinTargetState.reconnectMemberId === null
+    ) {
+      throw new RoomServiceError("room_full", ROOM_FULL_MESSAGE, "room_full");
+    }
+
+    return joinTargetState;
+  }
+
+  async function persistJoinedRoom(args: {
+    session: Session;
+    roomCode: string;
+    joinToken: string;
+    previousMemberToken?: string;
+  }): Promise<PersistedRoom | null> {
+    return withVersionRetry(args.roomCode, async (room) => {
+      await ensureJoinRequestAllowed({
+        session: args.session,
+        room,
+        roomCode: args.roomCode,
+        joinToken: args.joinToken,
+        previousMemberToken: args.previousMemberToken,
+      });
+
+      const result = await roomStore.updateRoom(args.roomCode, room.version, {
+        expiresAt: null,
+        lastActiveAt: now(),
+      });
+      if (!result.ok) {
+        return null;
+      }
+      return result.room;
+    });
+  }
+
+  function buildJoinIdentity(
+    session: Session,
+    reconnectMemberId: string | null,
+    previousMemberToken?: string,
+  ): JoinIdentity {
+    return {
+      memberId: reconnectMemberId ?? session.id,
+      memberToken:
+        reconnectMemberId && previousMemberToken
+          ? previousMemberToken
+          : generateToken(),
+    };
+  }
+
+  function applyJoinedSessionState(args: {
+    session: Session;
+    roomCode: string;
+    joinedAt: number;
+    joinIdentity: JoinIdentity;
+  }): void {
+    args.session.memberId = args.joinIdentity.memberId;
+    args.session.roomCode = args.roomCode;
+    args.session.memberToken = args.joinIdentity.memberToken;
+    args.session.joinedAt = args.joinedAt;
+  }
+
+  function disconnectReplacedSession(
+    currentSession: Session,
+    previousSession: Session | null,
+  ): void {
+    if (
+      !previousSession ||
+      previousSession === currentSession ||
+      typeof previousSession.socket.close !== "function" ||
+      previousSession.socket.readyState !== previousSession.socket.OPEN
+    ) {
+      return;
+    }
+    previousSession.socket.close(1000, "Session replaced");
+  }
+
   async function leaveCurrentRoom(
     session: Session,
   ): Promise<{ room: PersistedRoom | null }> {
@@ -491,73 +654,11 @@ export function createRoomService(options: {
       setSessionDisplayName(session, displayName);
       await leaveCurrentRoom(session);
 
-      const joinedRoom = await withVersionRetry(roomCode, async (room) => {
-        if (room.joinToken !== joinToken) {
-          logEvent("auth_failed", {
-            sessionId: session.id,
-            roomCode,
-            remoteAddress: session.remoteAddress,
-            origin: session.origin,
-            messageType: "room:join",
-            result: "rejected",
-            reason: "join_token_invalid",
-          });
-          throw new RoomServiceError(
-            "join_token_invalid",
-            JOIN_TOKEN_INVALID_MESSAGE,
-            "join_token_invalid",
-          );
-        }
-
-        if (
-          previousMemberToken &&
-          (await resolveBlockedMemberToken(
-            roomCode,
-            previousMemberToken,
-            now(),
-          ))
-        ) {
-          logEvent("auth_failed", {
-            sessionId: session.id,
-            roomCode,
-            remoteAddress: session.remoteAddress,
-            origin: session.origin,
-            messageType: "room:join",
-            result: "rejected",
-            reason: "member_kicked",
-          });
-          throw new RoomServiceError(
-            "join_token_invalid",
-            MEMBER_KICKED_REJOIN_MESSAGE,
-            "join_token_invalid",
-          );
-        }
-
-        const activeRoom = await resolveActiveRoom(roomCode);
-        const reconnectMemberId =
-          previousMemberToken && activeRoom
-            ? await resolveMemberIdByToken(roomCode, previousMemberToken)
-            : null;
-        const activeMemberCount = activeRoom?.members.size ?? 0;
-        if (
-          activeMemberCount >= config.maxMembersPerRoom &&
-          reconnectMemberId === null
-        ) {
-          throw new RoomServiceError(
-            "room_full",
-            ROOM_FULL_MESSAGE,
-            "room_full",
-          );
-        }
-
-        const result = await roomStore.updateRoom(roomCode, room.version, {
-          expiresAt: null,
-          lastActiveAt: now(),
-        });
-        if (!result.ok) {
-          return null;
-        }
-        return result.room;
+      const joinedRoom = await persistJoinedRoom({
+        session,
+        roomCode,
+        joinToken,
+        previousMemberToken,
       });
 
       if (!joinedRoom) {
@@ -569,32 +670,33 @@ export function createRoomService(options: {
       }
 
       const reconnectMemberId = previousMemberToken
-        ? await resolveMemberIdByToken(joinedRoom.code, previousMemberToken)
+        ? (await resolveJoinTargetState(joinedRoom.code, previousMemberToken))
+            .reconnectMemberId
         : null;
-      const memberId = reconnectMemberId ?? session.id;
-      const memberToken =
-        reconnectMemberId && previousMemberToken
-          ? previousMemberToken
-          : generateToken();
+      const joinIdentity = buildJoinIdentity(
+        session,
+        reconnectMemberId,
+        previousMemberToken,
+      );
       const previousSession =
         reconnectMemberId !== null
           ? (runtimeStore
               .getRoom(joinedRoom.code)
               ?.members.get(reconnectMemberId) ?? null)
           : null;
-      session.memberId = memberId;
-      runtimeStore.addMember(joinedRoom.code, memberId, session, memberToken);
-      session.roomCode = joinedRoom.code;
-      session.memberToken = memberToken;
-      session.joinedAt = now();
-      if (
-        previousSession &&
-        previousSession !== session &&
-        typeof previousSession.socket.close === "function" &&
-        previousSession.socket.readyState === previousSession.socket.OPEN
-      ) {
-        previousSession.socket.close(1000, "Session replaced");
-      }
+      runtimeStore.addMember(
+        joinedRoom.code,
+        joinIdentity.memberId,
+        session,
+        joinIdentity.memberToken,
+      );
+      applyJoinedSessionState({
+        session,
+        roomCode: joinedRoom.code,
+        joinedAt: now(),
+        joinIdentity,
+      });
+      disconnectReplacedSession(session, previousSession);
 
       logEvent("room_restored", {
         roomCode: joinedRoom.code,
@@ -604,7 +706,7 @@ export function createRoomService(options: {
         result: "ok",
       });
 
-      return { room: joinedRoom, memberToken };
+      return { room: joinedRoom, memberToken: joinIdentity.memberToken };
     },
 
     leaveRoomForSession: leaveCurrentRoom,
