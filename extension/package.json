@@ -9,7 +9,8 @@
     "pretypecheck": "npm --prefix ../packages/protocol run build",
     "typecheck": "tsc -p tsconfig.json",
     "pretest": "npm --prefix ../packages/protocol run build",
-    "test": "tsx --test test/**/*.test.ts"
+    "test": "tsx --test test/**/*.test.ts",
+    "coverage": "tsx --test --experimental-test-coverage test/**/*.test.ts"
   },
   "dependencies": {
     "@bili-syncplay/protocol": "9.1.0"
