@@ -1,4 +1,5 @@
 import { randomUUID } from "node:crypto";
+import { shouldIncludeRuntimeEvent } from "./event-visibility.js";
 import type { RuntimeEvent } from "./types.js";
 import type {
   GlobalEventStore,
@@ -47,6 +48,11 @@ export function createEventStore(capacity = 1_000): EventStore {
     async query(query) {
       const filtered = events.filter((event) => {
         const timestamp = eventTime(event);
+        if (
+          !shouldIncludeRuntimeEvent(event.event, query.includeSystem === true)
+        ) {
+          return false;
+        }
         if (query.event && event.event !== query.event) {
           return false;
         }

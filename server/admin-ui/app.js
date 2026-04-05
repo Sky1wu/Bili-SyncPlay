@@ -247,6 +247,32 @@ function renderDataPair(primary, secondary) {
   `;
 }
 
+function isGlobalAdminInstance(instanceId) {
+  return typeof instanceId === "string" && instanceId.includes("global-admin");
+}
+
+function resolveConsoleContext(instanceId, serviceName = "") {
+  if (
+    serviceName === "bili-syncplay-global-admin" ||
+    isGlobalAdminInstance(instanceId)
+  ) {
+    return {
+      label: "全局后台",
+      title: "全局控制面",
+      description:
+        "这里代表治理与观测入口本身；具体房间会显示它所属的业务实例。",
+      pill: "集群视图",
+    };
+  }
+
+  return {
+    label: "实例",
+    title: "实例上下文",
+    description: "统一管理当前服务实例的运行状态与治理动作。",
+    pill: `实例 ${instanceId || "—"}`,
+  };
+}
+
 function renderOriginValue(value) {
   if (!value) {
     return renderEmptyValue();
@@ -413,6 +439,10 @@ async function render() {
     state.instanceId ||
     state.lastOverviewData?.instanceId ||
     "—";
+  const consoleContext = resolveConsoleContext(
+    instanceId,
+    page.serviceName || state.lastOverviewData?.name,
+  );
   document.title = `${meta.title} | Bili-SyncPlay Admin`;
 
   appRoot.innerHTML = `
@@ -431,10 +461,10 @@ async function render() {
           ${renderNavLink("/config", "配置摘要")}
         </nav>
         <div class="sidebar-meta-card">
-          <div class="sidebar-meta-kicker">实例上下文</div>
-          <div class="sidebar-meta">实例</div>
+          <div class="sidebar-meta-kicker">${escapeHtml(consoleContext.title)}</div>
+          <div class="sidebar-meta">${escapeHtml(consoleContext.label)}</div>
           <strong>${escapeHtml(instanceId)}</strong>
-          <div class="sidebar-meta">统一管理当前服务实例的运行状态与治理动作。</div>
+          <div class="sidebar-meta">${escapeHtml(consoleContext.description)}</div>
         </div>
       </aside>
       <main class="main">
@@ -453,13 +483,13 @@ async function render() {
               </div>
               <div class="userbar">
                 <span class="pill">${escapeHtml(state.me.role)}</span>
-                <span class="pill">${escapeHtml(instanceId)}</span>
+                <span class="pill">${escapeHtml(consoleContext.pill)}</span>
               </div>
               <button class="button ghost" data-action="logout">退出登录</button>
             </div>
           </div>
           <div class="topbar-subline">
-            <div class="pill subtle">实例 ${escapeHtml(instanceId)}</div>
+            <div class="pill subtle">${escapeHtml(consoleContext.pill)}</div>
             <div class="topbar-note">桌面优先的后台工作台，面向排障、治理和运行观察。</div>
           </div>
         </section>
@@ -604,7 +634,10 @@ async function renderOverviewPage() {
   state.lastOverviewData = overview.service;
   const readyWarning = ready.status !== "ready";
   const overviewHighlights = [
-    ["实例", overview.service.instanceId],
+    [
+      isGlobalAdminInstance(overview.service.instanceId) ? "全局后台" : "实例",
+      overview.service.instanceId,
+    ],
     ["存储", overview.storage.provider],
     ["Redis", overview.storage.redisConnected ? "已连接" : "未连接"],
     [
@@ -616,6 +649,7 @@ async function renderOverviewPage() {
   return {
     autoRefresh: state.overviewAutoRefresh,
     instanceId: overview.service.instanceId,
+    serviceName: overview.service.name,
     html: `
       ${readyWarning ? `<div class="warning-banner">readyz 当前状态为 ${escapeHtml(ready.status)}，请优先检查房间存储与 Redis 连通性。</div>` : ""}
       <div class="section">
@@ -640,13 +674,13 @@ async function renderOverviewPage() {
         </section>
         <div class="grid cards-4">
           ${metricCard("服务", escapeHtml(overview.service.name), `版本 ${escapeHtml(overview.service.version)}`)}
-          ${metricCard("实例", escapeHtml(overview.service.instanceId), `启动于 ${new Date(overview.service.startedAt).toLocaleString()}`)}
+          ${metricCard(isGlobalAdminInstance(overview.service.instanceId) ? "全局后台节点" : "实例", escapeHtml(overview.service.instanceId), `启动于 ${new Date(overview.service.startedAt).toLocaleString()}`)}
           ${metricCard("健康检查", escapeHtml(health.status), `readyz ${escapeHtml(ready.status)}`)}
           ${metricCard("运行时长", escapeHtml(formatDuration(overview.service.uptimeMs)), "持续运行时长")}
         </div>
         <div class="grid cards-4">
           ${metricCard("连接数", overview.runtime.connectionCount, "当前 WebSocket 连接")}
-          ${metricCard("在线房间", overview.runtime.activeRoomCount, "活跃房间")}
+          ${metricCard("在线房间", overview.runtime.activeRoomCount, overview.rooms.orphanRuntimeCount > 0 ? `已忽略 ${overview.rooms.orphanRuntimeCount} 个失配运行时索引` : "活跃房间")}
           ${metricCard("在线成员", overview.runtime.activeMemberCount, "当前在线成员")}
           ${metricCard("非过期房间", overview.rooms.totalNonExpired, `空闲 ${overview.rooms.idle}`)}
         </div>
@@ -1262,6 +1296,10 @@ async function renderEventsPage() {
         ${textField("from", "开始时间戳(ms)", query.from, "number")}
         ${textField("to", "结束时间戳(ms)", query.to, "number")}
         ${textField("pageSize", "每页条数", query.pageSize, "number")}
+        <div class="field inline align-end">
+          <input id="includeSystem" name="includeSystem" type="checkbox" ${query.includeSystem ? "checked" : ""} />
+          <label for="includeSystem">显示系统事件</label>
+        </div>
       `,
       rows: data.items
         .map(
@@ -1415,6 +1453,7 @@ function listQueryFromLocation(defaults = {}) {
     targetId: params.get("targetId") || "",
     from: params.get("from") || "",
     to: params.get("to") || "",
+    includeSystem: params.get("includeSystem") === "true",
     page: Number(params.get("page") || "1"),
     pageSize: params.get("pageSize") || defaults.pageSize || "20",
   };
@@ -1456,15 +1495,22 @@ function bindJsonButtons() {
 
 async function renderConfigPage() {
   const config = await api.getConfig();
+  const consoleContext = resolveConsoleContext(config.instanceId);
+  const isGlobalAdminConfig = isGlobalAdminInstance(config.instanceId);
   return {
     instanceId: config.instanceId,
     html: `
       <div class="section">
+        ${
+          isGlobalAdminConfig
+            ? `<div class="warning-banner">当前页面展示的是全局后台进程自身加载到的配置摘要；如果房间节点独立部署，请以对应业务节点的运行配置为准。</div>`
+            : ""
+        }
         <div class="detail-grid">
           <section class="panel config-panel">
             <div class="section-header"><h3>实例与持久化</h3></div>
             <dl class="kv config-kv">
-              <dt>实例 ID</dt><dd>${escapeHtml(config.instanceId)}</dd>
+              <dt>${escapeHtml(consoleContext.label)} ID</dt><dd>${escapeHtml(config.instanceId)}</dd>
               <dt>存储提供方</dt><dd>${escapeHtml(config.persistence.provider)}</dd>
               <dt>空房间保留时长</dt><dd>${escapeHtml(config.persistence.emptyRoomTtlMs)} ms</dd>
               <dt>房间清理间隔</dt><dd>${escapeHtml(config.persistence.roomCleanupIntervalMs)} ms</dd>

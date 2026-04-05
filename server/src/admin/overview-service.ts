@@ -22,10 +22,24 @@ export function createAdminOverviewService(options: {
         keyword: undefined,
         includeExpired: false,
       });
+      const clusterActiveRoomCodes =
+        await options.runtimeStore.listClusterActiveRoomCodes();
+      const activePersistedRoomCodes = (
+        await Promise.all(
+          clusterActiveRoomCodes.map(async (roomCode) => {
+            const room = await options.roomStore.getRoom(roomCode);
+            if (!room) {
+              return null;
+            }
+            if (room.expiresAt !== null && room.expiresAt <= currentTime) {
+              return null;
+            }
+            return roomCode;
+          }),
+        )
+      ).filter((roomCode): roomCode is string => typeof roomCode === "string");
       const nodeStatuses =
         await options.runtimeStore.listNodeStatuses(currentTime);
-      const clusterActiveRoomCount =
-        await options.runtimeStore.countClusterActiveRooms();
       const activeNodeStatuses =
         nodeStatuses.length === 0
           ? null
@@ -35,10 +49,7 @@ export function createAdminOverviewService(options: {
           (total, status) => total + status.connectionCount,
           0,
         ) ?? options.runtimeStore.getConnectionCount();
-      const activeRoomCount =
-        activeNodeStatuses !== null
-          ? clusterActiveRoomCount
-          : options.runtimeStore.getActiveRoomCount();
+      const activeRoomCount = activePersistedRoomCodes.length;
       const activeMemberCount =
         activeNodeStatuses?.reduce(
           (total, status) => total + status.activeMemberCount,
@@ -69,6 +80,10 @@ export function createAdminOverviewService(options: {
           totalNonExpired,
           active: activeRoomCount,
           idle: Math.max(0, totalNonExpired - activeRoomCount),
+          orphanRuntimeCount: Math.max(
+            0,
+            clusterActiveRoomCodes.length - activePersistedRoomCodes.length,
+          ),
         },
         nodes: {
           total: nodeStatuses.length,

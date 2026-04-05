@@ -222,7 +222,7 @@ export async function cleanupSessionAfterClose(options: {
   });
 }
 
-async function resolveServiceVersion(): Promise<string> {
+export async function resolveServiceVersion(): Promise<string> {
   if (process.env.npm_package_version) {
     return process.env.npm_package_version;
   }

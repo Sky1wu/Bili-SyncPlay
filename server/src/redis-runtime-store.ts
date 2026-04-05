@@ -94,6 +94,7 @@ const RUNTIME_STORE_METHOD_NAMES = [
   "listNodeStatuses",
   "purgeNodeStatus",
   "countClusterActiveRooms",
+  "listClusterActiveRoomCodes",
   "listClusterSessionsByRoom",
   "listClusterSessions",
   "close",
@@ -677,6 +678,9 @@ export async function createRedisRuntimeStore(
     },
     async countClusterActiveRooms() {
       return redis.scard(`${keyPrefix}rooms`);
+    },
+    async listClusterActiveRoomCodes() {
+      return (await redis.smembers(`${keyPrefix}rooms`)).sort();
     },
     async listClusterSessionsByRoom(roomCode: string) {
       const sessionIds = await redis.smembers(

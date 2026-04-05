@@ -99,6 +99,9 @@ export function createMirroredRuntimeStore(
     countClusterActiveRooms: readShared(
       sharedRuntimeStore.countClusterActiveRooms,
     ),
+    listClusterActiveRoomCodes: readShared(
+      sharedRuntimeStore.listClusterActiveRoomCodes,
+    ),
     listClusterSessionsByRoom: readShared(
       sharedRuntimeStore.listClusterSessionsByRoom,
     ),

@@ -7,6 +7,7 @@ export type GlobalEventStoreQuery = {
   remoteAddress?: string;
   origin?: string;
   result?: string;
+  includeSystem?: boolean;
   from?: number;
   to?: number;
   page: number;

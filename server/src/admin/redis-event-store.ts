@@ -1,5 +1,6 @@
 import { Redis } from "ioredis";
 import { randomUUID } from "node:crypto";
+import { shouldIncludeRuntimeEvent } from "./event-visibility.js";
 import type {
   GlobalEventStore,
   GlobalEventStoreAppendInput,
@@ -52,6 +53,9 @@ function matchesQuery(
   query: GlobalEventStoreQuery,
 ): boolean {
   const timestamp = eventTime(event);
+  if (!shouldIncludeRuntimeEvent(event.event, query.includeSystem === true)) {
+    return false;
+  }
   if (query.event && event.event !== query.event) {
     return false;
   }

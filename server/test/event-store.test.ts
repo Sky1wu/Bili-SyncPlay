@@ -62,3 +62,32 @@ test("in-memory event store keeps query semantics through the global interface",
   assert.equal(evicted.total, 0);
   assert.notEqual(created.id, joined.id);
 });
+
+test("in-memory event store hides system events by default and can include them on demand", async () => {
+  const store = createEventStore();
+
+  await store.append({
+    event: "room_created",
+    timestamp: "2026-03-26T12:00:00.000Z",
+    data: { roomCode: "ROOM01", result: "ok" },
+  });
+  await store.append({
+    event: "room_event_bus_error",
+    timestamp: "2026-03-26T12:00:01.000Z",
+    data: { result: "error" },
+  });
+
+  const defaultView = await store.query({
+    page: 1,
+    pageSize: 10,
+  });
+  assert.equal(defaultView.total, 1);
+  assert.equal(defaultView.items[0]?.event, "room_created");
+
+  const fullView = await store.query({
+    includeSystem: true,
+    page: 1,
+    pageSize: 10,
+  });
+  assert.equal(fullView.total, 2);
+});

@@ -104,6 +104,62 @@ test("global admin server starts without websocket runtime and serves admin endp
   }
 });
 
+test("global admin server resolves the package service version by default", async () => {
+  const server = await createGlobalAdminServer(
+    getDefaultSecurityConfig(),
+    getDefaultPersistenceConfig(),
+    {
+      adminConfig: {
+        username: "admin",
+        passwordHash: `sha256:${sha256Hex("secret-123")}`,
+        sessionSecret: "session-secret-123",
+        sessionTtlMs: 60_000,
+        role: "admin",
+        sessionStoreProvider: "memory",
+        eventStoreProvider: "memory",
+        auditStoreProvider: "memory",
+      },
+    },
+  );
+
+  await new Promise<void>((resolve, reject) => {
+    server.httpServer.listen(0, "127.0.0.1", () => resolve());
+    server.httpServer.once("error", reject);
+  });
+
+  const address = server.httpServer.address();
+  if (!address || typeof address === "string") {
+    throw new Error("Failed to determine test server address.");
+  }
+
+  try {
+    const token = (
+      (
+        await requestJson(
+          `http://127.0.0.1:${address.port}`,
+          "/api/admin/auth/login",
+          {
+            method: "POST",
+            body: { username: "admin", password: "secret-123" },
+          },
+        )
+      ).body.data as { token: string }
+    ).token;
+    const overview = await requestJson(
+      `http://127.0.0.1:${address.port}`,
+      "/api/admin/overview",
+      { token },
+    );
+    assert.equal(overview.status, 200);
+    assert.match(
+      (overview.body.data as { service: { version: string } }).service.version,
+      /^\d+\.\d+\.\d+/,
+    );
+  } finally {
+    await server.close();
+  }
+});
+
 async function connectClient(wsUrl: string): Promise<WebSocket> {
   const socket = new WebSocket(wsUrl, { origin: ALLOWED_ORIGIN });
   await once(socket, "open");

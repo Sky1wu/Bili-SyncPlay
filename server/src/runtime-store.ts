@@ -62,6 +62,7 @@ export type RuntimeStore = {
   listNodeStatuses: (currentTime?: number) => Promise<ClusterNodeStatus[]>;
   purgeNodeStatus: (instanceId: string) => Promise<void>;
   countClusterActiveRooms: () => Promise<number>;
+  listClusterActiveRoomCodes: () => Promise<string[]>;
   listClusterSessionsByRoom: (roomCode: string) => Promise<Session[]>;
   listClusterSessions: () => Promise<Session[]>;
 };
@@ -271,6 +272,9 @@ export function createInMemoryRuntimeStore(
     },
     async countClusterActiveRooms() {
       return roomSessionIds.size;
+    },
+    async listClusterActiveRoomCodes() {
+      return Array.from(roomSessionIds.keys()).sort();
     },
     async listClusterSessionsByRoom(roomCode) {
       return Array.from(roomSessionIds.get(roomCode) ?? [])

@@ -92,6 +92,7 @@ export const handleReadRoutes: AdminRouteHandler = async ({
       remoteAddress: queryParams.get("remoteAddress") ?? undefined,
       origin: queryParams.get("origin") ?? undefined,
       result: queryParams.get("result") ?? undefined,
+      includeSystem: queryParams.get("includeSystem") === "true",
       from: queryParams.get("from")
         ? Number(queryParams.get("from"))
         : undefined,

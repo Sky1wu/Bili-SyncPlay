@@ -85,3 +85,45 @@ test("redis event store appends, trims, and queries events across store instance
     await storeB.close();
   }
 });
+
+test("redis event store hides system events by default and can include them on demand", async (t) => {
+  if (!REDIS_URL) {
+    t.skip("REDIS_URL is not configured.");
+    return;
+  }
+
+  const streamKey = createStreamKey();
+  const store = await createRedisEventStore(REDIS_URL, {
+    streamKey,
+    maxLen: 10,
+  });
+
+  try {
+    await store.append({
+      event: "room_created",
+      timestamp: "2026-03-26T12:30:00.000Z",
+      data: { roomCode: "ROOM01", result: "ok" },
+    });
+    await store.append({
+      event: "runtime_index_reaper_failed",
+      timestamp: "2026-03-26T12:30:01.000Z",
+      data: { result: "error" },
+    });
+
+    const defaultView = await store.query({
+      page: 1,
+      pageSize: 10,
+    });
+    assert.equal(defaultView.total, 1);
+    assert.equal(defaultView.items[0]?.event, "room_created");
+
+    const fullView = await store.query({
+      includeSystem: true,
+      page: 1,
+      pageSize: 10,
+    });
+    assert.equal(fullView.total, 2);
+  } finally {
+    await store.close();
+  }
+});

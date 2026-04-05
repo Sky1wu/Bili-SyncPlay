@@ -15,6 +15,7 @@ import {
 import {
   getDefaultPersistenceConfig,
   getDefaultSecurityConfig,
+  resolveServiceVersion,
 } from "./app.js";
 import { createRedisAdminCommandBus } from "./redis-admin-command-bus.js";
 import { createRedisRoomEventBus } from "./redis-room-event-bus.js";
@@ -29,6 +30,7 @@ import {
   createInMemoryRuntimeStore,
   type RuntimeStore,
 } from "./runtime-store.js";
+import { createRuntimeIndexReaper } from "./runtime-index-reaper.js";
 import { createSecurityPolicy } from "./security.js";
 import { createRedisRoomStore } from "./redis-room-store.js";
 import { createRedisRuntimeStore } from "./redis-runtime-store.js";
@@ -68,6 +70,8 @@ export async function createGlobalAdminServer(
   persistenceConfig: PersistenceConfig = getDefaultPersistenceConfig(),
   dependencies: GlobalAdminServerDependencies = {},
 ): Promise<GlobalAdminServer> {
+  const serviceVersion =
+    dependencies.serviceVersion ?? (await resolveServiceVersion());
   const now = dependencies.now ?? Date.now;
   const generateToken =
     dependencies.generateToken ?? (() => randomBytes(24).toString("base64url"));
@@ -143,8 +147,18 @@ export async function createGlobalAdminServer(
     serviceName: "bili-syncplay-global-admin",
     createOverviewService: createGlobalAdminOverviewService,
     createRoomQueryService: createGlobalAdminRoomQueryService,
-    serviceVersion: dependencies.serviceVersion ?? "0.0.0-global-admin",
+    serviceVersion,
   });
+  const runtimeIndexReaper = createRuntimeIndexReaper({
+    enabled:
+      persistenceConfig.nodeHeartbeatEnabled &&
+      persistenceConfig.runtimeStoreProvider === "redis",
+    runtimeStore,
+    intervalMs: persistenceConfig.nodeHeartbeatIntervalMs,
+    now,
+    logEvent,
+  });
+  runtimeIndexReaper.start();
 
   const httpServer = createServer(
     createHttpRequestHandler({
@@ -166,6 +180,7 @@ export async function createGlobalAdminServer(
           resolve();
         });
       });
+      await runtimeIndexReaper.stop();
 
       const maybeClosableRoomStore = roomStore as RoomStore & {
         close?: () => Promise<void>;
