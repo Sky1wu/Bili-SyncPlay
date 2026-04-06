@@ -258,6 +258,47 @@ test("redis runtime store keeps only the latest room membership after rapid room
   }
 });
 
+test("redis runtime store can purge stale sessions for a restarted instance", async (t) => {
+  if (!REDIS_URL) {
+    t.skip("REDIS_URL is not configured.");
+    return;
+  }
+
+  const keyPrefix = createKeyPrefix();
+  const store = await createRedisRuntimeStore(REDIS_URL, {
+    keyPrefix,
+  });
+  const observer = await createRedisRuntimeStore(REDIS_URL, {
+    keyPrefix,
+  });
+  const session = createSession("session-restart");
+  session.instanceId = "room-node-a";
+  session.memberId = "member-restart";
+  session.memberToken = "token-restart";
+
+  try {
+    store.registerSession(session);
+    store.markSessionJoinedRoom(session.id, "ROOMRS");
+    store.addMember("ROOMRS", session.memberId, session, session.memberToken);
+    await store.flush?.();
+    await new Promise((resolve) => setTimeout(resolve, 25));
+
+    assert.equal(
+      (await observer.listClusterSessionsByRoom("ROOMRS")).length,
+      1,
+    );
+    assert.equal(await store.purgeSessionsByInstance?.("room-node-a"), 1);
+    await new Promise((resolve) => setTimeout(resolve, 25));
+
+    assert.deepEqual(await observer.listClusterSessionsByRoom("ROOMRS"), []);
+    const room = await observer.getRoom("ROOMRS");
+    assert.equal(room?.members.size ?? 0, 0);
+  } finally {
+    await store.close();
+    await observer.close();
+  }
+});
+
 test("redis runtime store rejects new pending operations after reaching the configured cap", async () => {
   const firstOperation = createDeferred<unknown>();
   const fakeRedis = createFakeRedisClient([firstOperation.promise]);

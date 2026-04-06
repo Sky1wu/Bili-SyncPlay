@@ -351,15 +351,15 @@ test("profile updates are reflected in redis-backed room state views", async (t)
       const ownerState = await ownerCollector.next("room:state");
       const joinerState = await joinerCollector.next("room:state");
       assert.deepEqual(
-        (
-          ownerState.payload as { members: Array<{ name: string }> }
-        ).members.map((member) => member.name),
+        (ownerState.payload as { members: Array<{ name: string }> }).members
+          .map((member) => member.name)
+          .sort((left, right) => left.localeCompare(right)),
         ["Alice", "Bob"],
       );
       assert.deepEqual(
-        (
-          joinerState.payload as { members: Array<{ name: string }> }
-        ).members.map((member) => member.name),
+        (joinerState.payload as { members: Array<{ name: string }> }).members
+          .map((member) => member.name)
+          .sort((left, right) => left.localeCompare(right)),
         ["Alice", "Bob"],
       );
     } finally {

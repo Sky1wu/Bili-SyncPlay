@@ -375,6 +375,54 @@ export async function createRedisRuntimeStore(
     async flush() {
       await Promise.allSettled(Array.from(pendingOperations));
     },
+    async purgeSessionsByInstance(instanceId: string) {
+      await store.flush();
+      const sessionIds = await redis.smembers(`${keyPrefix}sessions`);
+      let purgedCount = 0;
+
+      for (const sessionId of sessionIds) {
+        const session = await loadSession(redis, keyPrefix, sessionId);
+        if (!session || session.instanceId !== instanceId) {
+          continue;
+        }
+
+        const transaction = redis.multi();
+        transaction.srem(`${keyPrefix}sessions`, sessionId);
+        transaction.del(sessionKey(keyPrefix, sessionId));
+
+        if (session.roomCode) {
+          transaction.srem(
+            roomSessionsKey(keyPrefix, session.roomCode),
+            sessionId,
+          );
+        }
+
+        if (session.roomCode && session.memberId) {
+          const currentSessionId = await redis.hget(
+            roomMembersKey(keyPrefix, session.roomCode),
+            session.memberId,
+          );
+          if (currentSessionId === session.id) {
+            transaction.hdel(
+              roomMembersKey(keyPrefix, session.roomCode),
+              session.memberId,
+            );
+            transaction.hdel(
+              roomMemberTokensKey(keyPrefix, session.roomCode),
+              session.memberId,
+            );
+          }
+        }
+
+        await transaction.exec();
+        if (session.roomCode) {
+          await cleanupEmptyRoomIndex(redis, keyPrefix, session.roomCode);
+        }
+        purgedCount += 1;
+      }
+
+      return purgedCount;
+    },
     unregisterSession(sessionId: string) {
       const session = localRuntimeStore.getSession(sessionId);
       localRuntimeStore.unregisterSession(sessionId);

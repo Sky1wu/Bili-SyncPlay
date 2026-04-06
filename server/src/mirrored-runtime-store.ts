@@ -45,6 +45,9 @@ export function createMirroredRuntimeStore(
     flush: sharedRuntimeStore.flush
       ? readShared(sharedRuntimeStore.flush)
       : undefined,
+    purgeSessionsByInstance: sharedRuntimeStore.purgeSessionsByInstance
+      ? readShared(sharedRuntimeStore.purgeSessionsByInstance)
+      : undefined,
     unregisterSession: mirrorVoidWrite(
       localRuntimeStore.unregisterSession,
       sharedRuntimeStore.unregisterSession,

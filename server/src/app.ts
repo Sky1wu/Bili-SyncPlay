@@ -387,6 +387,17 @@ export async function createSyncServer(
   const logEvent =
     dependencies.logEvent ??
     createStructuredLogger(undefined, eventStore, runtimeStore);
+  const purgedStartupSessions =
+    (await runtimeStore.purgeSessionsByInstance?.(
+      persistenceConfig.instanceId,
+    )) ?? 0;
+  if (purgedStartupSessions > 0) {
+    logEvent("runtime_instance_sessions_purged", {
+      instanceId: persistenceConfig.instanceId,
+      purgedSessions: purgedStartupSessions,
+      result: "ok",
+    });
+  }
   const securityPolicy = createSecurityPolicy(securityConfig);
 
   const roomService = createRoomService({

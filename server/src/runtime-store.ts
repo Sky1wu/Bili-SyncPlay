@@ -20,6 +20,7 @@ const COUNTER_WINDOW_MS = 60_000;
 export type RuntimeStore = {
   registerSession: (session: Session) => void;
   flush?: () => Promise<void>;
+  purgeSessionsByInstance?: (instanceId: string) => Promise<number>;
   unregisterSession: (sessionId: string) => void;
   markSessionJoinedRoom: (sessionId: string, roomCode: string) => void;
   markSessionLeftRoom: (sessionId: string, roomCode?: string | null) => void;
@@ -121,6 +122,9 @@ export function createInMemoryRuntimeStore(
       }
     },
     async flush() {},
+    async purgeSessionsByInstance() {
+      return 0;
+    },
     unregisterSession(sessionId) {
       const session = sessionsById.get(sessionId);
       if (!session) {
