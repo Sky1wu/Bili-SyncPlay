@@ -71,6 +71,20 @@ test("security policy respects trusted proxy headers when enabled", () => {
   assert.equal(trustedSecurity.getRemoteAddress(directRequest), "203.0.113.10");
 });
 
+test("security policy normalizes ipv4-mapped proxy peers before checking trust", () => {
+  const config = getDefaultSecurityConfig();
+  config.allowedOrigins = ["chrome-extension://allowed-extension"];
+  config.trustedProxyAddresses = ["127.0.0.1"];
+  const security = createSecurityPolicy(config);
+  const request = createRequest({
+    origin: "chrome-extension://allowed-extension",
+    remoteAddress: "::ffff:127.0.0.1",
+    forwardedFor: "203.0.113.10",
+  });
+
+  assert.equal(security.getRemoteAddress(request), "203.0.113.10");
+});
+
 test("security policy ignores forwarded headers from untrusted socket peers", () => {
   const config = getDefaultSecurityConfig();
   config.allowedOrigins = ["chrome-extension://allowed-extension"];
