@@ -482,6 +482,7 @@ test("rejects room messages when the memberToken is missing or invalid", async (
   const server = await startTestServer();
   try {
     const owner = await connectClient(server.url);
+    const ownerCollector = createMessageCollector(owner);
     try {
       owner.send(
         JSON.stringify({
@@ -489,7 +490,7 @@ test("rejects room messages when the memberToken is missing or invalid", async (
           payload: { displayName: "Alice" },
         }),
       );
-      const created = await waitForJsonMessage(owner);
+      const created = await ownerCollector.next("room:created");
       assert.equal(created.type, "room:created");
 
       owner.send(
@@ -505,7 +506,7 @@ test("rejects room messages when the memberToken is missing or invalid", async (
           },
         }),
       );
-      const response = await waitForJsonMessage(owner);
+      const response = await ownerCollector.next("error");
       assert.deepEqual(response, {
         type: "error",
         payload: {
