@@ -153,6 +153,18 @@ export function createRoomStateApplyController(args: {
       args.clearRemoteFollowPlayingWindow();
       if (decision.acceptedHydration) {
         args.debugLog(`Accepted empty room state for ${state.roomCode}`);
+        args.runtimeState.intendedPlayState = "paused";
+        args.activatePauseHold(args.initialRoomStatePauseHoldMs);
+        const video = args.getVideoElement();
+        if (
+          video &&
+          !video.paused &&
+          nowOf() - args.runtimeState.lastUserGestureAt >=
+            args.userGestureGraceMs
+        ) {
+          args.debugLog(`Suppressed autoplay for empty room ${state.roomCode}`);
+          pauseVideo(video);
+        }
         args.acceptInitialRoomStateHydration();
       }
       return;
