@@ -445,6 +445,7 @@ export function createSyncController(args: {
     args.runtimeState.intendedPlaybackRate = 1;
     args.runtimeState.lastNonSharedGuardUrl = null;
     args.runtimeState.lastExplicitPlaybackAction = null;
+    args.runtimeState.explicitNonSharedPlaybackUrl = null;
     args.debugLog(`Reset playback sync state: ${reason}`);
   }
 
