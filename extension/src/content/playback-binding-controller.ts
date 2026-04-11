@@ -43,7 +43,6 @@ export function createPlaybackBindingController(args: {
   getNow?: () => number;
 }): PlaybackBindingController {
   let videoBindingTimer: number | null = null;
-  let lastNonSharedGuardUrl: string | null = null;
   const nowOf = () => args.getNow?.() ?? Date.now();
   const hasRecentUserGesture = () =>
     nowOf() - args.runtimeState.lastUserGestureAt < args.userGestureGraceMs;
@@ -162,15 +161,15 @@ export function createPlaybackBindingController(args: {
     if (
       normalizedCurrentUrl &&
       normalizedCurrentUrl !== args.runtimeState.activeSharedUrl &&
-      normalizedCurrentUrl !== lastNonSharedGuardUrl
+      normalizedCurrentUrl !== args.runtimeState.lastNonSharedGuardUrl
     ) {
-      lastNonSharedGuardUrl = normalizedCurrentUrl;
+      args.runtimeState.lastNonSharedGuardUrl = normalizedCurrentUrl;
       args.runtimeState.lastExplicitPlaybackAction = null;
     } else if (
       !normalizedCurrentUrl ||
       normalizedCurrentUrl === args.runtimeState.activeSharedUrl
     ) {
-      lastNonSharedGuardUrl = null;
+      args.runtimeState.lastNonSharedGuardUrl = null;
     }
 
     const decision = evaluateNonSharedPageGuard({

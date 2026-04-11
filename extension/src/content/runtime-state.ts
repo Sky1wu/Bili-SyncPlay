@@ -93,6 +93,7 @@ export interface ContentRuntimeState {
   suppressedRemotePlayback: SuppressedRemotePlayback | null;
   recentRemotePlayingIntent: RecentRemotePlayingIntent | null;
   lastExplicitUserAction: ExplicitUserAction | null;
+  lastNonSharedGuardUrl: string | null;
   festivalSnapshot: FestivalVideoSnapshot | null;
 }
 
@@ -107,6 +108,7 @@ export function resetUserGestureState(state: ContentRuntimeState): void {
   state.lastUserGestureAt = 0;
   state.lastExplicitPlaybackAction = null;
   state.lastExplicitUserAction = null;
+  state.lastNonSharedGuardUrl = null;
 }
 
 export function createContentRuntimeState(): ContentRuntimeState {
@@ -138,6 +140,7 @@ export function createContentRuntimeState(): ContentRuntimeState {
     suppressedRemotePlayback: null,
     recentRemotePlayingIntent: null,
     lastExplicitUserAction: null,
+    lastNonSharedGuardUrl: null,
     festivalSnapshot: null,
   };
 }
