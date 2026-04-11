@@ -46,6 +46,19 @@ export function createPlaybackBindingController(args: {
   const nowOf = () => args.getNow?.() ?? Date.now();
   const hasRecentUserGesture = () =>
     nowOf() - args.runtimeState.lastUserGestureAt < args.userGestureGraceMs;
+  const getRecentExplicitSeekWithoutNewGestureAt = (): number | null => {
+    const explicitAction = args.runtimeState.lastExplicitUserAction;
+    if (
+      explicitAction?.kind !== "seek" ||
+      nowOf() - explicitAction.at >= args.userGestureGraceMs
+    ) {
+      return null;
+    }
+
+    return args.runtimeState.lastUserGestureAt <= explicitAction.at
+      ? explicitAction.at
+      : null;
+  };
 
   function scheduleBroadcast(
     video: HTMLVideoElement,
@@ -62,8 +75,8 @@ export function createPlaybackBindingController(args: {
 
   function rememberExplicitPlaybackAction(playState: "playing" | "paused") {
     if (
-      nowOf() - args.runtimeState.lastUserGestureAt <
-      args.userGestureGraceMs
+      nowOf() - args.runtimeState.lastUserGestureAt < args.userGestureGraceMs &&
+      args.runtimeState.lastUserGestureAt > args.runtimeState.lastForcedPauseAt
     ) {
       args.runtimeState.lastExplicitPlaybackAction = {
         playState,
@@ -74,14 +87,16 @@ export function createPlaybackBindingController(args: {
 
   function rememberExplicitUserAction(kind: ExplicitUserActionKind) {
     if (
-      nowOf() - args.runtimeState.lastUserGestureAt <
-      args.userGestureGraceMs
+      nowOf() - args.runtimeState.lastUserGestureAt < args.userGestureGraceMs &&
+      args.runtimeState.lastUserGestureAt > args.runtimeState.lastForcedPauseAt
     ) {
       if (
         kind === "play" &&
         args.runtimeState.lastExplicitUserAction?.kind === "seek" &&
         nowOf() - args.runtimeState.lastExplicitUserAction.at <
-          args.userGestureGraceMs
+          args.userGestureGraceMs &&
+        args.runtimeState.lastUserGestureAt <=
+          args.runtimeState.lastExplicitUserAction.at
       ) {
         return;
       }
@@ -118,6 +133,46 @@ export function createPlaybackBindingController(args: {
     );
   }
 
+  function shouldPreRecordNonSharedExplicitPlay(): boolean {
+    const currentVideo = args.getSharedVideo();
+    if (
+      !hasRecentUserGesture() ||
+      args.runtimeState.lastUserGestureAt <=
+        args.runtimeState.lastForcedPauseAt ||
+      !currentVideo ||
+      isCurrentVideoShared(currentVideo)
+    ) {
+      return false;
+    }
+
+    // When the browser auto-seeks to a resume point and then auto-plays,
+    // the play event is browser-initiated, not an explicit user play gesture.
+    // Only block when the seek belongs to the CURRENT gesture
+    // (lastUserGestureAt <= seek time), meaning no newer user gesture
+    // has occurred since the seek.
+    const lastAction = args.runtimeState.lastExplicitUserAction;
+    if (
+      lastAction?.kind === "seek" &&
+      nowOf() - lastAction.at < args.userGestureGraceMs &&
+      args.runtimeState.lastUserGestureAt <= lastAction.at
+    ) {
+      return false;
+    }
+
+    return true;
+  }
+
+  function preAuthorizeExplicitNonSharedPlay(): void {
+    const currentVideo = args.getSharedVideo();
+    const normalizedCurrentUrl = args.normalizeUrl(currentVideo?.url);
+    if (!normalizedCurrentUrl || isCurrentVideoShared(currentVideo)) {
+      return;
+    }
+
+    rememberExplicitPlaybackAction("playing");
+    args.runtimeState.explicitNonSharedPlaybackUrl = normalizedCurrentUrl;
+  }
+
   function forcePauseWhileWaitingForInitialRoomState(
     video: HTMLVideoElement,
   ): boolean {
@@ -135,6 +190,7 @@ export function createPlaybackBindingController(args: {
       `Suppressed page autoplay while waiting for initial room state of ${args.runtimeState.activeRoomCode}`,
     );
     args.runtimeState.intendedPlayState = "paused";
+    args.runtimeState.lastForcedPauseAt = nowOf();
     window.setTimeout(() => {
       if (!video.paused) {
         pauseVideo(video);
@@ -199,6 +255,7 @@ export function createPlaybackBindingController(args: {
     }
 
     args.runtimeState.intendedPlayState = "paused";
+    args.runtimeState.lastForcedPauseAt = nowOf();
     args.activatePauseHold(args.initialRoomStatePauseHoldMs);
     window.setTimeout(() => {
       if (!video.paused) {
@@ -216,6 +273,27 @@ export function createPlaybackBindingController(args: {
 
     const guardUnexpectedResume = () => {
       const currentVideo = args.getSharedVideo();
+      const recentSeekWithoutNewGestureAt =
+        getRecentExplicitSeekWithoutNewGestureAt();
+      const shouldBlockSeekTriggeredAutoplay =
+        currentVideo &&
+        isCurrentVideoShared(currentVideo) &&
+        args.runtimeState.intendedPlayState !== "playing" &&
+        recentSeekWithoutNewGestureAt !== null;
+
+      if (shouldBlockSeekTriggeredAutoplay) {
+        args.debugLog(
+          `Forced pause reapplied after seek-triggered autoplay intended=${args.runtimeState.intendedPlayState}`,
+        );
+        args.runtimeState.lastExplicitUserAction = null;
+        args.runtimeState.lastExplicitPlaybackAction = null;
+        args.runtimeState.lastForcedPauseAt = nowOf();
+        window.setTimeout(() => {
+          pauseVideo(video);
+        }, 0);
+        return true;
+      }
+
       if (
         currentVideo &&
         isCurrentVideoShared(currentVideo) &&
@@ -226,6 +304,7 @@ export function createPlaybackBindingController(args: {
         args.debugLog(
           `Forced pause hold reapplied after unexpected resume intended=${args.runtimeState.intendedPlayState}`,
         );
+        args.runtimeState.lastForcedPauseAt = nowOf();
         window.setTimeout(() => {
           pauseVideo(video);
         }, 0);
@@ -243,11 +322,15 @@ export function createPlaybackBindingController(args: {
     bindVideoElement({
       video,
       onPlay: () => {
+        if (shouldPreRecordNonSharedExplicitPlay()) {
+          preAuthorizeExplicitNonSharedPlay();
+        }
+        if (guardUnexpectedResume()) {
+          return;
+        }
         rememberExplicitPlaybackAction("playing");
         rememberExplicitUserAction("play");
-        if (!guardUnexpectedResume()) {
-          scheduleBroadcast(video, "play", 180);
-        }
+        scheduleBroadcast(video, "play", 180);
       },
       onPause: () => {
         const currentVideo = args.getSharedVideo();
@@ -279,11 +362,15 @@ export function createPlaybackBindingController(args: {
         scheduleBroadcast(video, "canplay", 120);
       },
       onPlaying: () => {
+        if (shouldPreRecordNonSharedExplicitPlay()) {
+          preAuthorizeExplicitNonSharedPlay();
+        }
+        if (guardUnexpectedResume()) {
+          return;
+        }
         rememberExplicitPlaybackAction("playing");
         rememberExplicitUserAction("play");
-        if (!guardUnexpectedResume()) {
-          scheduleBroadcast(video, "playing", 180);
-        }
+        scheduleBroadcast(video, "playing", 180);
       },
       onSeeking: () => {
         if (hasRecentUserGesture()) {

@@ -80,12 +80,18 @@ export function derivePlaybackSyncIntent(args: {
     kind: "play" | "pause" | "seek" | "ratechange";
     at: number;
   } | null;
+  lastForcedPauseAt: number;
   now: number;
   userGestureGraceMs: number;
 }): PlaybackState["syncIntent"] | undefined {
+  const hasActiveExplicitUserAction =
+    args.lastExplicitUserAction &&
+    args.lastExplicitUserAction.at > args.lastForcedPauseAt;
+
   if (
     args.eventSource === "ratechange" &&
-    args.lastExplicitUserAction?.kind === "ratechange" &&
+    hasActiveExplicitUserAction &&
+    args.lastExplicitUserAction.kind === "ratechange" &&
     args.now - args.lastExplicitUserAction.at < args.userGestureGraceMs
   ) {
     return "explicit-ratechange";
@@ -98,7 +104,7 @@ export function derivePlaybackSyncIntent(args: {
       args.eventSource !== "playing" &&
       args.eventSource !== "canplay" &&
       args.eventSource !== "timeupdate") ||
-    !args.lastExplicitUserAction ||
+    !hasActiveExplicitUserAction ||
     args.lastExplicitUserAction.kind !== "seek" ||
     args.now - args.lastExplicitUserAction.at >=
       Math.max(args.userGestureGraceMs, EXPLICIT_SEEK_BROADCAST_GRACE_MS)

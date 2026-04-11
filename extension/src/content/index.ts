@@ -214,8 +214,18 @@ function startUserGestureTracking(): void {
     runtimeState.lastUserGestureAt = Date.now();
   };
 
-  document.addEventListener("pointerdown", markUserGesture, true);
-  document.addEventListener("keydown", markUserGesture, true);
+  const gestureEvents: Array<keyof DocumentEventMap> = [
+    "pointerdown",
+    "mousedown",
+    "click",
+    "touchstart",
+    "keydown",
+  ];
+
+  for (const eventName of gestureEvents) {
+    document.addEventListener(eventName, markUserGesture, true);
+    window.addEventListener(eventName, markUserGesture, true);
+  }
 }
 
 function activatePauseHold(durationMs = PAUSE_HOLD_MS): void {

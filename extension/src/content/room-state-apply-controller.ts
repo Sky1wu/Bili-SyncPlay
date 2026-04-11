@@ -231,6 +231,7 @@ export function createRoomStateApplyController(args: {
         args.activatePauseHold(args.initialRoomStatePauseHoldMs);
         const video = args.getVideoElement();
         if (video && !video.paused && decision.shouldPauseNonSharedVideo) {
+          args.runtimeState.lastForcedPauseAt = Date.now();
           pauseVideo(video);
         }
       }

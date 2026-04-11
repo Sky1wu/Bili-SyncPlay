@@ -1123,6 +1123,7 @@ export function createSyncController(args: {
         })
       ) {
         args.runtimeState.intendedPlayState = "paused";
+        args.runtimeState.lastForcedPauseAt = now;
         activatePauseHold(args.initialRoomStatePauseHoldMs);
         window.setTimeout(() => {
           if (!video.paused) {
@@ -1203,6 +1204,8 @@ export function createSyncController(args: {
     }
     if (
       args.runtimeState.lastExplicitUserAction &&
+      args.runtimeState.lastExplicitUserAction.at >
+        args.runtimeState.lastForcedPauseAt &&
       now - args.runtimeState.lastExplicitUserAction.at <
         args.userGestureGraceMs &&
       (eventSource === "play" ||
@@ -1325,6 +1328,7 @@ export function createSyncController(args: {
         })}`,
       );
       args.runtimeState.intendedPlayState = "paused";
+      args.runtimeState.lastForcedPauseAt = now;
       window.setTimeout(() => {
         if (!video.paused) {
           pauseVideo(video);
@@ -1400,6 +1404,7 @@ export function createSyncController(args: {
       syncIntent: derivePlaybackSyncIntent({
         eventSource,
         lastExplicitUserAction: args.runtimeState.lastExplicitUserAction,
+        lastForcedPauseAt: args.runtimeState.lastForcedPauseAt,
         now,
         userGestureGraceMs: args.userGestureGraceMs,
       }),

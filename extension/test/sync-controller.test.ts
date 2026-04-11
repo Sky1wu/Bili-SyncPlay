@@ -593,6 +593,56 @@ test("sync controller allows explicit user seek inside the silence window", asyn
   );
 });
 
+test("sync controller does not treat a seek as explicit after a forced pause invalidates it", async () => {
+  const harness = createControllerHarness();
+  const sharedVideo = {
+    videoId: "BV1xx411c7mD",
+    url: "https://www.bilibili.com/video/BV1xx411c7mD?p=1",
+    title: "Video",
+  };
+  const video = createVideo({
+    paused: true,
+    currentTime: 30,
+  });
+
+  harness.runtimeState.hydrationReady = true;
+  harness.runtimeState.pendingRoomStateHydration = false;
+  harness.runtimeState.localMemberId = "local-member";
+  harness.runtimeState.lastExplicitUserAction = {
+    kind: "seek",
+    at: 21_950,
+  };
+  harness.runtimeState.lastForcedPauseAt = 21_975;
+  harness.setSharedVideo(sharedVideo);
+  harness.setCurrentPlaybackVideo(sharedVideo);
+  harness.setVideoElement(video);
+
+  harness.setNow(22_000);
+  await harness.controller.broadcastPlayback(video, "seeked");
+
+  assert.equal(harness.runtimeMessages.length, 1);
+  assert.deepEqual(harness.runtimeMessages[0], {
+    type: "content:playback-update",
+    payload: {
+      url: sharedVideo.url,
+      currentTime: 30,
+      playState: "paused",
+      syncIntent: undefined,
+      playbackRate: 1,
+      updatedAt: 22_000,
+      serverTime: 0,
+      actorId: "local-member",
+      seq: 1,
+    },
+  });
+  assert.equal(
+    harness.debugLogs.some((message) =>
+      message.includes("Allowed explicit user event"),
+    ),
+    false,
+  );
+});
+
 test("sync controller marks explicit user ratechange with explicit-ratechange intent", async () => {
   const harness = createControllerHarness();
   const sharedVideo = {
