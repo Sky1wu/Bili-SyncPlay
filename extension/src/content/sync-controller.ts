@@ -112,6 +112,7 @@ export function createSyncController(args: {
   const ignoredRemotePlaybackLogState = { key: null as string | null, at: 0 };
   const localEchoLogState = { key: null as string | null, at: 0 };
   const dispatchPlaybackLogState = { key: null as string | null, at: 0 };
+  let lastBroadcastNonSharedUrl: string | null = null;
 
   function formatPlaybackDiagnostic(args: {
     actor?: string | null;
@@ -1099,6 +1100,13 @@ export function createSyncController(args: {
       normalizedCurrentVideoUrl !== args.runtimeState.activeSharedUrl
     ) {
       if (
+        normalizedCurrentVideoUrl !== lastBroadcastNonSharedUrl &&
+        normalizedCurrentVideoUrl !== null
+      ) {
+        lastBroadcastNonSharedUrl = normalizedCurrentVideoUrl;
+        args.runtimeState.lastExplicitPlaybackAction = null;
+      }
+      if (
         shouldPauseForNonSharedBroadcast({
           activeRoomCode: args.runtimeState.activeRoomCode,
           activeSharedUrl: args.runtimeState.activeSharedUrl,
@@ -1136,6 +1144,8 @@ export function createSyncController(args: {
       );
       return;
     }
+
+    lastBroadcastNonSharedUrl = null;
 
     const playState = getBroadcastPlayState({
       video,
