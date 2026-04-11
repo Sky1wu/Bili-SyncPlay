@@ -443,6 +443,8 @@ export function createSyncController(args: {
     clearSoftApplyCooldown();
     args.runtimeState.lastLocalPlaybackVersion = null;
     args.runtimeState.intendedPlaybackRate = 1;
+    args.runtimeState.lastNonSharedGuardUrl = null;
+    args.runtimeState.lastExplicitPlaybackAction = null;
     args.debugLog(`Reset playback sync state: ${reason}`);
   }
 
