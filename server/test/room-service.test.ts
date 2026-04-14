@@ -1220,7 +1220,7 @@ test("room service enforces room capacity from shared room membership", async ()
   );
 });
 
-test("room service deduplicates repeated video:share within 30 seconds", async () => {
+test("room service deduplicates repeated video:share within 5 seconds", async () => {
   let currentTime = 1_000;
   const roomStore = createInMemoryRoomStore({ now: () => currentTime });
   const service = createRoomService({
@@ -1249,8 +1249,8 @@ test("room service deduplicates repeated video:share within 30 seconds", async (
   assert.ok(first.room.sharedVideo);
   assert.equal(first.room.version, 1);
 
-  // Advance time slightly (still within 30s dedup window)
-  currentTime += 5_000;
+  // Advance time slightly (still within 5s dedup window)
+  currentTime += 2_000;
 
   // Second call with same URL — should be deduplicated (no version bump)
   const second = await service.shareVideoForSession(

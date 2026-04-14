@@ -723,12 +723,12 @@ export function createRoomService(options: {
       );
       const currentTime = now();
       const actorId = session.memberId ?? session.id;
-      const shareDedupKey = `share:${actorId}:${video.url}`;
+      const shareDedupKey = `share:${actorId}:${video.url}:${playback?.seq ?? 0}`;
       if (
         !(await runtimeStore.tryClaimMessageSlot(
           access.persistedRoom.code,
           shareDedupKey,
-          currentTime + 30_000,
+          currentTime + 5_000,
         ))
       ) {
         logEvent("video_share_deduplicated", {
