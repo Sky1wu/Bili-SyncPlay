@@ -88,6 +88,7 @@ const RUNTIME_STORE_METHOD_NAMES = [
   "findMemberIdByToken",
   "isMemberTokenBlocked",
   "blockMemberToken",
+  "tryClaimMessageSlot",
   "removeMember",
   "deleteRoom",
   "heartbeatNode",
@@ -624,6 +625,9 @@ export async function createRedisRuntimeStore(
         memberToken,
         currentTime,
       );
+    },
+    tryClaimMessageSlot(roomCode: string, key: string, expiresAt: number) {
+      return localRuntimeStore.tryClaimMessageSlot(roomCode, key, expiresAt);
     },
     removeMember(code: string, memberId: string, session?: Session) {
       ensurePendingCapacity("remove_member");

@@ -66,6 +66,11 @@ export type RuntimeStore = {
   listClusterActiveRoomCodes: () => Promise<string[]>;
   listClusterSessionsByRoom: (roomCode: string) => Promise<Session[]>;
   listClusterSessions: () => Promise<Session[]>;
+  tryClaimMessageSlot: (
+    roomCode: string,
+    key: string,
+    expiresAt: number,
+  ) => boolean;
 };
 
 export function createInMemoryRuntimeStore(
@@ -79,6 +84,7 @@ export function createInMemoryRuntimeStore(
   const lifetimeEventCounts: Record<string, number> = {};
   const rooms = new Map<string, ActiveRoom>();
   const blockedMemberTokensByRoom = new Map<string, KickedMemberBlock[]>();
+  const claimedSlotsByRoom = new Map<string, Map<string, number>>();
   const nodeStatuses = new Map<string, ClusterNodeStatus>();
 
   function pruneEvents(currentTime: number): void {
@@ -242,6 +248,20 @@ export function createInMemoryRuntimeStore(
     isMemberTokenBlocked(code, memberToken, currentTime = now()) {
       const activeEntries = pruneBlockedMemberTokens(code, currentTime);
       return activeEntries.some((entry) => entry.memberToken === memberToken);
+    },
+    tryClaimMessageSlot(roomCode, key, expiresAt) {
+      const currentTime = now();
+      const roomSlots =
+        claimedSlotsByRoom.get(roomCode) ?? new Map<string, number>();
+      for (const [k, exp] of roomSlots) {
+        if (exp <= currentTime) roomSlots.delete(k);
+      }
+      if (roomSlots.has(key)) {
+        return false;
+      }
+      roomSlots.set(key, expiresAt);
+      claimedSlotsByRoom.set(roomCode, roomSlots);
+      return true;
     },
     removeMember(code, memberId, session) {
       return removeMemberFromRoom(rooms, code, memberId, session);

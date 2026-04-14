@@ -1219,3 +1219,90 @@ test("room service enforces room capacity from shared room membership", async ()
     /Room is full/,
   );
 });
+
+test("room service deduplicates repeated video:share within 30 seconds", async () => {
+  let currentTime = 1_000;
+  const roomStore = createInMemoryRoomStore({ now: () => currentTime });
+  const service = createRoomService({
+    config: getDefaultSecurityConfig(),
+    persistence: getDefaultPersistenceConfig(),
+    roomStore,
+    activeRooms: createActiveRoomRegistry(() => currentTime),
+    generateToken: (() => {
+      let id = 0;
+      return () => `token-${++id}`.padEnd(16, "x");
+    })(),
+    logEvent: (() => undefined) satisfies LogEvent,
+    now: () => currentTime,
+    createRoomCode: () => "ROOM13",
+  });
+
+  const owner = createSession("owner");
+  const created = await service.createRoomForSession(owner, "Alice");
+  const video = createSharedVideo();
+
+  const first = await service.shareVideoForSession(
+    owner,
+    created.memberToken,
+    video,
+  );
+  assert.ok(first.room.sharedVideo);
+  assert.equal(first.room.version, 1);
+
+  // Advance time slightly (still within 30s dedup window)
+  currentTime += 5_000;
+
+  // Second call with same URL — should be deduplicated (no version bump)
+  const second = await service.shareVideoForSession(
+    owner,
+    created.memberToken,
+    video,
+  );
+  assert.equal(second.room.version, 1);
+});
+
+test("room service deduplicates repeated playback:update with the same seq", async () => {
+  let currentTime = 1_000;
+  const roomStore = createInMemoryRoomStore({ now: () => currentTime });
+  const service = createRoomService({
+    config: getDefaultSecurityConfig(),
+    persistence: getDefaultPersistenceConfig(),
+    roomStore,
+    activeRooms: createActiveRoomRegistry(() => currentTime),
+    generateToken: (() => {
+      let id = 0;
+      return () => `token-${++id}`.padEnd(16, "x");
+    })(),
+    logEvent: (() => undefined) satisfies LogEvent,
+    now: () => currentTime,
+    createRoomCode: () => "ROOM14",
+  });
+
+  const owner = createSession("owner");
+  const created = await service.createRoomForSession(owner, "Alice");
+  await service.shareVideoForSession(
+    owner,
+    created.memberToken,
+    createSharedVideo(),
+  );
+
+  const playback = createPlayback(owner.id, { seq: 42, playState: "playing" });
+
+  const first = await service.updatePlaybackForSession(
+    owner,
+    created.memberToken,
+    playback,
+  );
+  assert.equal(first.ignored, false);
+
+  // Advance time past the playback authority window (>1200ms) but within dedup TTL (10s)
+  currentTime += 2_000;
+
+  // Retry with same seq — dedup kicks in before acceptance check
+  const second = await service.updatePlaybackForSession(
+    owner,
+    created.memberToken,
+    playback,
+  );
+  assert.equal(second.ignored, true);
+});

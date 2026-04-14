@@ -722,6 +722,22 @@ export function createRoomService(options: {
         "video:share",
       );
       const currentTime = now();
+      const actorId = session.memberId ?? session.id;
+      const shareDedupKey = `share:${actorId}:${video.url}`;
+      if (
+        !runtimeStore.tryClaimMessageSlot(
+          access.persistedRoom.code,
+          shareDedupKey,
+          currentTime + 30_000,
+        )
+      ) {
+        logEvent("video_share_deduplicated", {
+          roomCode: access.persistedRoom.code,
+          sessionId: session.id,
+          actorId,
+        });
+        return { room: access.persistedRoom };
+      }
 
       const room = await withVersionRetry(
         access.persistedRoom.code,
@@ -794,6 +810,24 @@ export function createRoomService(options: {
         memberToken,
         "playback:update",
       );
+      const playbackActorId = session.memberId ?? session.id;
+      const playbackDedupKey = `playback:${playbackActorId}:${playback.seq}`;
+      const playbackCurrentTime = now();
+      if (
+        !runtimeStore.tryClaimMessageSlot(
+          access.persistedRoom.code,
+          playbackDedupKey,
+          playbackCurrentTime + 10_000,
+        )
+      ) {
+        logEvent("playback_update_deduplicated", {
+          roomCode: access.persistedRoom.code,
+          sessionId: session.id,
+          actorId: playbackActorId,
+          seq: playback.seq,
+        });
+        return { room: null, ignored: true };
+      }
       if (!access.persistedRoom.sharedVideo) {
         throw new RoomServiceError(
           "invalid_message",

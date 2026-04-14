@@ -11,6 +11,7 @@ export type ActiveRoomRegistry = {
   findMemberIdByToken: RuntimeStore["findMemberIdByToken"];
   blockMemberToken: RuntimeStore["blockMemberToken"];
   isMemberTokenBlocked: RuntimeStore["isMemberTokenBlocked"];
+  tryClaimMessageSlot: RuntimeStore["tryClaimMessageSlot"];
   removeMember: RuntimeStore["removeMember"];
   deleteRoom: RuntimeStore["deleteRoom"];
 };
@@ -29,6 +30,7 @@ export function createActiveRoomRegistry(
     findMemberIdByToken: store.findMemberIdByToken,
     blockMemberToken: store.blockMemberToken,
     isMemberTokenBlocked: store.isMemberTokenBlocked,
+    tryClaimMessageSlot: store.tryClaimMessageSlot,
     removeMember: store.removeMember,
     deleteRoom: store.deleteRoom,
   };
