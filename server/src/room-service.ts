@@ -679,13 +679,28 @@ export function createRoomService(options: {
           : "leave_room_persist_failed";
 
       if (removal.removed) {
-        await restoreLeaveState({
-          session,
-          snapshot: sessionSnapshot,
-          roomCode,
-          reason,
-          error,
-        });
+        const roomStillExists = await roomStore
+          .getRoom(roomCode)
+          .then((room) => room !== null)
+          .catch(() => false);
+
+        if (roomStillExists) {
+          await restoreLeaveState({
+            session,
+            snapshot: sessionSnapshot,
+            roomCode,
+            reason,
+            error,
+          });
+        } else {
+          logEvent("room_leave_recovery_skipped", {
+            sessionId: session.id,
+            roomCode,
+            remoteAddress: session.remoteAddress,
+            origin: session.origin,
+            reason: "room_deleted",
+          });
+        }
       }
 
       logEvent("room_persist_failed", {

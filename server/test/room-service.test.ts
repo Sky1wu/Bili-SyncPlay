@@ -261,6 +261,86 @@ test("room service does not recover stale session leave state when member remova
   );
 });
 
+test("room service skips leave recovery when room is concurrently deleted", async () => {
+  const roomStore = createInMemoryRoomStore({ now: () => 1_000 });
+  const activeRooms = createActiveRoomRegistry();
+  const events: Array<{ event: string; data: Record<string, unknown> }> = [];
+  const baseService = createRoomService({
+    config: getDefaultSecurityConfig(),
+    persistence: {
+      ...getDefaultPersistenceConfig(),
+      emptyRoomTtlMs: 5_000,
+    },
+    roomStore,
+    activeRooms,
+    generateToken: (() => {
+      let id = 0;
+      return () => `token-${++id}`.padEnd(16, "x");
+    })(),
+    logEvent(event, data) {
+      events.push({ event, data });
+    },
+    now: () => 1_000,
+    createRoomCode: () => "ROOM01",
+  });
+
+  const owner = createSession("owner");
+  await baseService.createRoomForSession(owner, "Alice");
+
+  // Make updateRoom fail on expiry writes and delete the room from persistence
+  // after the failed attempt to simulate concurrent deletion before the
+  // catch block's existence check.
+  const concurrentDeleteRoomStore = {
+    ...roomStore,
+    async updateRoom(code, expectedVersion, patch) {
+      if (patch.expiresAt !== undefined) {
+        // Delete the room so the catch block's getRoom check sees the room is gone.
+        await roomStore.deleteRoom(code);
+        throw new Error("expiry write failed");
+      }
+      return roomStore.updateRoom(code, expectedVersion, patch);
+    },
+  };
+  const service = createRoomService({
+    config: getDefaultSecurityConfig(),
+    persistence: {
+      ...getDefaultPersistenceConfig(),
+      emptyRoomTtlMs: 5_000,
+    },
+    roomStore: concurrentDeleteRoomStore,
+    activeRooms,
+    generateToken: (() => {
+      let id = 2;
+      return () => `token-${++id}`.padEnd(16, "x");
+    })(),
+    logEvent(event, data) {
+      events.push({ event, data });
+    },
+    now: () => 1_000,
+  });
+
+  await assert.rejects(
+    service.leaveRoomForSession(owner),
+    (error: unknown) =>
+      error instanceof Error && error.message === "Internal server error.",
+  );
+
+  // Session should NOT be restored since the room is gone
+  assert.equal(owner.roomCode, null);
+  assert.equal(owner.memberId, null);
+  assert.ok(!events.some((entry) => entry.event === "room_leave_recovered"));
+  assert.ok(
+    events.some((entry) => entry.event === "room_leave_recovery_skipped"),
+  );
+  assert.ok(
+    events.some(
+      (entry) =>
+        entry.event === "room_persist_failed" &&
+        entry.data.reason === "leave_room_persist_failed",
+    ),
+  );
+});
+
 test("room service clears sync intent when sharing a new video with playback", async () => {
   const currentTime = 1_000;
   const roomStore = createInMemoryRoomStore({ now: () => currentTime });
