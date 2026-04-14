@@ -10,6 +10,12 @@ import { loadAdminConfig, loadAdminUiConfig } from "./admin-config.js";
 import type { EnvSource } from "./env.js";
 import { parseIntegerEnv } from "./env.js";
 import { loadPersistenceConfig } from "./persistence-config.js";
+import {
+  getConfigValue,
+  parseConfigFileFieldValue,
+  SERVER_CONFIG_FIELDS,
+  SERVER_CONFIG_SCHEMA_TREE,
+} from "./runtime-config-schema.js";
 import { loadSecurityConfig } from "./security-config.js";
 
 type JsonObject = Record<string, unknown>;
@@ -92,61 +98,6 @@ function assertAllowedKeys(
   }
 }
 
-function assertOptionalNumber(
-  scope: string,
-  value: unknown,
-): number | undefined {
-  if (value === undefined) {
-    return undefined;
-  }
-  if (typeof value !== "number" || !Number.isFinite(value)) {
-    throw new Error(`Config field "${scope}" must be a finite number.`);
-  }
-  return value;
-}
-
-function assertOptionalBoolean(
-  scope: string,
-  value: unknown,
-): boolean | undefined {
-  if (value === undefined) {
-    return undefined;
-  }
-  if (typeof value !== "boolean") {
-    throw new Error(`Config field "${scope}" must be a boolean.`);
-  }
-  return value;
-}
-
-function assertOptionalString(
-  scope: string,
-  value: unknown,
-): string | undefined {
-  if (value === undefined) {
-    return undefined;
-  }
-  if (typeof value !== "string") {
-    throw new Error(`Config field "${scope}" must be a string.`);
-  }
-  return value;
-}
-
-function assertOptionalStringArray(
-  scope: string,
-  value: unknown,
-): string[] | undefined {
-  if (value === undefined) {
-    return undefined;
-  }
-  if (
-    !Array.isArray(value) ||
-    value.some((entry) => typeof entry !== "string")
-  ) {
-    throw new Error(`Config field "${scope}" must be an array of strings.`);
-  }
-  return value;
-}
-
 function parseOptionalObject<T extends JsonObject>(
   scope: string,
   value: unknown,
@@ -162,212 +113,55 @@ function parseOptionalObject<T extends JsonObject>(
   return value as T;
 }
 
-function parseConfigFileShape(raw: unknown): ServerConfigFile {
-  if (!isPlainObject(raw)) {
-    throw new Error("Config file root must be a JSON object.");
+function parseConfigNode(
+  node: typeof SERVER_CONFIG_SCHEMA_TREE,
+  scope: string,
+  value: unknown,
+): unknown {
+  if (node.field) {
+    return parseConfigFileFieldValue(node.field, scope, value);
   }
 
-  assertAllowedKeys("", raw, [
-    "port",
-    "globalAdminPort",
-    "security",
-    "persistence",
-    "adminUi",
-  ]);
+  if (scope.length === 0) {
+    if (!isPlainObject(value)) {
+      throw new Error("Config file root must be a JSON object.");
+    }
+  } else if (value === undefined) {
+    return undefined;
+  }
 
-  const security = parseOptionalObject<JsonObject>("security", raw.security, [
-    "allowedOrigins",
-    "allowMissingOriginInDev",
-    "trustedProxyAddresses",
-    "maxConnectionsPerIp",
-    "connectionAttemptsPerMinute",
-    "maxMembersPerRoom",
-    "maxMessageBytes",
-    "invalidMessageCloseThreshold",
-    "rateLimits",
-  ]);
-  const securityRateLimits = parseOptionalObject<JsonObject>(
-    "security.rateLimits",
-    security?.rateLimits,
-    [
-      "roomCreatePerMinute",
-      "roomJoinPerMinute",
-      "videoSharePer10Seconds",
-      "playbackUpdatePerSecond",
-      "playbackUpdateBurst",
-      "syncRequestPer10Seconds",
-      "syncPingPerSecond",
-      "syncPingBurst",
-    ],
-  );
-  const persistence = parseOptionalObject<JsonObject>(
-    "persistence",
-    raw.persistence,
-    [
-      "provider",
-      "runtimeStoreProvider",
-      "roomEventBusProvider",
-      "adminCommandBusProvider",
-      "nodeHeartbeatEnabled",
-      "nodeHeartbeatIntervalMs",
-      "nodeHeartbeatTtlMs",
-      "emptyRoomTtlMs",
-      "roomCleanupIntervalMs",
-      "redisUrl",
-      "redisNamespace",
-      "instanceId",
-    ],
-  );
-  const adminUi = parseOptionalObject<JsonObject>("adminUi", raw.adminUi, [
-    "demoEnabled",
-    "apiBaseUrl",
-    "enabled",
-  ]);
+  const objectValue =
+    scope.length === 0
+      ? (value as JsonObject)
+      : parseOptionalObject<JsonObject>(scope, value, [
+          ...node.children.keys(),
+        ]);
+  if (objectValue === undefined) {
+    return undefined;
+  }
 
-  return {
-    port: assertOptionalNumber("port", raw.port),
-    globalAdminPort: assertOptionalNumber(
-      "globalAdminPort",
-      raw.globalAdminPort,
-    ),
-    security: security
-      ? {
-          allowedOrigins: assertOptionalStringArray(
-            "security.allowedOrigins",
-            security.allowedOrigins,
-          ),
-          allowMissingOriginInDev: assertOptionalBoolean(
-            "security.allowMissingOriginInDev",
-            security.allowMissingOriginInDev,
-          ),
-          trustedProxyAddresses: assertOptionalStringArray(
-            "security.trustedProxyAddresses",
-            security.trustedProxyAddresses,
-          ),
-          maxConnectionsPerIp: assertOptionalNumber(
-            "security.maxConnectionsPerIp",
-            security.maxConnectionsPerIp,
-          ),
-          connectionAttemptsPerMinute: assertOptionalNumber(
-            "security.connectionAttemptsPerMinute",
-            security.connectionAttemptsPerMinute,
-          ),
-          maxMembersPerRoom: assertOptionalNumber(
-            "security.maxMembersPerRoom",
-            security.maxMembersPerRoom,
-          ),
-          maxMessageBytes: assertOptionalNumber(
-            "security.maxMessageBytes",
-            security.maxMessageBytes,
-          ),
-          invalidMessageCloseThreshold: assertOptionalNumber(
-            "security.invalidMessageCloseThreshold",
-            security.invalidMessageCloseThreshold,
-          ),
-          rateLimits: securityRateLimits
-            ? {
-                roomCreatePerMinute: assertOptionalNumber(
-                  "security.rateLimits.roomCreatePerMinute",
-                  securityRateLimits.roomCreatePerMinute,
-                ),
-                roomJoinPerMinute: assertOptionalNumber(
-                  "security.rateLimits.roomJoinPerMinute",
-                  securityRateLimits.roomJoinPerMinute,
-                ),
-                videoSharePer10Seconds: assertOptionalNumber(
-                  "security.rateLimits.videoSharePer10Seconds",
-                  securityRateLimits.videoSharePer10Seconds,
-                ),
-                playbackUpdatePerSecond: assertOptionalNumber(
-                  "security.rateLimits.playbackUpdatePerSecond",
-                  securityRateLimits.playbackUpdatePerSecond,
-                ),
-                playbackUpdateBurst: assertOptionalNumber(
-                  "security.rateLimits.playbackUpdateBurst",
-                  securityRateLimits.playbackUpdateBurst,
-                ),
-                syncRequestPer10Seconds: assertOptionalNumber(
-                  "security.rateLimits.syncRequestPer10Seconds",
-                  securityRateLimits.syncRequestPer10Seconds,
-                ),
-                syncPingPerSecond: assertOptionalNumber(
-                  "security.rateLimits.syncPingPerSecond",
-                  securityRateLimits.syncPingPerSecond,
-                ),
-                syncPingBurst: assertOptionalNumber(
-                  "security.rateLimits.syncPingBurst",
-                  securityRateLimits.syncPingBurst,
-                ),
-              }
-            : undefined,
-        }
-      : undefined,
-    persistence: persistence
-      ? {
-          provider: assertOptionalString(
-            "persistence.provider",
-            persistence.provider,
-          ) as PersistenceConfigFile["provider"],
-          runtimeStoreProvider: assertOptionalString(
-            "persistence.runtimeStoreProvider",
-            persistence.runtimeStoreProvider,
-          ) as PersistenceConfigFile["runtimeStoreProvider"],
-          roomEventBusProvider: assertOptionalString(
-            "persistence.roomEventBusProvider",
-            persistence.roomEventBusProvider,
-          ) as PersistenceConfigFile["roomEventBusProvider"],
-          adminCommandBusProvider: assertOptionalString(
-            "persistence.adminCommandBusProvider",
-            persistence.adminCommandBusProvider,
-          ) as PersistenceConfigFile["adminCommandBusProvider"],
-          nodeHeartbeatEnabled: assertOptionalBoolean(
-            "persistence.nodeHeartbeatEnabled",
-            persistence.nodeHeartbeatEnabled,
-          ),
-          nodeHeartbeatIntervalMs: assertOptionalNumber(
-            "persistence.nodeHeartbeatIntervalMs",
-            persistence.nodeHeartbeatIntervalMs,
-          ),
-          nodeHeartbeatTtlMs: assertOptionalNumber(
-            "persistence.nodeHeartbeatTtlMs",
-            persistence.nodeHeartbeatTtlMs,
-          ),
-          emptyRoomTtlMs: assertOptionalNumber(
-            "persistence.emptyRoomTtlMs",
-            persistence.emptyRoomTtlMs,
-          ),
-          roomCleanupIntervalMs: assertOptionalNumber(
-            "persistence.roomCleanupIntervalMs",
-            persistence.roomCleanupIntervalMs,
-          ),
-          redisUrl: assertOptionalString(
-            "persistence.redisUrl",
-            persistence.redisUrl,
-          ),
-          redisNamespace: assertOptionalString(
-            "persistence.redisNamespace",
-            persistence.redisNamespace,
-          ),
-          instanceId: assertOptionalString(
-            "persistence.instanceId",
-            persistence.instanceId,
-          ),
-        }
-      : undefined,
-    adminUi: adminUi
-      ? {
-          demoEnabled: assertOptionalBoolean(
-            "adminUi.demoEnabled",
-            adminUi.demoEnabled,
-          ),
-          apiBaseUrl: assertOptionalString(
-            "adminUi.apiBaseUrl",
-            adminUi.apiBaseUrl,
-          ),
-          enabled: assertOptionalBoolean("adminUi.enabled", adminUi.enabled),
-        }
-      : undefined,
-  };
+  if (scope.length === 0) {
+    assertAllowedKeys("", objectValue, [...node.children.keys()]);
+  }
+
+  const parsed: JsonObject = {};
+  for (const [key, childNode] of node.children) {
+    const childScope = scope ? `${scope}.${key}` : key;
+    const childValue = parseConfigNode(childNode, childScope, objectValue[key]);
+    if (childValue !== undefined) {
+      parsed[key] = childValue;
+    }
+  }
+
+  return parsed;
+}
+
+function parseConfigFileShape(raw: unknown): ServerConfigFile {
+  return parseConfigNode(
+    SERVER_CONFIG_SCHEMA_TREE,
+    "",
+    raw,
+  ) as ServerConfigFile;
 }
 
 async function readServerConfigFile(
@@ -416,124 +210,18 @@ function setEnvValue(
 
 export function configFileToEnv(fileConfig: ServerConfigFile): EnvSource {
   const env: EnvSource = {};
-
-  setEnvValue(env, "PORT", fileConfig.port);
-  setEnvValue(env, "GLOBAL_ADMIN_PORT", fileConfig.globalAdminPort);
-  setEnvValue(env, "ALLOWED_ORIGINS", fileConfig.security?.allowedOrigins);
-  setEnvValue(
-    env,
-    "ALLOW_MISSING_ORIGIN_IN_DEV",
-    fileConfig.security?.allowMissingOriginInDev,
-  );
-  setEnvValue(
-    env,
-    "TRUSTED_PROXY_ADDRESSES",
-    fileConfig.security?.trustedProxyAddresses,
-  );
-  setEnvValue(
-    env,
-    "MAX_CONNECTIONS_PER_IP",
-    fileConfig.security?.maxConnectionsPerIp,
-  );
-  setEnvValue(
-    env,
-    "CONNECTION_ATTEMPTS_PER_MINUTE",
-    fileConfig.security?.connectionAttemptsPerMinute,
-  );
-  setEnvValue(
-    env,
-    "MAX_MEMBERS_PER_ROOM",
-    fileConfig.security?.maxMembersPerRoom,
-  );
-  setEnvValue(env, "MAX_MESSAGE_BYTES", fileConfig.security?.maxMessageBytes);
-  setEnvValue(
-    env,
-    "INVALID_MESSAGE_CLOSE_THRESHOLD",
-    fileConfig.security?.invalidMessageCloseThreshold,
-  );
-  setEnvValue(
-    env,
-    "RATE_LIMIT_ROOM_CREATE_PER_MINUTE",
-    fileConfig.security?.rateLimits?.roomCreatePerMinute,
-  );
-  setEnvValue(
-    env,
-    "RATE_LIMIT_ROOM_JOIN_PER_MINUTE",
-    fileConfig.security?.rateLimits?.roomJoinPerMinute,
-  );
-  setEnvValue(
-    env,
-    "RATE_LIMIT_VIDEO_SHARE_PER_10_SECONDS",
-    fileConfig.security?.rateLimits?.videoSharePer10Seconds,
-  );
-  setEnvValue(
-    env,
-    "RATE_LIMIT_PLAYBACK_UPDATE_PER_SECOND",
-    fileConfig.security?.rateLimits?.playbackUpdatePerSecond,
-  );
-  setEnvValue(
-    env,
-    "RATE_LIMIT_PLAYBACK_UPDATE_BURST",
-    fileConfig.security?.rateLimits?.playbackUpdateBurst,
-  );
-  setEnvValue(
-    env,
-    "RATE_LIMIT_SYNC_REQUEST_PER_10_SECONDS",
-    fileConfig.security?.rateLimits?.syncRequestPer10Seconds,
-  );
-  setEnvValue(
-    env,
-    "RATE_LIMIT_SYNC_PING_PER_SECOND",
-    fileConfig.security?.rateLimits?.syncPingPerSecond,
-  );
-  setEnvValue(
-    env,
-    "RATE_LIMIT_SYNC_PING_BURST",
-    fileConfig.security?.rateLimits?.syncPingBurst,
-  );
-  setEnvValue(env, "ROOM_STORE_PROVIDER", fileConfig.persistence?.provider);
-  setEnvValue(
-    env,
-    "RUNTIME_STORE_PROVIDER",
-    fileConfig.persistence?.runtimeStoreProvider,
-  );
-  setEnvValue(
-    env,
-    "ROOM_EVENT_BUS_PROVIDER",
-    fileConfig.persistence?.roomEventBusProvider,
-  );
-  setEnvValue(
-    env,
-    "ADMIN_COMMAND_BUS_PROVIDER",
-    fileConfig.persistence?.adminCommandBusProvider,
-  );
-  setEnvValue(
-    env,
-    "NODE_HEARTBEAT_ENABLED",
-    fileConfig.persistence?.nodeHeartbeatEnabled,
-  );
-  setEnvValue(
-    env,
-    "NODE_HEARTBEAT_INTERVAL_MS",
-    fileConfig.persistence?.nodeHeartbeatIntervalMs,
-  );
-  setEnvValue(
-    env,
-    "NODE_HEARTBEAT_TTL_MS",
-    fileConfig.persistence?.nodeHeartbeatTtlMs,
-  );
-  setEnvValue(env, "EMPTY_ROOM_TTL_MS", fileConfig.persistence?.emptyRoomTtlMs);
-  setEnvValue(
-    env,
-    "ROOM_CLEANUP_INTERVAL_MS",
-    fileConfig.persistence?.roomCleanupIntervalMs,
-  );
-  setEnvValue(env, "REDIS_URL", fileConfig.persistence?.redisUrl);
-  setEnvValue(env, "REDIS_NAMESPACE", fileConfig.persistence?.redisNamespace);
-  setEnvValue(env, "INSTANCE_ID", fileConfig.persistence?.instanceId);
-  setEnvValue(env, "ADMIN_UI_DEMO_ENABLED", fileConfig.adminUi?.demoEnabled);
-  setEnvValue(env, "GLOBAL_ADMIN_API_BASE_URL", fileConfig.adminUi?.apiBaseUrl);
-  setEnvValue(env, "GLOBAL_ADMIN_ENABLED", fileConfig.adminUi?.enabled);
+  for (const field of SERVER_CONFIG_FIELDS) {
+    setEnvValue(
+      env,
+      field.envName,
+      getConfigValue(fileConfig as JsonObject, field.path) as
+        | string
+        | number
+        | boolean
+        | string[]
+        | undefined,
+    );
+  }
 
   return env;
 }

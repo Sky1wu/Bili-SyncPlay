@@ -3,7 +3,18 @@ import { mkdtemp, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import test from "node:test";
-import { loadRuntimeConfig } from "../src/config/runtime-config.js";
+import {
+  getConfigValue,
+  getDefaultConfigSampleValue,
+  SERVER_CONFIG_FIELDS,
+  setConfigValue,
+} from "../src/config/runtime-config-schema.js";
+import {
+  configFileToEnv,
+  type RuntimeConfig,
+  loadRuntimeConfig,
+  type ServerConfigFile,
+} from "../src/config/runtime-config.js";
 
 async function withTempDir(
   run: (tempDir: string) => Promise<void>,
@@ -13,6 +24,40 @@ async function withTempDir(
     await run(tempDir);
   } finally {
     await rm(tempDir, { recursive: true, force: true });
+  }
+}
+
+function buildConfigSample(): ServerConfigFile {
+  const config: Record<string, unknown> = {};
+  for (const field of SERVER_CONFIG_FIELDS) {
+    setConfigValue(config, field.path, getDefaultConfigSampleValue(field));
+  }
+  return config as ServerConfigFile;
+}
+
+function readRuntimeValue(
+  config: RuntimeConfig,
+  path: readonly [string, ...string[]],
+): unknown {
+  switch (path[0]) {
+    case "port":
+    case "globalAdminPort":
+      return getConfigValue(config as Record<string, unknown>, path);
+    case "security":
+      return getConfigValue(
+        config.securityConfig as Record<string, unknown>,
+        path.slice(1),
+      );
+    case "persistence":
+      return getConfigValue(
+        config.persistenceConfig as Record<string, unknown>,
+        path.slice(1),
+      );
+    case "adminUi":
+      return getConfigValue(
+        config.adminUiConfig as Record<string, unknown>,
+        path.slice(1),
+      );
   }
 }
 
@@ -267,5 +312,34 @@ test("runtime config resolves explicit config file path from env", async () => {
 
     assert.equal(config.port, 8787);
     assert.equal(config.globalAdminPort, 9123);
+  });
+});
+
+test("runtime config schema keeps file mapping and loaders in sync", async () => {
+  await withTempDir(async (tempDir) => {
+    const sampleConfig = buildConfigSample();
+    const configEnv = configFileToEnv(sampleConfig);
+
+    for (const field of SERVER_CONFIG_FIELDS) {
+      assert.ok(
+        configEnv[field.envName] !== undefined,
+        `missing env mapping for ${field.path.join(".")}`,
+      );
+    }
+
+    await writeFile(
+      join(tempDir, "server.config.json"),
+      JSON.stringify(sampleConfig),
+      "utf8",
+    );
+
+    const runtimeConfig = await loadRuntimeConfig({}, { cwd: tempDir });
+    for (const field of SERVER_CONFIG_FIELDS) {
+      assert.deepEqual(
+        readRuntimeValue(runtimeConfig, field.path),
+        getConfigValue(sampleConfig as Record<string, unknown>, field.path),
+        `runtime config drifted at ${field.path.join(".")}`,
+      );
+    }
   });
 });
