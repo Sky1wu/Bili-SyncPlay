@@ -679,10 +679,14 @@ export function createRoomService(options: {
           : "leave_room_persist_failed";
 
       if (removal.removed) {
-        const roomStillExists = await roomStore
-          .getRoom(roomCode)
-          .then((room) => room !== null)
-          .catch(() => false);
+        let roomStillExists: boolean;
+        try {
+          roomStillExists = (await roomStore.getRoom(roomCode)) !== null;
+        } catch {
+          // Cannot determine room status — err on the side of restoring to
+          // avoid leaving runtime and persistence out of sync.
+          roomStillExists = true;
+        }
 
         if (roomStillExists) {
           await restoreLeaveState({
