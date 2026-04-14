@@ -109,6 +109,8 @@ export function loadPersistenceConfig(
       defaults.roomCleanupIntervalMs,
     ),
     redisUrl: readTrimmedEnv(env, "REDIS_URL") ?? defaults.redisUrl,
+    redisNamespace:
+      readTrimmedEnv(env, "REDIS_NAMESPACE") ?? defaults.redisNamespace,
     instanceId: readTrimmedEnv(env, "INSTANCE_ID") ?? defaults.instanceId,
   };
 }

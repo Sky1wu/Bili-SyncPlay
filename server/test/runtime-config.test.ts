@@ -57,6 +57,7 @@ test("runtime config maps JSON file values through existing loaders", async () =
           nodeHeartbeatIntervalMs: 5000,
           nodeHeartbeatTtlMs: 15000,
           redisUrl: "redis://cache.internal:6379",
+          redisNamespace: "myapp",
           instanceId: "room-node-a",
         },
         adminUi: {
@@ -92,6 +93,7 @@ test("runtime config maps JSON file values through existing loaders", async () =
       config.persistenceConfig.redisUrl,
       "redis://cache.internal:6379",
     );
+    assert.equal(config.persistenceConfig.redisNamespace, "myapp");
     assert.equal(config.persistenceConfig.instanceId, "room-node-a");
     assert.deepEqual(config.adminUiConfig, {
       demoEnabled: true,
@@ -113,6 +115,7 @@ test("environment variables override config file values", async () => {
         persistence: {
           provider: "memory",
           instanceId: "room-node-a",
+          redisNamespace: "file-ns",
         },
       }),
       "utf8",
@@ -123,6 +126,7 @@ test("environment variables override config file values", async () => {
         PORT: "9002",
         TRUSTED_PROXY_ADDRESSES: "127.0.0.1, 127.0.0.2",
         ROOM_STORE_PROVIDER: "redis",
+        REDIS_NAMESPACE: "env-ns",
         INSTANCE_ID: "room-node-b",
       },
       { cwd: tempDir },
@@ -134,6 +138,7 @@ test("environment variables override config file values", async () => {
       "127.0.0.2",
     ]);
     assert.equal(config.persistenceConfig.provider, "redis");
+    assert.equal(config.persistenceConfig.redisNamespace, "env-ns");
     assert.equal(config.persistenceConfig.instanceId, "room-node-b");
   });
 });
@@ -216,6 +221,29 @@ test("runtime config reports invalid config field types", async () => {
       () => loadRuntimeConfig({}, { cwd: tempDir }),
       /security\.allowedOrigins/,
     );
+  });
+});
+
+test("redisNamespace is loaded from config file and passable through env override", async () => {
+  await withTempDir(async (tempDir) => {
+    await writeFile(
+      join(tempDir, "server.config.json"),
+      JSON.stringify({
+        persistence: {
+          redisNamespace: "from-file",
+        },
+      }),
+      "utf8",
+    );
+
+    const configFromFile = await loadRuntimeConfig({}, { cwd: tempDir });
+    assert.equal(configFromFile.persistenceConfig.redisNamespace, "from-file");
+
+    const configFromEnv = await loadRuntimeConfig(
+      { REDIS_NAMESPACE: "from-env" },
+      { cwd: tempDir },
+    );
+    assert.equal(configFromEnv.persistenceConfig.redisNamespace, "from-env");
   });
 });
 

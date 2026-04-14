@@ -46,6 +46,7 @@ type PersistenceConfigFile = {
   emptyRoomTtlMs?: number;
   roomCleanupIntervalMs?: number;
   redisUrl?: string;
+  redisNamespace?: string;
   instanceId?: string;
 };
 
@@ -213,6 +214,7 @@ function parseConfigFileShape(raw: unknown): ServerConfigFile {
       "emptyRoomTtlMs",
       "roomCleanupIntervalMs",
       "redisUrl",
+      "redisNamespace",
       "instanceId",
     ],
   );
@@ -341,6 +343,10 @@ function parseConfigFileShape(raw: unknown): ServerConfigFile {
           redisUrl: assertOptionalString(
             "persistence.redisUrl",
             persistence.redisUrl,
+          ),
+          redisNamespace: assertOptionalString(
+            "persistence.redisNamespace",
+            persistence.redisNamespace,
           ),
           instanceId: assertOptionalString(
             "persistence.instanceId",
@@ -523,6 +529,7 @@ export function configFileToEnv(fileConfig: ServerConfigFile): EnvSource {
     fileConfig.persistence?.roomCleanupIntervalMs,
   );
   setEnvValue(env, "REDIS_URL", fileConfig.persistence?.redisUrl);
+  setEnvValue(env, "REDIS_NAMESPACE", fileConfig.persistence?.redisNamespace);
   setEnvValue(env, "INSTANCE_ID", fileConfig.persistence?.instanceId);
   setEnvValue(env, "ADMIN_UI_DEMO_ENABLED", fileConfig.adminUi?.demoEnabled);
   setEnvValue(env, "GLOBAL_ADMIN_API_BASE_URL", fileConfig.adminUi?.apiBaseUrl);
