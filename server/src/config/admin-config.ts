@@ -1,11 +1,11 @@
 import type { AdminRole } from "../admin/types.js";
 import { type AdminConfig, type AdminUiConfig } from "../app.js";
 import type { EnvSource } from "./env.js";
+import { parsePositiveIntegerEnv, readTrimmedEnv } from "./env.js";
 import {
-  parseBooleanEnv,
-  parsePositiveIntegerEnv,
-  readTrimmedEnv,
-} from "./env.js";
+  ADMIN_UI_CONFIG_FIELDS,
+  loadSectionConfigFromEnv,
+} from "./runtime-config-schema.js";
 
 function parseAdminSessionStoreProvider(
   name: string,
@@ -61,10 +61,13 @@ export function loadAdminConfig(env: EnvSource = process.env): AdminConfig {
 }
 
 export function loadAdminUiConfig(env: EnvSource = process.env): AdminUiConfig {
-  const apiBaseUrl = readTrimmedEnv(env, "GLOBAL_ADMIN_API_BASE_URL");
-  return {
-    demoEnabled: parseBooleanEnv(env, "ADMIN_UI_DEMO_ENABLED", false),
-    apiBaseUrl: apiBaseUrl && apiBaseUrl.length > 0 ? apiBaseUrl : undefined,
-    enabled: parseBooleanEnv(env, "GLOBAL_ADMIN_ENABLED", true),
-  };
+  return loadSectionConfigFromEnv(
+    env,
+    {
+      demoEnabled: false,
+      apiBaseUrl: undefined,
+      enabled: true,
+    },
+    ADMIN_UI_CONFIG_FIELDS,
+  );
 }
