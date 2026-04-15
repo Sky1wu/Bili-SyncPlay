@@ -1545,3 +1545,195 @@ test("room service deduplicates repeated playback:update with the same seq", asy
   );
   assert.equal(second.ignored, true);
 });
+
+test("concurrent joins both succeed when room has capacity for all", async () => {
+  // Two sessions race to join the same room. withVersionRetry handles the
+  // version conflict on the second joiner's first attempt so both eventually
+  // land and the runtime has exactly owner + 2 members.
+  const roomStore = createInMemoryRoomStore({ now: () => 1_000 });
+  const activeRooms = createActiveRoomRegistry();
+  const service = createRoomService({
+    config: { ...getDefaultSecurityConfig(), maxMembersPerRoom: 8 },
+    persistence: getDefaultPersistenceConfig(),
+    roomStore,
+    activeRooms,
+    generateToken: (() => {
+      let id = 0;
+      return () => `token-${++id}`.padEnd(16, "x");
+    })(),
+    logEvent: (() => undefined) satisfies LogEvent,
+    now: () => 1_000,
+    createRoomCode: () => "ROOM15",
+  });
+
+  const owner = createSession("owner");
+  const created = await service.createRoomForSession(owner, "Alice");
+
+  const joinerA = createSession("joiner-a");
+  const joinerB = createSession("joiner-b");
+
+  const [resultA, resultB] = await Promise.all([
+    service.joinRoomForSession(
+      joinerA,
+      created.room.code,
+      created.room.joinToken,
+      "Bob",
+    ),
+    service.joinRoomForSession(
+      joinerB,
+      created.room.code,
+      created.room.joinToken,
+      "Carol",
+    ),
+  ]);
+
+  assert.ok(resultA.room);
+  assert.ok(resultB.room);
+
+  const runtimeRoom = activeRooms.getRoom(created.room.code);
+  assert.equal(runtimeRoom?.members.size, 3);
+});
+
+test("concurrent joins at capacity allow exactly one new member", async () => {
+  // With maxMembersPerRoom=2 (owner already occupies 1 slot), two sessions
+  // race for the single remaining slot. The optimistic-locking retry causes
+  // the second joiner to re-check capacity after the first has been added,
+  // at which point the room is full and the second gets a room_full error.
+  const roomStore = createInMemoryRoomStore({ now: () => 1_000 });
+  const activeRooms = createActiveRoomRegistry();
+  const service = createRoomService({
+    config: { ...getDefaultSecurityConfig(), maxMembersPerRoom: 2 },
+    persistence: getDefaultPersistenceConfig(),
+    roomStore,
+    activeRooms,
+    generateToken: (() => {
+      let id = 0;
+      return () => `token-${++id}`.padEnd(16, "x");
+    })(),
+    logEvent: (() => undefined) satisfies LogEvent,
+    now: () => 1_000,
+    createRoomCode: () => "ROOM16",
+  });
+
+  const owner = createSession("owner");
+  const created = await service.createRoomForSession(owner, "Alice");
+
+  const joinerA = createSession("joiner-a");
+  const joinerB = createSession("joiner-b");
+
+  const results = await Promise.allSettled([
+    service.joinRoomForSession(
+      joinerA,
+      created.room.code,
+      created.room.joinToken,
+      "Bob",
+    ),
+    service.joinRoomForSession(
+      joinerB,
+      created.room.code,
+      created.room.joinToken,
+      "Carol",
+    ),
+  ]);
+
+  const fulfilled = results.filter((r) => r.status === "fulfilled");
+  const rejected = results.filter((r) => r.status === "rejected");
+
+  assert.equal(fulfilled.length, 1, "exactly one joiner should succeed");
+  assert.equal(rejected.length, 1, "exactly one joiner should be rejected");
+  assert.match(
+    (rejected[0] as PromiseRejectedResult).reason.message,
+    /Room is full/,
+  );
+
+  const runtimeRoom = activeRooms.getRoom(created.room.code);
+  assert.equal(
+    runtimeRoom?.members.size,
+    2,
+    "runtime member count must not exceed maxMembersPerRoom",
+  );
+});
+
+test("concurrent playback updates produce consistent final state without errors", async () => {
+  // Two members simultaneously submit playback updates. Both calls must
+  // complete (one may be ignored by authority arbitration) and the final
+  // persisted room must contain one of the two submitted states — no
+  // partial writes or thrown errors.
+  const currentTime = 1_000;
+  const roomStore = createInMemoryRoomStore({ now: () => currentTime });
+  const activeRooms = createActiveRoomRegistry(() => currentTime);
+  const service = createRoomService({
+    config: getDefaultSecurityConfig(),
+    persistence: getDefaultPersistenceConfig(),
+    roomStore,
+    activeRooms,
+    generateToken: (() => {
+      let id = 0;
+      return () => `token-${++id}`.padEnd(16, "x");
+    })(),
+    logEvent: (() => undefined) satisfies LogEvent,
+    now: () => currentTime,
+    createRoomCode: () => "ROOM17",
+  });
+
+  const owner = createSession("owner");
+  const createdRoom = await service.createRoomForSession(owner, "Alice");
+  const joiner = createSession("joiner");
+  const joinedRoom = await service.joinRoomForSession(
+    joiner,
+    createdRoom.room.code,
+    createdRoom.room.joinToken,
+    "Bob",
+  );
+
+  await service.shareVideoForSession(
+    owner,
+    createdRoom.memberToken,
+    createSharedVideo(),
+  );
+
+  const ownerPlayback = createPlayback(owner.id, {
+    seq: 1,
+    playState: "playing",
+    currentTime: 10,
+    serverTime: 1_000,
+    updatedAt: 1_000,
+  });
+  const joinerPlayback = createPlayback(joiner.id, {
+    seq: 1,
+    playState: "paused",
+    currentTime: 20,
+    serverTime: 1_000,
+    updatedAt: 1_000,
+  });
+
+  const [ownerResult, joinerResult] = await Promise.all([
+    service.updatePlaybackForSession(
+      owner,
+      createdRoom.memberToken,
+      ownerPlayback,
+    ),
+    service.updatePlaybackForSession(
+      joiner,
+      joinedRoom.memberToken,
+      joinerPlayback,
+    ),
+  ]);
+
+  // At least one update must land; neither call may throw
+  const ownerLanded = !ownerResult.ignored && ownerResult.room !== null;
+  const joinerLanded = !joinerResult.ignored && joinerResult.room !== null;
+  assert.ok(
+    ownerLanded || joinerLanded,
+    "at least one playback update must be applied",
+  );
+
+  // Final persisted state must match one of the submitted playbacks
+  const finalRoom = await roomStore.getRoom(createdRoom.room.code);
+  assert.ok(finalRoom?.playback, "room must have a playback state");
+  const finalActorId = finalRoom.playback?.actorId;
+  assert.ok(
+    finalActorId === owner.id || finalActorId === joiner.id,
+    `final actorId ${finalActorId} must be one of the two actors`,
+  );
+});
