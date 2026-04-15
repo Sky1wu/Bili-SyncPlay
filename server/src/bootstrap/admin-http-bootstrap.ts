@@ -72,7 +72,6 @@ export async function createSharedAdminHttpBootstrap(args: {
     now: args.now,
     logEvent: args.logEvent,
   });
-  runtimeIndexReaper.start();
 
   const { adminRouter, close: closeAdminServices } = await createAdminServices({
     securityConfig: args.securityConfig,
@@ -100,6 +99,7 @@ export async function createSharedAdminHttpBootstrap(args: {
       adminUiConfig: args.adminUiConfig,
     }),
   );
+  runtimeIndexReaper.start();
 
   return {
     securityPolicy,
