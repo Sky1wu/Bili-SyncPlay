@@ -163,7 +163,7 @@ async function init(): Promise<void> {
   playbackBindingController.start();
   navigationController.start();
   window.addEventListener(
-    "beforeunload",
+    "pagehide",
     () => {
       syncController.destroy();
       playbackBindingController.destroy();
