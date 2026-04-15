@@ -1,3 +1,5 @@
+import { createStore, type StateStore } from "../shared/create-store";
+
 export interface PopupUiState {
   roomActionPending: boolean;
   lastKnownPendingCreateRoom: boolean;
@@ -11,11 +13,7 @@ export interface PopupUiState {
   popupPort: chrome.runtime.Port | null;
 }
 
-export interface PopupUiStateStore {
-  getState(): PopupUiState;
-  patch(nextState: Partial<PopupUiState>): PopupUiState;
-  reset(): PopupUiState;
-}
+export type PopupUiStateStore = StateStore<PopupUiState>;
 
 export function createPopupUiState(): PopupUiState {
   return {
@@ -33,19 +31,5 @@ export function createPopupUiState(): PopupUiState {
 }
 
 export function createPopupUiStateStore(): PopupUiStateStore {
-  const state = createPopupUiState();
-
-  return {
-    getState() {
-      return state;
-    },
-    patch(nextState) {
-      Object.assign(state, nextState);
-      return state;
-    },
-    reset() {
-      Object.assign(state, createPopupUiState());
-      return state;
-    },
-  };
+  return createStore<PopupUiState>(createPopupUiState);
 }
