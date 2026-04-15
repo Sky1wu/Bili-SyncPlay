@@ -53,6 +53,7 @@ export interface SyncController {
   ): Promise<void>;
   hydrateRoomState(): Promise<void>;
   scheduleHydrationRetry(delayMs?: number): void;
+  destroy(): void;
 }
 
 export function createSyncController(args: {
@@ -78,8 +79,6 @@ export function createSyncController(args: {
     now?: number,
   ) => boolean;
   runtimeSendMessage: <T>(message: unknown) => Promise<T | null>;
-  getHydrateRetryTimer: () => number | null;
-  setHydrateRetryTimer: (timer: number | null) => void;
   getVideoElement: () => HTMLVideoElement | null;
   getCurrentPlaybackVideo: () => Promise<SharedVideo | null>;
   getSharedVideo: () => SharedVideo | null;
@@ -1474,8 +1473,6 @@ export function createSyncController(args: {
     debugLog: args.debugLog,
     shouldLogHeartbeat: args.shouldLogHeartbeat,
     runtimeSendMessage: args.runtimeSendMessage,
-    getHydrateRetryTimer: args.getHydrateRetryTimer,
-    setHydrateRetryTimer: args.setHydrateRetryTimer,
     getVideoElement: args.getVideoElement,
     getSharedVideo: args.getSharedVideo,
     normalizeUrl: args.normalizeUrl,
@@ -1510,5 +1507,6 @@ export function createSyncController(args: {
     applyRoomState: roomStateApplyController.applyRoomState,
     hydrateRoomState: roomStateApplyController.hydrateRoomState,
     scheduleHydrationRetry: roomStateApplyController.scheduleHydrationRetry,
+    destroy: roomStateApplyController.destroy,
   };
 }

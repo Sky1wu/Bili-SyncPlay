@@ -16,7 +16,6 @@ import { reportCurrentUser } from "./user-reporter";
 const normalizeUrl = normalizeSharedVideoUrl;
 let seq = 0;
 let lastBroadcastAt = 0;
-let hydrateRetryTimer: number | null = null;
 const lastAppliedVersionByActor = new Map<
   string,
   { serverTime: number; seq: number }
@@ -81,10 +80,6 @@ const syncController = createSyncController({
   debugLog,
   shouldLogHeartbeat,
   runtimeSendMessage,
-  getHydrateRetryTimer: () => hydrateRetryTimer,
-  setHydrateRetryTimer: (timer) => {
-    hydrateRetryTimer = timer;
-  },
   getVideoElement,
   getCurrentPlaybackVideo: () => shareController.getCurrentPlaybackVideo(),
   getSharedVideo: () => shareController.getSharedVideo(),
@@ -167,6 +162,9 @@ async function init(): Promise<void> {
   });
   playbackBindingController.start();
   navigationController.start();
+  window.addEventListener("beforeunload", () => syncController.destroy(), {
+    once: true,
+  });
   document.addEventListener("fullscreenchange", () => {
     toastPresenter.resetMountTarget();
   });

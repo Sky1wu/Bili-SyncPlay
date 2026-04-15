@@ -19,6 +19,7 @@ export interface RoomStateApplyController {
   ): Promise<void>;
   hydrateRoomState(): Promise<void>;
   scheduleHydrationRetry(delayMs?: number): void;
+  destroy(): void;
 }
 
 export function createRoomStateApplyController(args: {
@@ -37,8 +38,6 @@ export function createRoomStateApplyController(args: {
     now?: number,
   ) => boolean;
   runtimeSendMessage: <T>(message: unknown) => Promise<T | null>;
-  getHydrateRetryTimer: () => number | null;
-  setHydrateRetryTimer: (timer: number | null) => void;
   getVideoElement: () => HTMLVideoElement | null;
   getSharedVideo: () => SharedVideo | null;
   normalizeUrl: (url: string | undefined | null) => string | null;
@@ -103,6 +102,7 @@ export function createRoomStateApplyController(args: {
 }): RoomStateApplyController {
   const ignoredRoomStateLogState = { key: null as string | null, at: 0 };
   const nowOf = () => args.getNow?.() ?? Date.now();
+  let hydrateRetryTimer: number | null = null;
 
   /**
    * When hydrating an empty room, suppress autoplay only if the video was not
@@ -141,14 +141,14 @@ export function createRoomStateApplyController(args: {
   }
 
   function scheduleHydrationRetry(delayMs = 350): void {
-    if (args.getHydrateRetryTimer() !== null) {
+    if (hydrateRetryTimer !== null) {
       return;
     }
     const timer = window.setTimeout(() => {
-      args.setHydrateRetryTimer(null);
+      hydrateRetryTimer = null;
       void hydrateRoomState();
     }, delayMs);
-    args.setHydrateRetryTimer(timer);
+    hydrateRetryTimer = timer;
   }
 
   async function applyRoomState(
@@ -425,10 +425,9 @@ export function createRoomStateApplyController(args: {
   }
 
   async function hydrateRoomState(): Promise<void> {
-    const retryTimer = args.getHydrateRetryTimer();
-    if (retryTimer !== null) {
-      window.clearTimeout(retryTimer);
-      args.setHydrateRetryTimer(null);
+    if (hydrateRetryTimer !== null) {
+      window.clearTimeout(hydrateRetryTimer);
+      hydrateRetryTimer = null;
     }
 
     const response = await args.runtimeSendMessage<{
@@ -495,9 +494,17 @@ export function createRoomStateApplyController(args: {
     scheduleHydrationRetry(1500);
   }
 
+  function destroy(): void {
+    if (hydrateRetryTimer !== null) {
+      window.clearTimeout(hydrateRetryTimer);
+      hydrateRetryTimer = null;
+    }
+  }
+
   return {
     applyRoomState,
     hydrateRoomState,
     scheduleHydrationRetry,
+    destroy,
   };
 }
