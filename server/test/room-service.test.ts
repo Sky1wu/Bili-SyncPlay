@@ -3,6 +3,7 @@ import test from "node:test";
 import type { PlaybackState, SharedVideo } from "@bili-syncplay/protocol";
 import type { WebSocket } from "ws";
 import { createActiveRoomRegistry } from "../src/active-room-registry.js";
+import { createInMemoryRuntimeStore } from "../src/runtime-store.js";
 import {
   getDefaultPersistenceConfig,
   getDefaultSecurityConfig,
@@ -1592,6 +1593,16 @@ test("concurrent joins both succeed when room has capacity for all", async () =>
 
   const runtimeRoom = activeRooms.getRoom(created.room.code);
   assert.equal(runtimeRoom?.members.size, 3);
+
+  // Persisted room version must reflect exactly two successful updateRoom calls
+  // (one per joiner). Concurrent version-conflict retries must not skip a bump
+  // or produce a torn write.
+  const persistedRoom = await roomStore.getRoom(created.room.code);
+  assert.equal(
+    persistedRoom?.version,
+    2,
+    "persisted room version must be 2 after two concurrent joins",
+  );
 });
 
 test("concurrent joins at capacity allow exactly one new member", async () => {
@@ -1735,5 +1746,28 @@ test("concurrent playback updates produce consistent final state without errors"
   assert.ok(
     finalActorId === owner.id || finalActorId === joiner.id,
     `final actorId ${finalActorId} must be one of the two actors`,
+  );
+});
+
+test("tryClaimMessageSlot concurrent race allows exactly one caller to claim the slot", async () => {
+  // Two concurrent callers race to claim the same dedup slot. The in-memory
+  // store is synchronous under the hood, so the first Promise.resolve wins and
+  // the second sees the key already set. Exactly one must return true.
+  const store = createInMemoryRuntimeStore(() => 1_000);
+  const roomCode = "RACE01";
+  const key = "share:actor-x:https://example.com:0";
+  const expiresAt = 11_000;
+
+  const [first, second] = await Promise.all([
+    store.tryClaimMessageSlot(roomCode, key, expiresAt),
+    store.tryClaimMessageSlot(roomCode, key, expiresAt),
+  ]);
+
+  const claimed = [first, second].filter(Boolean);
+  assert.equal(
+    claimed.length,
+    1,
+    "exactly one concurrent claim must succeed; got: " +
+      JSON.stringify([first, second]),
   );
 });
