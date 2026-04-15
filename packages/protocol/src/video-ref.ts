@@ -93,7 +93,17 @@ export function parseBilibiliVideoRef(
         ? `${basePath}?p=${p}`
         : basePath;
     return { videoId, normalizedUrl };
-  } catch {
+  } catch (err) {
+    if (
+      typeof process === "undefined" ||
+      process.env.NODE_ENV !== "production"
+    ) {
+      console.debug(
+        "[bili-syncplay] parseBilibiliVideoRef: failed to parse URL",
+        url,
+        err,
+      );
+    }
     return null;
   }
 }
