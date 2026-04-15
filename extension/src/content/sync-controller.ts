@@ -1507,6 +1507,12 @@ export function createSyncController(args: {
     applyRoomState: roomStateApplyController.applyRoomState,
     hydrateRoomState: roomStateApplyController.hydrateRoomState,
     scheduleHydrationRetry: roomStateApplyController.scheduleHydrationRetry,
-    destroy: roomStateApplyController.destroy,
+    destroy() {
+      if (activeSoftApplyTimer !== null) {
+        window.clearTimeout(activeSoftApplyTimer);
+        activeSoftApplyTimer = null;
+      }
+      roomStateApplyController.destroy();
+    },
   };
 }

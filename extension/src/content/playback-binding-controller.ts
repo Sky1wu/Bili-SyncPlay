@@ -17,6 +17,7 @@ import type {
 export interface PlaybackBindingController {
   start(): void;
   attachPlaybackListeners(): void;
+  destroy(): void;
 }
 
 export function createPlaybackBindingController(args: {
@@ -412,5 +413,11 @@ export function createPlaybackBindingController(args: {
       }
     },
     attachPlaybackListeners,
+    destroy() {
+      if (videoBindingTimer !== null) {
+        window.clearInterval(videoBindingTimer);
+        videoBindingTimer = null;
+      }
+    },
   };
 }

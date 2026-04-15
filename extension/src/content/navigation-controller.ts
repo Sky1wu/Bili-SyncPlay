@@ -5,6 +5,7 @@ import {
 
 export interface NavigationController {
   start(): void;
+  destroy(): void;
 }
 
 export function createNavigationController(args: {
@@ -83,6 +84,12 @@ export function createNavigationController(args: {
           handlePotentialNavigation,
           args.intervalMs,
         );
+      }
+    },
+    destroy() {
+      if (navigationWatchTimer !== null) {
+        window.clearInterval(navigationWatchTimer);
+        navigationWatchTimer = null;
       }
     },
   };
