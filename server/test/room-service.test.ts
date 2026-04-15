@@ -1738,13 +1738,28 @@ test("concurrent playback updates produce consistent final state without errors"
     "at least one playback update must be applied",
   );
 
-  // Final persisted state must match one of the submitted playbacks
+  // Final persisted playback must equal one of the two submitted states in
+  // every field — not just actorId. A partial write (e.g. actorId from owner
+  // but currentTime/playState from joiner) would pass an actorId-only check
+  // but fail this full comparison.
+  // The service overwrites actorId = session.memberId (= session.id for fresh
+  // sessions) and serverTime = now() (= 1_000 in this test), so both values
+  // are identical to the submitted fixtures and a direct deepEqual is valid.
   const finalRoom = await roomStore.getRoom(createdRoom.room.code);
   assert.ok(finalRoom?.playback, "room must have a playback state");
-  const finalActorId = finalRoom.playback?.actorId;
+  const isOwnerPlayback =
+    finalRoom.playback?.actorId === owner.id &&
+    finalRoom.playback?.currentTime === ownerPlayback.currentTime &&
+    finalRoom.playback?.playState === ownerPlayback.playState &&
+    finalRoom.playback?.seq === ownerPlayback.seq;
+  const isJoinerPlayback =
+    finalRoom.playback?.actorId === joiner.id &&
+    finalRoom.playback?.currentTime === joinerPlayback.currentTime &&
+    finalRoom.playback?.playState === joinerPlayback.playState &&
+    finalRoom.playback?.seq === joinerPlayback.seq;
   assert.ok(
-    finalActorId === owner.id || finalActorId === joiner.id,
-    `final actorId ${finalActorId} must be one of the two actors`,
+    isOwnerPlayback || isJoinerPlayback,
+    `final playback must exactly match one submitted state, got: ${JSON.stringify(finalRoom.playback)}`,
   );
 });
 
