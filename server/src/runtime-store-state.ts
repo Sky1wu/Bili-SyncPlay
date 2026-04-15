@@ -112,24 +112,24 @@ export function removeMemberFromRoom(
   code: string,
   memberId: string,
   session?: Session,
-): { room: ActiveRoom | null; roomEmpty: boolean } {
+): { room: ActiveRoom | null; roomEmpty: boolean; removed: boolean } {
   const room = rooms.get(code) ?? null;
   if (!room) {
-    return { room: null, roomEmpty: true };
+    return { room: null, roomEmpty: true, removed: false };
   }
 
   if (session) {
     const currentSession = room.members.get(memberId);
     if (currentSession && currentSession !== session) {
-      return { room, roomEmpty: false };
+      return { room, roomEmpty: false, removed: false };
     }
   }
 
-  room.members.delete(memberId);
+  const existed = room.members.delete(memberId);
   room.memberTokens.delete(memberId);
   const roomEmpty = room.members.size === 0;
   if (roomEmpty) {
     rooms.delete(code);
   }
-  return { room: roomEmpty ? null : room, roomEmpty };
+  return { room: roomEmpty ? null : room, roomEmpty, removed: existed };
 }
