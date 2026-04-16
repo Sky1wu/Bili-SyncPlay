@@ -560,7 +560,9 @@ export function createPageLoaders(options) {
           bindRoomsListEvents(
             {
               document,
+              location,
               history,
+              state,
               routeHref,
               withDemoQuery,
               serializeQuery,
