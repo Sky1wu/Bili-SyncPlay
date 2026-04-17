@@ -116,7 +116,7 @@ export function createRoomService(options: {
   ) => Promise<{ room: PersistedRoom; memberToken: string }>;
   leaveRoomForSession: (
     session: Session,
-  ) => Promise<{ room: PersistedRoom | null }>;
+  ) => Promise<{ room: PersistedRoom | null; notifyRoom?: boolean }>;
   shareVideoForSession: (
     session: Session,
     memberToken: string,
@@ -598,9 +598,20 @@ export function createRoomService(options: {
     previousSession.socket.close(1000, "Session replaced");
   }
 
+  function isSessionSocketOpen(session: Session): boolean {
+    if (!hasAttachedSocket(session)) {
+      return false;
+    }
+    const { readyState, OPEN } = session.socket;
+    if (readyState === undefined || OPEN === undefined) {
+      return true;
+    }
+    return readyState === OPEN;
+  }
+
   async function leaveCurrentRoom(
     session: Session,
-  ): Promise<{ room: PersistedRoom | null }> {
+  ): Promise<{ room: PersistedRoom | null; notifyRoom?: boolean }> {
     if (!session.roomCode) {
       return { room: null };
     }
@@ -678,32 +689,70 @@ export function createRoomService(options: {
           ? error.details.reason
           : "leave_room_persist_failed";
 
-      if (removal.removed) {
-        let roomStillExists: boolean;
-        try {
-          roomStillExists = (await roomStore.getRoom(roomCode)) !== null;
-        } catch {
-          // Cannot determine room status — err on the side of restoring to
-          // avoid leaving runtime and persistence out of sync.
-          roomStillExists = true;
-        }
+      let swallowWithNotifyRoom = false;
 
-        if (roomStillExists) {
-          await restoreLeaveState({
-            session,
-            snapshot: sessionSnapshot,
-            roomCode,
-            reason,
-            error,
-          });
-        } else {
+      if (removal.removed) {
+        if (!isSessionSocketOpen(session)) {
+          // Socket already closed — re-adding would leave zombie entries in
+          // `rooms[code].members` because `unregisterSession` does not clean
+          // that map. Skip restore and let cleanup finish.
           logEvent("room_leave_recovery_skipped", {
             sessionId: session.id,
             roomCode,
             remoteAddress: session.remoteAddress,
             origin: session.origin,
-            reason: "room_deleted",
+            reason: "socket_detached",
           });
+          if (removal.roomEmpty) {
+            // Emptying-leave plus failed expiry write may leave the persisted
+            // room without `expiresAt`, so the reaper won't collect it. We
+            // can NOT force-delete here: the expiry write could have failed
+            // due to a version conflict caused by a concurrent join, in
+            // which case the room is no longer empty and deletion would
+            // erase an active room. Surface the condition so operators /
+            // reaper can reconcile.
+            logEvent("room_leave_orphan_possible", {
+              sessionId: session.id,
+              roomCode,
+              remoteAddress: session.remoteAddress,
+              origin: session.origin,
+              provider: persistence.provider,
+              reason,
+            });
+          } else {
+            // Other members are still in the room and the runtime reflects
+            // the leave. Swallow the persistence error and have the caller
+            // broadcast `room_member_changed` so clients don't see a stale
+            // roster until the next unrelated room event.
+            swallowWithNotifyRoom = true;
+          }
+        } else {
+          let roomStillExists: boolean;
+          try {
+            roomStillExists = (await roomStore.getRoom(roomCode)) !== null;
+          } catch {
+            // Cannot determine room status — err on the side of restoring to
+            // avoid leaving runtime and persistence out of sync.
+            roomStillExists = true;
+          }
+
+          if (roomStillExists) {
+            await restoreLeaveState({
+              session,
+              snapshot: sessionSnapshot,
+              roomCode,
+              reason,
+              error,
+            });
+          } else {
+            logEvent("room_leave_recovery_skipped", {
+              sessionId: session.id,
+              roomCode,
+              remoteAddress: session.remoteAddress,
+              origin: session.origin,
+              reason: "room_deleted",
+            });
+          }
         }
       }
 
@@ -717,6 +766,10 @@ export function createRoomService(options: {
         reason,
         error: error instanceof Error ? error.message : String(error),
       });
+
+      if (swallowWithNotifyRoom) {
+        return { room: null, notifyRoom: true };
+      }
 
       if (error instanceof RoomServiceError) {
         throw error;

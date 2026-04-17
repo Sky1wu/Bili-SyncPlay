@@ -45,7 +45,7 @@ export function createMessageHandler(options: {
     ) => Promise<{ room: { code: string }; memberToken: string }>;
     leaveRoomForSession: (
       session: Session,
-    ) => Promise<{ room: { code: string } | null }>;
+    ) => Promise<{ room: { code: string } | null; notifyRoom?: boolean }>;
     shareVideoForSession: (
       session: Session,
       memberToken: string,
@@ -114,8 +114,8 @@ export function createMessageHandler(options: {
 
   async function leaveRoom(session: Session): Promise<void> {
     const roomCode = session.roomCode;
-    const { room } = await roomService.leaveRoomForSession(session);
-    if (!roomCode || !room) {
+    const { room, notifyRoom } = await roomService.leaveRoomForSession(session);
+    if (!roomCode || (!room && !notifyRoom)) {
       return;
     }
     options.onRoomLeft?.(session, roomCode);
