@@ -1,4 +1,10 @@
-import type { PlaybackState, RoomState } from "@bili-syncplay/protocol";
+import {
+  isPlaybackState,
+  isSharedVideo,
+  type PlaybackState,
+  type RoomState,
+  type SharedVideo,
+} from "@bili-syncplay/protocol";
 
 export interface SharedVideoToastPayload {
   key: string;
@@ -91,6 +97,58 @@ export function isBackgroundPopupStateMessage(
     typeof (payload as { connected?: unknown }).connected === "boolean" &&
     typeof (payload as { serverUrl?: unknown }).serverUrl === "string"
   );
+}
+
+export interface ActiveVideoResponsePayload {
+  video: SharedVideo;
+  playback: PlaybackState | null;
+}
+
+export interface ActiveVideoResponse {
+  ok: boolean;
+  payload: ActiveVideoResponsePayload | null;
+  tabId: number | null;
+  error?: string;
+}
+
+export function isActiveVideoResponse(
+  value: unknown,
+): value is ActiveVideoResponse {
+  if (typeof value !== "object" || value === null) {
+    return false;
+  }
+  const record = value as {
+    ok?: unknown;
+    payload?: unknown;
+    tabId?: unknown;
+    error?: unknown;
+  };
+  if (typeof record.ok !== "boolean") {
+    return false;
+  }
+  if (record.tabId !== null && typeof record.tabId !== "number") {
+    return false;
+  }
+  if (record.error !== undefined && typeof record.error !== "string") {
+    return false;
+  }
+  if (record.payload === null) {
+    return true;
+  }
+  if (typeof record.payload !== "object") {
+    return false;
+  }
+  const payload = record.payload as {
+    video?: unknown;
+    playback?: unknown;
+  };
+  if (!isSharedVideo(payload.video)) {
+    return false;
+  }
+  if (payload.playback !== null && !isPlaybackState(payload.playback)) {
+    return false;
+  }
+  return true;
 }
 
 export type BackgroundToContentMessage =

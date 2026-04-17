@@ -3,7 +3,7 @@ import { getUiLanguage, t } from "../shared/i18n";
 import { areSharedVideoUrlsEqual } from "../shared/url";
 import { parseInviteValue } from "./helpers";
 import { formatInviteDraft } from "./popup-render";
-import { sendPopupAction } from "./popup-port";
+import { sendPopupAction, sendPopupActiveVideoQuery } from "./popup-port";
 import type { PopupUiStateStore } from "./popup-store";
 import {
   syncServerUrlDraft,
@@ -212,20 +212,26 @@ export function bindPopupActions(args: {
 
   async function handleShareCurrentVideo(): Promise<void> {
     const state = args.getPopupState() ?? (await args.queryState());
-    const activeVideo = await chrome.runtime.sendMessage({
-      type: "popup:get-active-video",
-    });
-    if (!activeVideo?.ok || !activeVideo.payload?.video) {
+    let activeVideo;
+    try {
+      activeVideo = await sendPopupActiveVideoQuery();
+    } catch (error) {
+      void args.sendPopupLog(
+        `popup:get-active-video response guard rejected: ${error instanceof Error ? error.message : String(error)}`,
+      );
+      if (args.getPopupState()) {
+        args.render();
+      }
+      return;
+    }
+    if (!activeVideo.ok || !activeVideo.payload) {
       if (args.getPopupState()) {
         args.render();
       }
       return;
     }
 
-    const currentVideo = activeVideo.payload.video as {
-      title: string;
-      url: string;
-    };
+    const currentVideo = activeVideo.payload.video;
     if (!state.roomCode) {
       const shouldCreateRoom = window.confirm(
         t("confirmCreateRoomBeforeShare"),

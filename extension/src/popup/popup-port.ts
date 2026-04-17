@@ -1,9 +1,13 @@
 import type {
+  ActiveVideoResponse,
   BackgroundPopupState,
   BackgroundToPopupMessage,
   PopupToBackgroundMessage,
 } from "../shared/messages";
-import { isBackgroundPopupStateMessage } from "../shared/messages";
+import {
+  isActiveVideoResponse,
+  isBackgroundPopupStateMessage,
+} from "../shared/messages";
 
 export async function queryPopupState(): Promise<BackgroundPopupState> {
   const response: unknown = await chrome.runtime.sendMessage({
@@ -27,6 +31,18 @@ export async function sendPopupAction(
     );
   }
   return response.payload;
+}
+
+export async function sendPopupActiveVideoQuery(): Promise<ActiveVideoResponse> {
+  const response: unknown = await chrome.runtime.sendMessage({
+    type: "popup:get-active-video",
+  });
+  if (!isActiveVideoResponse(response)) {
+    throw new Error(
+      `Unexpected response to popup:get-active-video: ${JSON.stringify(response)}`,
+    );
+  }
+  return response;
 }
 
 export function connectPopupStatePort(args: {
