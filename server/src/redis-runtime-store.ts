@@ -170,6 +170,10 @@ function nodeStatusKey(prefix: string, instanceId: string): string {
 
 const DEFAULT_MAX_PENDING_OPERATIONS = 256;
 const DEFAULT_PENDING_OPERATION_TIMEOUT_MS = 5_000;
+// Floor TTL applied only when the caller's expiresAt is already non-positive
+// (GC pause, event-loop jitter, clock drift). Positive but small TTLs are
+// respected as-is so callers retain control over the dedup window semantics.
+const DEDUP_SLOT_MIN_TTL_MS = 1_000;
 
 function serializeSession(session: Session): RedisRuntimeSession {
   return {
@@ -650,8 +654,25 @@ export async function createRedisRuntimeStore(
       key: string,
       expiresAt: number,
     ) {
-      const ttlMs = Math.max(0, expiresAt - now());
-      if (ttlMs === 0) return true;
+      const currentTime = now();
+      const requestedTtlMs = expiresAt - currentTime;
+      let ttlMs: number;
+      if (requestedTtlMs <= 0) {
+        ttlMs = DEDUP_SLOT_MIN_TTL_MS;
+        console.log(
+          JSON.stringify({
+            event: "dedup_slot_ttl_clamped",
+            timestamp: new Date(currentTime).toISOString(),
+            roomCode,
+            key,
+            requestedTtlMs,
+            appliedTtlMs: ttlMs,
+          }),
+        );
+      } else {
+        ttlMs = requestedTtlMs;
+      }
+      const effectiveExpiresAt = Math.max(expiresAt, currentTime + ttlMs);
       const slotKey = dedupSlotKey(keyPrefix, roomCode, key);
       const result = await redis.set(slotKey, "1", "NX", "PX", ttlMs);
       if (result !== null) {
@@ -660,7 +681,7 @@ export async function createRedisRuntimeStore(
           // Await so deleteRoom's ZRANGE always sees this entry.
           // If tracking fails, the slot still expires via its TTL.
           await Promise.all([
-            redis.zadd(trackingKey, String(expiresAt), slotKey),
+            redis.zadd(trackingKey, String(effectiveExpiresAt), slotKey),
             redis.zremrangebyscore(trackingKey, 0, now() - 1),
           ]);
         } catch {
