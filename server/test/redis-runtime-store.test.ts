@@ -379,9 +379,13 @@ test("redis runtime store clamps dedup slot TTL to a floor when expiresAt is alr
       .find((entry) => entry?.event === "dedup_slot_ttl_clamped");
     assert.ok(clampLog, "expected dedup_slot_ttl_clamped event to be logged");
     assert.equal(clampLog.roomCode, "ROOMXX");
-    assert.equal(clampLog.key, "share:actor:url:1");
     assert.equal(clampLog.requestedTtlMs, -10);
     assert.equal(clampLog.appliedTtlMs, 1_000);
+    // Raw key must not be logged (contains caller URL + actor id).
+    assert.equal(clampLog.key, undefined);
+    assert.equal(clampLog.keyKind, "share");
+    assert.equal(typeof clampLog.keyHash, "string");
+    assert.match(clampLog.keyHash as string, /^[0-9a-f]{16}$/);
   } finally {
     console.log = originalLog;
     await store.close();

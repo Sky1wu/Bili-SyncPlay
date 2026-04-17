@@ -1,3 +1,4 @@
+import { createHash } from "node:crypto";
 import { Redis } from "ioredis";
 import type { ActiveRoom, ClusterNodeStatus, Session } from "./types.js";
 import {
@@ -659,12 +660,22 @@ export async function createRedisRuntimeStore(
       let ttlMs: number;
       if (requestedTtlMs <= 0) {
         ttlMs = DEDUP_SLOT_MIN_TTL_MS;
+        // Redact the slot key before logging: its body contains caller-provided
+        // URLs and actor/session identifiers. Keep only the non-sensitive kind
+        // prefix (before the first ':') and a short hash for correlation.
+        const colonIndex = key.indexOf(":");
+        const keyKind = colonIndex === -1 ? key : key.slice(0, colonIndex);
+        const keyHash = createHash("sha256")
+          .update(key)
+          .digest("hex")
+          .slice(0, 16);
         console.log(
           JSON.stringify({
             event: "dedup_slot_ttl_clamped",
             timestamp: new Date(currentTime).toISOString(),
             roomCode,
-            key,
+            keyKind,
+            keyHash,
             requestedTtlMs,
             appliedTtlMs: ttlMs,
           }),
