@@ -116,7 +116,7 @@ export function createRoomService(options: {
   ) => Promise<{ room: PersistedRoom; memberToken: string }>;
   leaveRoomForSession: (
     session: Session,
-  ) => Promise<{ room: PersistedRoom | null }>;
+  ) => Promise<{ room: PersistedRoom | null; notifyRoom?: boolean }>;
   shareVideoForSession: (
     session: Session,
     memberToken: string,
@@ -611,7 +611,7 @@ export function createRoomService(options: {
 
   async function leaveCurrentRoom(
     session: Session,
-  ): Promise<{ room: PersistedRoom | null }> {
+  ): Promise<{ room: PersistedRoom | null; notifyRoom?: boolean }> {
     if (!session.roomCode) {
       return { room: null };
     }
@@ -689,6 +689,8 @@ export function createRoomService(options: {
           ? error.details.reason
           : "leave_room_persist_failed";
 
+      let swallowWithNotifyRoom = false;
+
       if (removal.removed) {
         if (!isSessionSocketOpen(session)) {
           // Socket already closed — re-adding would leave zombie entries in
@@ -701,13 +703,14 @@ export function createRoomService(options: {
             origin: session.origin,
             reason: "socket_detached",
           });
-          // Emptying-leave plus failed expiry write may leave the persisted
-          // room without `expiresAt`, so the reaper won't collect it. We can
-          // NOT force-delete here: the expiry write could have failed due to
-          // a version conflict caused by a concurrent join, in which case
-          // the room is no longer empty and deletion would erase an active
-          // room. Surface the condition so operators/reaper can reconcile.
           if (removal.roomEmpty) {
+            // Emptying-leave plus failed expiry write may leave the persisted
+            // room without `expiresAt`, so the reaper won't collect it. We
+            // can NOT force-delete here: the expiry write could have failed
+            // due to a version conflict caused by a concurrent join, in
+            // which case the room is no longer empty and deletion would
+            // erase an active room. Surface the condition so operators /
+            // reaper can reconcile.
             logEvent("room_leave_orphan_possible", {
               sessionId: session.id,
               roomCode,
@@ -716,6 +719,12 @@ export function createRoomService(options: {
               provider: persistence.provider,
               reason,
             });
+          } else {
+            // Other members are still in the room and the runtime reflects
+            // the leave. Swallow the persistence error and have the caller
+            // broadcast `room_member_changed` so clients don't see a stale
+            // roster until the next unrelated room event.
+            swallowWithNotifyRoom = true;
           }
         } else {
           let roomStillExists: boolean;
@@ -757,6 +766,10 @@ export function createRoomService(options: {
         reason,
         error: error instanceof Error ? error.message : String(error),
       });
+
+      if (swallowWithNotifyRoom) {
+        return { room: null, notifyRoom: true };
+      }
 
       if (error instanceof RoomServiceError) {
         throw error;
