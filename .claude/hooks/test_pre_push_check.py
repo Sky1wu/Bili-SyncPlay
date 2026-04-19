@@ -14,7 +14,7 @@ SPEC.loader.exec_module(MODULE)
 
 class PushTargetsTest(unittest.TestCase):
     def setUp(self) -> None:
-        self.hook_cwd = Path("/workspace/Bili-SyncPlay")
+        self.hook_cwd = MODULE.OUR_REPO
 
     def test_ignores_git_push_used_as_argument(self) -> None:
         self.assertEqual(MODULE.push_targets("echo git push", self.hook_cwd), [])
@@ -29,10 +29,14 @@ class PushTargetsTest(unittest.TestCase):
 
     def test_tracks_cd_for_following_segments(self) -> None:
         self.assertEqual(
-            MODULE.push_targets(
-                "cd packages/server && git push origin HEAD", self.hook_cwd
-            ),
-            [self.hook_cwd / "packages/server"],
+            MODULE.push_targets("cd server && git push origin HEAD", self.hook_cwd),
+            [self.hook_cwd / "server"],
+        )
+
+    def test_keeps_cwd_when_cd_target_does_not_exist(self) -> None:
+        self.assertEqual(
+            MODULE.push_targets("cd /not/exist; git push origin HEAD", self.hook_cwd),
+            [self.hook_cwd],
         )
 
     def test_preserves_outer_cwd_after_subshell(self) -> None:
@@ -43,16 +47,14 @@ class PushTargetsTest(unittest.TestCase):
 
     def test_detects_git_c_push_from_outside_repo(self) -> None:
         self.assertEqual(
-            MODULE.push_targets(
-                "git -C /workspace/Bili-SyncPlay push origin HEAD", Path("/tmp")
-            ),
+            MODULE.push_targets(f"git -C {self.hook_cwd} push origin HEAD", Path("/tmp")),
             [self.hook_cwd],
         )
 
     def test_rebases_relative_git_dir_against_git_cwd(self) -> None:
         self.assertEqual(
             MODULE.push_targets(
-                "git -C /workspace/Bili-SyncPlay --git-dir .git push",
+                f"git -C {self.hook_cwd} --git-dir .git push",
                 Path("/tmp"),
             ),
             [self.hook_cwd],
@@ -61,9 +63,21 @@ class PushTargetsTest(unittest.TestCase):
     def test_rebases_relative_work_tree_against_git_cwd(self) -> None:
         self.assertEqual(
             MODULE.push_targets(
-                "git -C /workspace/Bili-SyncPlay --work-tree . push",
+                f"git -C {self.hook_cwd} --work-tree . push",
                 Path("/tmp"),
             ),
+            [self.hook_cwd],
+        )
+
+    def test_detects_push_through_env_prefix(self) -> None:
+        self.assertEqual(
+            MODULE.push_targets("env FOO=1 git push origin HEAD", self.hook_cwd),
+            [self.hook_cwd],
+        )
+
+    def test_detects_push_through_command_prefix(self) -> None:
+        self.assertEqual(
+            MODULE.push_targets("command git push origin HEAD", self.hook_cwd),
             [self.hook_cwd],
         )
 

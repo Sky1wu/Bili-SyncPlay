@@ -38,6 +38,7 @@ GIT_FLAGS_WITH_ARG = {
 }
 
 ASSIGNMENT_RE = re.compile(r"[A-Za-z_][A-Za-z0-9_]*=.*")
+ENV_FLAGS_WITH_ARG = {"-u", "--unset", "--chdir", "-C"}
 
 
 def _walk_events(cmd: str) -> list[tuple[str, str]]:
@@ -119,8 +120,48 @@ def _command_start(tokens: list[str]) -> int | None:
     return i if i < len(tokens) else None
 
 
+def _unwrap_shell_prefix(tokens: list[str], start: int) -> int | None:
+    i = start
+    while i < len(tokens):
+        executable = tokens[i]
+        if executable == "env":
+            i += 1
+            while i < len(tokens):
+                token = tokens[i]
+                if ASSIGNMENT_RE.fullmatch(token):
+                    i += 1
+                    continue
+                if token == "--":
+                    i += 1
+                    break
+                if token.startswith("--unset=") or token.startswith("--chdir="):
+                    i += 1
+                    continue
+                if token in ENV_FLAGS_WITH_ARG:
+                    i += 2
+                    continue
+                if token.startswith("-"):
+                    i += 1
+                    continue
+                break
+            continue
+        if executable == "command":
+            i += 1
+            while i < len(tokens) and tokens[i].startswith("-"):
+                if tokens[i] == "--":
+                    i += 1
+                    break
+                i += 1
+            continue
+        return i if i < len(tokens) else None
+    return None
+
+
 def _git_push_target(tokens: list[str], running_cwd: Path) -> Path | None:
     start = _command_start(tokens)
+    if start is None:
+        return None
+    start = _unwrap_shell_prefix(tokens, start)
     if start is None:
         return None
 
@@ -183,7 +224,9 @@ def _segment_git_pushes(
         return [], running_cwd
 
     if tokens[start] == "cd" and start + 1 < len(tokens):
-        running_cwd = _resolve_path(tokens[start + 1], running_cwd)
+        candidate = _resolve_path(tokens[start + 1], running_cwd)
+        if candidate.is_dir():
+            running_cwd = candidate
         return [], running_cwd
 
     target = _git_push_target(tokens, running_cwd)
