@@ -111,7 +111,7 @@ def _walk_events(cmd: str) -> list[tuple[str, str]]:
 
 
 def _resolve_path(raw: str, cwd: Path) -> Path:
-    path = Path(raw)
+    path = Path(os.path.expanduser(raw))
     return path if path.is_absolute() else cwd / path
 
 
@@ -252,10 +252,21 @@ def _segment_git_pushes(
     if start is None:
         return [], running_cwd
 
-    if tokens[start] == "cd" and start + 1 < len(tokens):
-        candidate = _resolve_path(tokens[start + 1], running_cwd)
-        if candidate.is_dir():
-            running_cwd = candidate
+    if tokens[start] == "cd":
+        j = start + 1
+        while j < len(tokens) and tokens[j].startswith("-"):
+            if tokens[j] == "--":
+                j += 1
+                break
+            if tokens[j] == "-":
+                # `cd -` jumps to $OLDPWD; we cannot resolve that statically,
+                # so leave running_cwd untouched rather than guessing.
+                return [], running_cwd
+            j += 1
+        if j < len(tokens):
+            candidate = _resolve_path(tokens[j], running_cwd)
+            if candidate.is_dir():
+                running_cwd = candidate
         return [], running_cwd
 
     target = _git_push_target(tokens, running_cwd)

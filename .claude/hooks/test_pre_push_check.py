@@ -117,6 +117,51 @@ class PushTargetsTest(unittest.TestCase):
             [self.hook_cwd],
         )
 
+    def test_parses_cd_double_dash_before_path(self) -> None:
+        self.assertEqual(
+            MODULE.push_targets(
+                f"cd -- {self.hook_cwd} && git push origin HEAD",
+                Path("/tmp"),
+            ),
+            [self.hook_cwd],
+        )
+
+    def test_parses_cd_option_before_path(self) -> None:
+        self.assertEqual(
+            MODULE.push_targets(
+                f"cd -P {self.hook_cwd} && git push origin HEAD",
+                Path("/tmp"),
+            ),
+            [self.hook_cwd],
+        )
+
+    def test_cd_dash_leaves_cwd_unchanged(self) -> None:
+        # `cd -` swaps to $OLDPWD; we cannot know it, so keep the current cwd
+        # and evaluate the follow-up push against the hook cwd (our repo).
+        self.assertEqual(
+            MODULE.push_targets("cd - && git push origin HEAD", self.hook_cwd),
+            [self.hook_cwd],
+        )
+
+    def test_expands_tilde_in_resolve_path(self) -> None:
+        home = Path.home()
+        self.assertEqual(MODULE._resolve_path("~", Path("/tmp")), home)
+        self.assertEqual(MODULE._resolve_path("~/sub", Path("/tmp")), home / "sub")
+
+    def test_expands_tilde_in_git_c_from_outside_repo(self) -> None:
+        home = Path.home()
+        try:
+            rel = self.hook_cwd.relative_to(home)
+        except ValueError:
+            self.skipTest("repo is not under $HOME")
+        self.assertEqual(
+            MODULE.push_targets(
+                f"git -C ~/{rel} push origin HEAD",
+                Path("/tmp"),
+            ),
+            [self.hook_cwd],
+        )
+
 
 if __name__ == "__main__":
     unittest.main()
