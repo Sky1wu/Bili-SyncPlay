@@ -12,3 +12,5 @@ docs/
 !/.claude/skills/
 !/.claude/agents/
 !/.claude/commands/
+!/.claude/hooks/
+/.claude/hooks/__pycache__/
