@@ -301,26 +301,51 @@ def push_targets(cmd: str, hook_cwd: Path) -> list[Path]:
     affects commands within that subshell.
 
     Bash short-circuits `A && B` / `A || B`, so B may not run — and any
-    `cd` inside it may not apply. To avoid bypasses like
-    `false && cd /tmp; git push`, each `&&`/`||` records the cwd at that
-    point as an alternative; subsequent `git push` segments are evaluated
-    against the current cwd AND each alternative, union of targets.
+    `cd` inside the compound may not apply. To block bypasses like
+    `cd /tmp && git push; git push` (where the second push really could
+    run from the hook cwd if `cd /tmp` had failed), each `&&`/`||` records
+    the cwd **before** its left operand ran as a pending alternative.
+    Pending alts become active at the next non-short separator (`;`/`|`/
+    `&`/newline or a subshell boundary) — i.e. once the short-circuit
+    chain has fully merged — and apply to subsequent push evaluations.
+    Pushes that sit inside an active chain only see the current cwd; a
+    standalone `cd X && git push` therefore still resolves to just X.
     """
     targets: list[Path] = []
     cwd_stack: list[Path] = [hook_cwd]
-    alts_stack: list[list[Path]] = [[]]
+    prev_cwd_stack: list[Path] = [hook_cwd]
+    active_alts_stack: list[list[Path]] = [[]]
+    pending_alts_stack: list[list[Path]] = [[]]
+    last_short_stack: list[bool] = [False]
+
+    def commit_pending() -> None:
+        active_alts_stack[-1].extend(pending_alts_stack[-1])
+        pending_alts_stack[-1] = []
+
     for kind, payload in _walk_events(cmd):
         if kind == "open":
             cwd_stack.append(cwd_stack[-1])
-            alts_stack.append([])
+            prev_cwd_stack.append(cwd_stack[-1])
+            active_alts_stack.append([])
+            pending_alts_stack.append([])
+            last_short_stack.append(False)
             continue
         if kind == "close":
             if len(cwd_stack) > 1:
                 cwd_stack.pop()
-                alts_stack.pop()
+                prev_cwd_stack.pop()
+                active_alts_stack.pop()
+                pending_alts_stack.pop()
+                last_short_stack.pop()
+            # Subshell behaves like a completed seg at the outer scope:
+            # cwd is unchanged, and whatever `&&`/`||` led here is now
+            # past its left operand.
+            prev_cwd_stack[-1] = cwd_stack[-1]
+            last_short_stack[-1] = False
             continue
         if kind == "short":
-            alts_stack[-1].append(cwd_stack[-1])
+            pending_alts_stack[-1].append(prev_cwd_stack[-1])
+            last_short_stack[-1] = True
             continue
         seg = payload.strip()
         if not seg:
@@ -329,15 +354,19 @@ def push_targets(cmd: str, hook_cwd: Path) -> list[Path]:
             tokens = shlex.split(seg)
         except ValueError:
             continue
+        if not last_short_stack[-1]:
+            commit_pending()
         cwd = cwd_stack[-1]
         seg_targets, new_cwd = _segment_git_pushes(tokens, cwd)
         targets.extend(seg_targets)
-        for alt in alts_stack[-1]:
+        for alt in active_alts_stack[-1]:
             if alt == cwd:
                 continue
             alt_targets, _ = _segment_git_pushes(tokens, alt)
             targets.extend(alt_targets)
         cwd_stack[-1] = new_cwd
+        prev_cwd_stack[-1] = cwd
+        last_short_stack[-1] = False
     return targets
 
 

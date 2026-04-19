@@ -207,6 +207,29 @@ class PushTargetsTest(unittest.TestCase):
         )
         self.assertIn(self.hook_cwd, targets)
 
+    def test_short_circuit_alt_applies_to_post_compound_push(self) -> None:
+        # `cd /tmp && git push; git push` — the SECOND push runs regardless
+        # of whether `cd /tmp` succeeded, so its cwd could still be the
+        # original hook cwd (our repo). The alt must only kick in after the
+        # compound merges, not inside the chain.
+        targets = MODULE.push_targets(
+            "cd /tmp && git push origin HEAD; git push origin HEAD",
+            self.hook_cwd,
+        )
+        self.assertIn(self.hook_cwd, targets)
+
+    def test_short_circuit_chain_push_does_not_overreport(self) -> None:
+        # `cd server && git push` — the push runs only if cd succeeded, so
+        # the only real target is <repo>/server. We must not leak an alt
+        # into the in-chain push (that was the source of the regression).
+        self.assertEqual(
+            MODULE.push_targets(
+                "cd server && git push origin HEAD",
+                self.hook_cwd,
+            ),
+            [self.hook_cwd / "server"],
+        )
+
 
 if __name__ == "__main__":
     unittest.main()
