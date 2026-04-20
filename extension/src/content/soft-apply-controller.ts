@@ -175,15 +175,19 @@ export function createSoftApplyController(args: {
       return;
     }
     const timeoutMs = computeSoftApplyTimeoutMs(remainingDriftSeconds);
+    const restorePlaybackRate =
+      activeSoftApply && activeSoftApply.normalizedUrl === normalizedUrl
+        ? activeSoftApply.restorePlaybackRate
+        : playback.playbackRate;
     activeSoftApply = {
       normalizedUrl,
       targetTime: playback.currentTime,
-      restorePlaybackRate: playback.playbackRate,
+      restorePlaybackRate,
       deadlineAt: nowOf() + timeoutMs,
     };
     scheduleActiveSoftApplyTimeout();
     args.debugLog(
-      `Started soft apply url=${normalizedUrl} target=${playback.currentTime.toFixed(2)} rate=${playback.playbackRate.toFixed(2)} timeout=${timeoutMs}`,
+      `Started soft apply url=${normalizedUrl} target=${playback.currentTime.toFixed(2)} rate=${restorePlaybackRate.toFixed(2)} timeout=${timeoutMs}`,
     );
   }
 
