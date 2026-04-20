@@ -264,6 +264,7 @@ export async function createServerBootstrapContext(
     options.useMirroredRuntimeStore && sharedRuntimeStore !== localRuntimeStore
       ? createMirroredRuntimeStore(localRuntimeStore, sharedRuntimeStore)
       : sharedRuntimeStore;
+  metricsCollector.bindRuntimeStore(runtimeStore);
   const adminCommandBus =
     persistenceConfig.adminCommandBusProvider === "redis"
       ? await createRedisAdminCommandBus(persistenceConfig.redisUrl, {

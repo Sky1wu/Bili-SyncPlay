@@ -85,3 +85,47 @@ test("metrics collector renders event counters, histograms, and redis failure co
     true,
   );
 });
+
+test("metrics collector can rebind to the effective runtime store", async () => {
+  const localRuntimeStore = createInMemoryRuntimeStore(() => 0);
+  const sharedRuntimeStore = createInMemoryRuntimeStore(() => 0);
+  const metrics = createMetricsCollector({
+    runtimeStore: localRuntimeStore,
+    roomStore: {
+      async countRooms() {
+        return 0;
+      },
+    } as never,
+  });
+
+  sharedRuntimeStore.registerSession({
+    id: "shared-session",
+    connectionState: "detached",
+    socket: null,
+    instanceId: "instance-shared",
+    remoteAddress: "127.0.0.1",
+    origin: "chrome-extension://allowed-extension",
+    roomCode: null,
+    memberId: null,
+    displayName: "Bob",
+    memberToken: null,
+    joinedAt: null,
+    invalidMessageCount: 0,
+    rateLimitState: {
+      roomCreate: { windowStart: 0, count: 0 },
+      roomJoin: { windowStart: 0, count: 0 },
+      videoShare: { windowStart: 0, count: 0 },
+      playbackUpdate: { tokens: 0, lastRefillAt: 0 },
+      syncRequest: { windowStart: 0, count: 0 },
+      syncPing: { tokens: 0, lastRefillAt: 0 },
+    },
+  });
+  sharedRuntimeStore.markSessionJoinedRoom("shared-session", "ROOM99");
+
+  metrics.bindRuntimeStore(sharedRuntimeStore);
+
+  const rendered = await metrics.render();
+
+  assert.equal(rendered.includes("bili_syncplay_connections 1"), true);
+  assert.equal(rendered.includes("bili_syncplay_active_rooms 1"), true);
+});

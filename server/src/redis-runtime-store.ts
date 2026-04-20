@@ -317,12 +317,20 @@ export async function createRedisRuntimeStore(
     operation: Promise<T>,
   ): Promise<T | undefined> {
     const startedAt = performance.now();
+    let failureRecorded = false;
+    const recordFailureOnce = () => {
+      if (failureRecorded) {
+        return;
+      }
+      failureRecorded = true;
+      metricsCollector?.observeRedisRuntimeStoreFailure(operationName);
+    };
     const trackedOperation = new Promise<T>((resolve, reject) => {
       const timeout = setTimeout(() => {
         const error = new Error(
           `Redis runtime store operation timed out: ${operationName}.`,
         );
-        metricsCollector?.observeRedisRuntimeStoreFailure(operationName);
+        recordFailureOnce();
         logPendingOperationError(
           {
             operationName,
@@ -341,7 +349,7 @@ export async function createRedisRuntimeStore(
         },
         (error: unknown) => {
           clearTimeout(timeout);
-          metricsCollector?.observeRedisRuntimeStoreFailure(operationName);
+          recordFailureOnce();
           logPendingOperationError(
             {
               operationName,

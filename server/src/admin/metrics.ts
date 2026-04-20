@@ -44,6 +44,7 @@ type CounterMetric = {
 };
 
 export type MetricsCollector = {
+  bindRuntimeStore: (runtimeStore: RuntimeStore) => void;
   recordEvent: (event: string) => void;
   observeMessageHandlerDuration: (
     messageType: MonitoredMessageType,
@@ -135,6 +136,7 @@ export function createMetricsCollector(options: {
   runtimeStore: RuntimeStore;
   roomStore: RoomStore;
 }): MetricsCollector {
+  let runtimeStore = options.runtimeStore;
   const eventCounter: CounterMetric = {
     help: "Total structured log events grouped by event name",
     samples: new Map(),
@@ -222,13 +224,13 @@ export function createMetricsCollector(options: {
       "# TYPE bili_syncplay_connections gauge",
       formatMetricLine(
         "bili_syncplay_connections",
-        options.runtimeStore.getConnectionCount(),
+        runtimeStore.getConnectionCount(),
       ),
       "# HELP bili_syncplay_active_rooms Current active room count",
       "# TYPE bili_syncplay_active_rooms gauge",
       formatMetricLine(
         "bili_syncplay_active_rooms",
-        options.runtimeStore.getActiveRoomCount(),
+        runtimeStore.getActiveRoomCount(),
       ),
       "# HELP bili_syncplay_rooms_non_expired Current non-expired room count",
       "# TYPE bili_syncplay_rooms_non_expired gauge",
@@ -315,6 +317,9 @@ export function createMetricsCollector(options: {
   }
 
   return {
+    bindRuntimeStore(nextRuntimeStore) {
+      runtimeStore = nextRuntimeStore;
+    },
     recordEvent(event) {
       incrementCounter(eventCounter, { event });
     },
