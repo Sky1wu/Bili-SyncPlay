@@ -184,6 +184,14 @@ export function bindPopupActions(args: {
     args.applyActionState(state);
     syncServerUrlDraft(args.serverUrlDraft, state.serverUrl);
     refs.serverUrlInput.value = state.serverUrl;
+    if (requestedServerUrl !== state.serverUrl && !state.error) {
+      patchUiState({
+        localStatusMessage: t("serverUrlAdjusted", {
+          resolved: state.serverUrl,
+        }),
+      });
+      return;
+    }
     args.render();
   };
 
