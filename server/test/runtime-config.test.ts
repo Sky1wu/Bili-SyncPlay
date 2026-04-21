@@ -10,6 +10,7 @@ import {
   setConfigValue,
 } from "../src/config/runtime-config-schema.js";
 import {
+  assertMetricsPortDoesNotCollide,
   configFileToEnv,
   type RuntimeConfig,
   loadRuntimeConfig,
@@ -42,6 +43,7 @@ function readRuntimeValue(
   switch (path[0]) {
     case "port":
     case "globalAdminPort":
+    case "metricsPort":
     case "logLevel":
       return getConfigValue(config as Record<string, unknown>, path);
     case "security":
@@ -74,11 +76,67 @@ test("runtime config falls back to defaults and env when config file is missing"
 
     assert.equal(config.port, 9001);
     assert.equal(config.globalAdminPort, 9001);
+    assert.equal(config.metricsPort, undefined);
     assert.equal(config.logLevel, "info");
     assert.equal(config.persistenceConfig.provider, "memory");
     assert.equal(config.adminUiConfig.enabled, false);
     assert.equal(config.adminConfig, null);
   });
+});
+
+test("runtime config loads METRICS_PORT from env and config file", async () => {
+  await withTempDir(async (tempDir) => {
+    const envConfig = await loadRuntimeConfig(
+      { METRICS_PORT: "9200" },
+      { cwd: tempDir },
+    );
+    assert.equal(envConfig.metricsPort, 9200);
+
+    await writeFile(
+      join(tempDir, "server.config.json"),
+      JSON.stringify({ metricsPort: 9300 }),
+      "utf8",
+    );
+    const fileConfig = await loadRuntimeConfig({}, { cwd: tempDir });
+    assert.equal(fileConfig.metricsPort, 9300);
+
+    const envOverride = await loadRuntimeConfig(
+      { METRICS_PORT: "9400" },
+      { cwd: tempDir },
+    );
+    assert.equal(envOverride.metricsPort, 9400);
+  });
+});
+
+test("runtime config keeps metricsPort undefined when METRICS_PORT is blank", async () => {
+  await withTempDir(async (tempDir) => {
+    const config = await loadRuntimeConfig(
+      { METRICS_PORT: "   " },
+      { cwd: tempDir },
+    );
+    assert.equal(config.metricsPort, undefined);
+  });
+});
+
+test("assertMetricsPortDoesNotCollide rejects configs where metrics matches the main port", () => {
+  assert.throws(
+    () => assertMetricsPortDoesNotCollide(8787, 8787, "PORT"),
+    /METRICS_PORT \(8787\) must not equal PORT \(8787\)\./,
+  );
+  assert.throws(
+    () => assertMetricsPortDoesNotCollide(9002, 9002, "GLOBAL_ADMIN_PORT"),
+    /METRICS_PORT \(9002\) must not equal GLOBAL_ADMIN_PORT \(9002\)\./,
+  );
+});
+
+test("assertMetricsPortDoesNotCollide allows undefined, mismatched, and ephemeral ports", () => {
+  assert.doesNotThrow(() =>
+    assertMetricsPortDoesNotCollide(undefined, 8787, "PORT"),
+  );
+  assert.doesNotThrow(() =>
+    assertMetricsPortDoesNotCollide(9100, 8787, "PORT"),
+  );
+  assert.doesNotThrow(() => assertMetricsPortDoesNotCollide(0, 0, "PORT"));
 });
 
 test("runtime config maps JSON file values through existing loaders", async () => {

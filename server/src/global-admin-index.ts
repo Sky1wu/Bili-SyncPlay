@@ -1,8 +1,12 @@
-import { loadRuntimeConfig } from "./config/runtime-config.js";
+import {
+  assertMetricsPortDoesNotCollide,
+  loadRuntimeConfig,
+} from "./config/runtime-config.js";
 import { createGlobalAdminServer } from "./global-admin-app.js";
 
 const {
   globalAdminPort: port,
+  metricsPort,
   logLevel,
   securityConfig,
   persistenceConfig,
@@ -10,7 +14,9 @@ const {
   adminUiConfig,
 } = await loadRuntimeConfig();
 
-const { httpServer } = await createGlobalAdminServer(
+assertMetricsPortDoesNotCollide(metricsPort, port, "GLOBAL_ADMIN_PORT");
+
+const { httpServer, metricsHttpServer } = await createGlobalAdminServer(
   securityConfig,
   persistenceConfig,
   {
@@ -20,6 +26,7 @@ const { httpServer } = await createGlobalAdminServer(
       enabled: true,
     },
     logLevel,
+    metricsPort,
   },
 );
 httpServer.listen(port, () => {
@@ -27,3 +34,17 @@ httpServer.listen(port, () => {
     `Bili-SyncPlay global admin listening on http://localhost:${port}`,
   );
 });
+if (metricsHttpServer && metricsPort !== undefined) {
+  metricsHttpServer.on("error", (error) => {
+    console.error(
+      `Bili-SyncPlay global admin metrics server failed to listen on ${metricsPort}:`,
+      error,
+    );
+    process.exit(1);
+  });
+  metricsHttpServer.listen(metricsPort, () => {
+    console.log(
+      `Bili-SyncPlay global admin metrics listening on http://localhost:${metricsPort}/metrics`,
+    );
+  });
+}
