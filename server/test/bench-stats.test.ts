@@ -2,7 +2,10 @@ import assert from "node:assert/strict";
 import test from "node:test";
 import { buildBenchmarkResult } from "../../bench/lib/cli.js";
 import { ensureRedis } from "../../bench/lib/redis-harness.js";
-import { runPlaybackBroadcastBenchmark } from "../../bench/lib/room-bench.js";
+import {
+  runPlaybackBroadcastBenchmark,
+  runReconnectStormBenchmark,
+} from "../../bench/lib/room-bench.js";
 import {
   calculateErrorRate,
   summarizeLatencies,
@@ -136,4 +139,18 @@ test("ensureRedis reports a controlled startup error when redis-server is unavai
       process.env.REDIS_URL = originalRedisUrl;
     }
   }
+});
+
+test("reconnect benchmark completion timestamp excludes cleanup overhead", async () => {
+  const benchmark = await runReconnectStormBenchmark({
+    memberCount: 4,
+    reconnectTimeoutMs: 3_000,
+  });
+
+  assert.equal(benchmark.attempted, 4);
+  assert.equal(
+    benchmark.completedAtMs - benchmark.startedAtMs < 3_000,
+    true,
+    "reconnect benchmark completion time should be recorded before async cleanup runs",
+  );
 });

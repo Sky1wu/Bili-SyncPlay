@@ -7,13 +7,19 @@ import {
 import {
   closeClient,
   connectClient,
-  createMessageCollector,
   createMultiNodeTestKit,
   MULTI_NODE_ALLOWED_ORIGIN,
 } from "../../server/test/multi-node-test-kit.js";
 import { type RawData } from "ws";
 
-type Collector = ReturnType<typeof createMessageCollector>;
+type Collector = {
+  next: (type: string, timeoutMs?: number) => Promise<Record<string, unknown>>;
+  maybeNext: (
+    type: string,
+    timeoutMs?: number,
+  ) => Promise<Record<string, unknown> | null>;
+  detach: () => void;
+};
 
 export type RoomParticipant = {
   displayName: string;
@@ -43,6 +49,43 @@ const SHARED_VIDEO_TITLE = "Benchmark Episode";
 
 function wait(ms: number) {
   return new Promise((resolve) => setTimeout(resolve, ms));
+}
+
+function createBenchMessageCollector(
+  socket: Awaited<ReturnType<typeof connectClient>>,
+): Collector {
+  const queuedMessages: Array<Record<string, unknown>> = [];
+  const listener = (raw: RawData) => {
+    queuedMessages.push(JSON.parse(raw.toString()) as Record<string, unknown>);
+  };
+  socket.on("message", listener);
+
+  return {
+    async next(type: string, timeoutMs = 2_000) {
+      const startedAt = Date.now();
+      while (Date.now() - startedAt < timeoutMs) {
+        const index = queuedMessages.findIndex(
+          (message) => message.type === type,
+        );
+        if (index >= 0) {
+          return queuedMessages.splice(index, 1)[0] as Record<string, unknown>;
+        }
+        await wait(10);
+      }
+      throw new Error(`Timed out waiting for message type ${type}`);
+    },
+    async maybeNext(type: string, timeoutMs = 200) {
+      try {
+        return await this.next(type, timeoutMs);
+      } catch {
+        return null;
+      }
+    },
+    detach() {
+      socket.off("message", listener);
+      queuedMessages.length = 0;
+    },
+  };
 }
 
 async function listenSingleNode(): Promise<BenchmarkServer> {
@@ -87,7 +130,7 @@ async function connectParticipants(
         displayName: `Bench Member ${String(index + 1).padStart(3, "0")}`,
         wsUrl,
         socket,
-        inbox: createMessageCollector(socket),
+        inbox: createBenchMessageCollector(socket),
       };
     }),
   );
@@ -270,6 +313,12 @@ export function attachPlaybackLatencyObservers(
   };
 }
 
+function detachParticipantCollectors(participants: RoomParticipant[]) {
+  for (const participant of participants) {
+    participant.inbox.detach();
+  }
+}
+
 export async function runPlaybackBroadcastBenchmark(input: {
   scenario: "single-node-room" | "redis-broadcast";
   memberCount: number;
@@ -288,6 +337,7 @@ export async function runPlaybackBroadcastBenchmark(input: {
     0,
     Math.min(input.watcherCount, environment.joiners.length),
   );
+  detachParticipantCollectors([environment.owner, ...environment.joiners]);
   const latencySamplesMs: number[] = [];
   const pendingWatchersBySeq = new Map<number, Set<number>>();
   const sentAtBySeq = new Map<number, number>();
@@ -419,16 +469,20 @@ export async function runReconnectStormBenchmark(input: {
   const latencySamplesMs: number[] = [];
   let completed = 0;
   let errors = 0;
+  let completedAtMs = startedAtMs;
+
+  detachParticipantCollectors([environment.owner, ...environment.joiners]);
 
   try {
     await Promise.all(
       seeds.map(async (seed) => {
         const reconnectStartedAtMs = Date.now();
         let socket: Awaited<ReturnType<typeof connectClient>> | undefined;
+        let inbox: Collector | undefined;
 
         try {
           socket = await connectClient(seed.wsUrl);
-          const inbox = createMessageCollector(socket);
+          inbox = createBenchMessageCollector(socket);
           socket.send(
             JSON.stringify({
               type: "room:join",
@@ -447,12 +501,14 @@ export async function runReconnectStormBenchmark(input: {
         } catch {
           errors += 1;
         } finally {
+          inbox?.detach?.();
           if (socket) {
             await closeClient(socket);
           }
         }
       }),
     );
+    completedAtMs = Date.now();
   } finally {
     await environment.cleanup();
   }
@@ -463,6 +519,6 @@ export async function runReconnectStormBenchmark(input: {
     errors,
     latencySamplesMs,
     startedAtMs,
-    completedAtMs: Date.now(),
+    completedAtMs,
   };
 }
