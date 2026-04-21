@@ -325,13 +325,17 @@ export async function runPlaybackBroadcastBenchmark(input: {
   try {
     for (let index = 0; index < totalUpdates; index += 1) {
       const seq = index + 2;
-      pendingWatchersBySeq.set(
-        seq,
-        new Set(Array.from({ length: watchers.length }, (_, id) => id)),
-      );
+      if (watchers.length > 0) {
+        pendingWatchersBySeq.set(
+          seq,
+          new Set(Array.from({ length: watchers.length }, (_, id) => id)),
+        );
+      }
 
       const sentAtMs = Date.now();
-      sentAtBySeq.set(seq, sentAtMs);
+      if (watchers.length > 0) {
+        sentAtBySeq.set(seq, sentAtMs);
+      }
       attempted += watchers.length;
 
       environment.owner.socket.send(

@@ -1,6 +1,7 @@
 import assert from "node:assert/strict";
 import test from "node:test";
 import { buildBenchmarkResult } from "../../bench/lib/cli.js";
+import { runPlaybackBroadcastBenchmark } from "../../bench/lib/room-bench.js";
 import {
   calculateErrorRate,
   summarizeLatencies,
@@ -76,4 +77,25 @@ test("benchmark result uses a stable JSON-friendly schema", () => {
     },
     notes: ["sampled watchers"],
   });
+});
+
+test("playback benchmark skips drain bookkeeping when no watchers are sampled", async () => {
+  const benchmark = await runPlaybackBroadcastBenchmark({
+    scenario: "single-node-room",
+    memberCount: 1,
+    durationSeconds: 0.1,
+    updatesPerSecond: 1,
+    watcherCount: 0,
+  });
+
+  assert.equal(benchmark.watcherCount, 0);
+  assert.equal(benchmark.attempted, 0);
+  assert.equal(benchmark.completed, 0);
+  assert.equal(benchmark.errors, 0);
+  assert.equal(benchmark.latencySamplesMs.length, 0);
+  assert.equal(
+    benchmark.completedAtMs - benchmark.startedAtMs < 3_000,
+    true,
+    "benchmark should not spend 5s draining empty pending watcher sets",
+  );
 });
