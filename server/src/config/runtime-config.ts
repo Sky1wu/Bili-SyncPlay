@@ -236,6 +236,22 @@ export function configFileToEnv(fileConfig: ServerConfigFile): EnvSource {
   return env;
 }
 
+export function assertMetricsPortDoesNotCollide(
+  metricsPort: number | undefined,
+  otherPort: number,
+  otherPortName: string,
+): void {
+  if (
+    metricsPort !== undefined &&
+    metricsPort > 0 &&
+    metricsPort === otherPort
+  ) {
+    throw new Error(
+      `METRICS_PORT (${metricsPort}) must not equal ${otherPortName} (${otherPort}).`,
+    );
+  }
+}
+
 export async function loadRuntimeConfig(
   env: EnvSource = process.env,
   options: { cwd?: string } = {},

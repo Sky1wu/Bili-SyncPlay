@@ -10,6 +10,7 @@ import {
   setConfigValue,
 } from "../src/config/runtime-config-schema.js";
 import {
+  assertMetricsPortDoesNotCollide,
   configFileToEnv,
   type RuntimeConfig,
   loadRuntimeConfig,
@@ -115,6 +116,27 @@ test("runtime config keeps metricsPort undefined when METRICS_PORT is blank", as
     );
     assert.equal(config.metricsPort, undefined);
   });
+});
+
+test("assertMetricsPortDoesNotCollide rejects configs where metrics matches the main port", () => {
+  assert.throws(
+    () => assertMetricsPortDoesNotCollide(8787, 8787, "PORT"),
+    /METRICS_PORT \(8787\) must not equal PORT \(8787\)\./,
+  );
+  assert.throws(
+    () => assertMetricsPortDoesNotCollide(9002, 9002, "GLOBAL_ADMIN_PORT"),
+    /METRICS_PORT \(9002\) must not equal GLOBAL_ADMIN_PORT \(9002\)\./,
+  );
+});
+
+test("assertMetricsPortDoesNotCollide allows undefined, mismatched, and ephemeral ports", () => {
+  assert.doesNotThrow(() =>
+    assertMetricsPortDoesNotCollide(undefined, 8787, "PORT"),
+  );
+  assert.doesNotThrow(() =>
+    assertMetricsPortDoesNotCollide(9100, 8787, "PORT"),
+  );
+  assert.doesNotThrow(() => assertMetricsPortDoesNotCollide(0, 0, "PORT"));
 });
 
 test("runtime config maps JSON file values through existing loaders", async () => {
