@@ -6,6 +6,7 @@ import {
   type CiBenchmarkScenario,
 } from "../../bench/lib/ci-baseline.js";
 import { type BenchmarkResult } from "../../bench/lib/cli.js";
+import { runCiScenario } from "../../bench/lib/ci-light-runner.js";
 
 function createScenario(): CiBenchmarkScenario {
   return {
@@ -100,4 +101,27 @@ test("renderCiBenchmarkSummary includes pass fail statuses", () => {
   assert.match(summary, /CI Benchmark Summary/);
   assert.match(summary, /single-node-room - PASS/);
   assert.match(summary, /Baseline file: `bench\/ci-light-baseline.json`/);
+});
+
+test("runCiScenario rejects missing required numeric command values", async () => {
+  await assert.rejects(
+    () =>
+      runCiScenario("single-node-room", {
+        memberCount: 6,
+        durationSeconds: 5,
+        sampledWatchers: 3,
+      }),
+    /Invalid numeric command value for updatesPerSecond: undefined/,
+  );
+});
+
+test("runCiScenario rejects non-positive required numeric command values", async () => {
+  await assert.rejects(
+    () =>
+      runCiScenario("reconnect-storm", {
+        memberCount: 8,
+        reconnectTimeoutMs: 0,
+      }),
+    /Invalid numeric command value for reconnectTimeoutMs: 0/,
+  );
 });

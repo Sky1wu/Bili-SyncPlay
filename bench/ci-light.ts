@@ -5,39 +5,13 @@ import {
   type BenchmarkResult,
 } from "./lib/cli.js";
 import {
-  renderCiBenchmarkSummary,
   compareBenchmarkToBaseline,
   loadCiBenchmarkBaseline,
+  renderCiBenchmarkSummary,
   writeCiBenchmarkArtifacts,
   type CiBenchmarkComparison,
 } from "./lib/ci-baseline.js";
-import {
-  runReconnectStormScenario,
-  runSingleNodeRoomScenario,
-} from "./lib/scenarios.js";
-
-async function runScenario(
-  scenario: string,
-  command: Record<string, number | string>,
-): Promise<BenchmarkResult> {
-  if (scenario === "single-node-room") {
-    return runSingleNodeRoomScenario({
-      memberCount: Number(command.memberCount),
-      durationSeconds: Number(command.durationSeconds),
-      updatesPerSecond: Number(command.updatesPerSecond),
-      watcherCount: Number(command.sampledWatchers),
-    });
-  }
-
-  if (scenario === "reconnect-storm") {
-    return runReconnectStormScenario({
-      memberCount: Number(command.memberCount),
-      reconnectTimeoutMs: Number(command.reconnectTimeoutMs),
-    });
-  }
-
-  throw new Error(`Unsupported CI benchmark scenario: ${scenario}`);
-}
+import { runCiScenario } from "./lib/ci-light-runner.js";
 
 async function main() {
   const options = parseCliOptions(process.argv.slice(2));
@@ -57,7 +31,7 @@ async function main() {
   const comparisons: CiBenchmarkComparison[] = [];
 
   for (const scenario of baseline.scenarios) {
-    const result = await runScenario(scenario.scenario, scenario.command);
+    const result = await runCiScenario(scenario.scenario, scenario.command);
     results.push(result);
     comparisons.push(
       compareBenchmarkToBaseline({ baseline: scenario, result }),
