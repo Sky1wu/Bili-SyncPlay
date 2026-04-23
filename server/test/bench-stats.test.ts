@@ -135,6 +135,34 @@ test("benchmark completion timestamp excludes cleanup overhead", async () => {
   );
 });
 
+test("playback benchmark supports member counts above default room and IP limits", async () => {
+  const benchmark = await runPlaybackBroadcastBenchmark({
+    scenario: "single-node-room",
+    memberCount: 12,
+    durationSeconds: 0.1,
+    updatesPerSecond: 1,
+    watcherCount: 0,
+  });
+
+  assert.equal(benchmark.watcherCount, 0);
+  assert.equal(benchmark.attempted, 0);
+  assert.equal(benchmark.errors, 0);
+});
+
+test("playback benchmark lifts playback rate limits to match benchmark load", async () => {
+  const benchmark = await runPlaybackBroadcastBenchmark({
+    scenario: "single-node-room",
+    memberCount: 12,
+    durationSeconds: 1,
+    updatesPerSecond: 10,
+    watcherCount: 1,
+  });
+
+  assert.equal(benchmark.attempted, 10);
+  assert.equal(benchmark.completed, 10);
+  assert.equal(benchmark.errors, 0);
+});
+
 test("ensureRedis reports a controlled startup error when redis-server is unavailable", async () => {
   const originalPath = process.env.PATH;
   const originalRedisUrl = process.env.REDIS_URL;
@@ -168,4 +196,14 @@ test("reconnect benchmark completion timestamp excludes cleanup overhead", async
     true,
     "reconnect benchmark completion time should be recorded before async cleanup runs",
   );
+});
+
+test("reconnect benchmark supports member counts above default room and IP limits", async () => {
+  const benchmark = await runReconnectStormBenchmark({
+    memberCount: 12,
+    reconnectTimeoutMs: 3_000,
+  });
+
+  assert.equal(benchmark.attempted, 12);
+  assert.equal(benchmark.errors, 0);
 });
