@@ -13,6 +13,11 @@ import {
 } from "../../server/test/multi-node-test-kit.js";
 import { type RawData } from "ws";
 
+type MessageSocket = Pick<
+  Awaited<ReturnType<typeof connectClient>>,
+  "on" | "off"
+>;
+
 type Collector = {
   next: (type: string, timeoutMs?: number) => Promise<Record<string, unknown>>;
   maybeNext: (
@@ -51,6 +56,11 @@ const SHARED_VIDEO_TITLE = "Benchmark Episode";
 function wait(ms: number) {
   return new Promise((resolve) => setTimeout(resolve, ms));
 }
+
+type BenchMessageCollectorOptions = {
+  trackedTypes?: string[];
+  maxQueuePerType?: number;
+};
 
 function createBenchmarkSecurityConfig(input: {
   memberCount: number;
@@ -95,26 +105,99 @@ function createBenchmarkSecurityConfig(input: {
   };
 }
 
-function createBenchMessageCollector(
-  socket: Awaited<ReturnType<typeof connectClient>>,
+export function createBenchMessageCollector(
+  socket: MessageSocket,
+  options: BenchMessageCollectorOptions = {},
 ): Collector {
-  const queuedMessages: Array<Record<string, unknown>> = [];
+  const maxQueuePerType = Math.max(1, options.maxQueuePerType ?? 1);
+  const queuedMessagesByType = new Map<string, Array<Record<string, unknown>>>(
+    (options.trackedTypes ?? []).map((type) => [type, []]),
+  );
+  const pendingByType = new Map<
+    string,
+    Array<(message: Record<string, unknown>) => void>
+  >();
+
   const listener = (raw: RawData) => {
-    queuedMessages.push(JSON.parse(raw.toString()) as Record<string, unknown>);
+    const message = JSON.parse(raw.toString()) as Record<string, unknown>;
+    const type = message.type;
+    if (typeof type !== "string") {
+      return;
+    }
+
+    const pending = pendingByType.get(type);
+    const resolver = pending?.shift();
+    if (resolver) {
+      if (pending && pending.length === 0) {
+        pendingByType.delete(type);
+      }
+      resolver(message);
+      return;
+    }
+
+    const queue = queuedMessagesByType.get(type);
+    if (!queue) {
+      return;
+    }
+
+    queue.push(message);
+    if (queue.length > maxQueuePerType) {
+      queue.splice(0, queue.length - maxQueuePerType);
+    }
   };
   socket.on("message", listener);
 
   return {
     async next(type: string, timeoutMs = 2_000) {
+      const queue = queuedMessagesByType.get(type) ?? [];
+      if (!queuedMessagesByType.has(type)) {
+        queuedMessagesByType.set(type, queue);
+      }
+      const queuedMessage = queue.shift();
+      if (queuedMessage) {
+        return queuedMessage;
+      }
+
       const startedAt = Date.now();
       while (Date.now() - startedAt < timeoutMs) {
-        const index = queuedMessages.findIndex(
-          (message) => message.type === type,
-        );
-        if (index >= 0) {
-          return queuedMessages.splice(index, 1)[0] as Record<string, unknown>;
+        const fromQueue = queue.shift();
+        if (fromQueue) {
+          return fromQueue;
         }
-        await wait(10);
+
+        const delivered = await new Promise<Record<string, unknown> | null>(
+          (resolve) => {
+            const pending = pendingByType.get(type) ?? [];
+            const resolver = (message: Record<string, unknown>) => {
+              clearTimeout(timeout);
+              resolve(message);
+            };
+
+            pending.push(resolver);
+            pendingByType.set(type, pending);
+
+            const timeout = setTimeout(() => {
+              const queueResolvers = pendingByType.get(type);
+              if (!queueResolvers) {
+                resolve(null);
+                return;
+              }
+
+              const resolverIndex = queueResolvers.indexOf(resolver);
+              if (resolverIndex >= 0) {
+                queueResolvers.splice(resolverIndex, 1);
+              }
+              if (queueResolvers.length === 0) {
+                pendingByType.delete(type);
+              }
+              resolve(null);
+            }, 10);
+          },
+        );
+
+        if (delivered) {
+          return delivered;
+        }
       }
       throw new Error(`Timed out waiting for message type ${type}`);
     },
@@ -127,7 +210,8 @@ function createBenchMessageCollector(
     },
     detach() {
       socket.off("message", listener);
-      queuedMessages.length = 0;
+      queuedMessagesByType.clear();
+      pendingByType.clear();
     },
   };
 }
@@ -173,7 +257,9 @@ async function connectParticipants(
         displayName: `Bench Member ${String(index + 1).padStart(3, "0")}`,
         wsUrl,
         socket,
-        inbox: createBenchMessageCollector(socket),
+        inbox: createBenchMessageCollector(socket, {
+          trackedTypes: ["room:created", "room:joined", "room:state"],
+        }),
       };
     }),
   );
@@ -535,7 +621,17 @@ export async function runReconnectStormBenchmark(input: {
 
         try {
           socket = await connectClient(seed.wsUrl);
-          inbox = createBenchMessageCollector(socket);
+          inbox = createBenchMessageCollector(socket, {
+            trackedTypes: ["room:joined", "room:state"],
+          });
+          const joinedPromise = inbox.next(
+            "room:joined",
+            input.reconnectTimeoutMs,
+          );
+          const firstStatePromise = inbox.next(
+            "room:state",
+            input.reconnectTimeoutMs,
+          );
           socket.send(
             JSON.stringify({
               type: "room:join",
@@ -547,8 +643,8 @@ export async function runReconnectStormBenchmark(input: {
               },
             }),
           );
-          await inbox.next("room:joined", input.reconnectTimeoutMs);
-          await inbox.next("room:state", input.reconnectTimeoutMs);
+          await joinedPromise;
+          await firstStatePromise;
           latencySamplesMs.push(Date.now() - reconnectStartedAtMs);
           completed += 1;
         } catch {
