@@ -46,6 +46,45 @@ type BenchmarkServer = {
 
 const SHARED_VIDEO_URL = "https://www.bilibili.com/video/BV1xx411c7mD?p=1";
 const SHARED_VIDEO_TITLE = "Benchmark Episode";
+const BENCH_CONNECTION_BUFFER = 8;
+const BENCH_ATTEMPT_MULTIPLIER = 2;
+const BENCH_PLAYBACK_BURST_MULTIPLIER = 2;
+
+function createBenchmarkSecurityConfig(input: {
+  memberCount: number;
+  playbackUpdatesPerSecond?: number;
+}) {
+  const defaults = getDefaultSecurityConfig();
+  const playbackUpdatesPerSecond = Math.max(
+    input.playbackUpdatesPerSecond ?? 0,
+    0,
+  );
+
+  return {
+    ...defaults,
+    allowedOrigins: [MULTI_NODE_ALLOWED_ORIGIN],
+    maxMembersPerRoom: Math.max(input.memberCount, 1),
+    maxConnectionsPerIp: Math.max(
+      input.memberCount + BENCH_CONNECTION_BUFFER,
+      16,
+    ),
+    connectionAttemptsPerMinute: Math.max(
+      input.memberCount * BENCH_ATTEMPT_MULTIPLIER,
+      32,
+    ),
+    rateLimits: {
+      ...defaults.rateLimits,
+      playbackUpdatePerSecond: Math.max(
+        defaults.rateLimits.playbackUpdatePerSecond,
+        playbackUpdatesPerSecond,
+      ),
+      playbackUpdateBurst: Math.max(
+        defaults.rateLimits.playbackUpdateBurst,
+        Math.ceil(playbackUpdatesPerSecond * BENCH_PLAYBACK_BURST_MULTIPLIER),
+      ),
+    },
+  };
+}
 
 function wait(ms: number) {
   return new Promise((resolve) => setTimeout(resolve, ms));
@@ -88,12 +127,11 @@ function createBenchMessageCollector(
   };
 }
 
-async function listenSingleNode(): Promise<BenchmarkServer> {
+async function listenSingleNode(
+  securityConfig: ReturnType<typeof createBenchmarkSecurityConfig>,
+): Promise<BenchmarkServer> {
   const server = await createSyncServer(
-    {
-      ...getDefaultSecurityConfig(),
-      allowedOrigins: [MULTI_NODE_ALLOWED_ORIGIN],
-    },
+    securityConfig,
     getDefaultPersistenceConfig(),
     {
       logEvent: () => {},
@@ -142,12 +180,18 @@ export async function setupRoomBenchmark(input: {
   memberCount: number;
   redisUrl?: string;
   mode: "single-node" | "multi-node";
+  securityConfig?: ReturnType<typeof createBenchmarkSecurityConfig>;
 }): Promise<RoomBenchmarkEnvironment> {
   let cleanup: (() => Promise<void>) | undefined;
+  const securityConfig =
+    input.securityConfig ??
+    createBenchmarkSecurityConfig({
+      memberCount: input.memberCount,
+    });
 
   try {
     if (input.mode === "single-node") {
-      const server = await listenSingleNode();
+      const server = await listenSingleNode(securityConfig);
       cleanup = server.cleanup;
       const participants = await connectParticipants(
         input.memberCount,
@@ -157,7 +201,9 @@ export async function setupRoomBenchmark(input: {
     }
 
     assert.ok(input.redisUrl, "redisUrl is required in multi-node mode.");
-    const testKit = await createMultiNodeTestKit(input.redisUrl);
+    const testKit = await createMultiNodeTestKit(input.redisUrl, {
+      securityConfig,
+    });
     cleanup = () => testKit.closeAll();
     const ownerNode = await testKit.startRoomNode("bench-node-a");
     const memberNode = await testKit.startRoomNode("bench-node-b");
@@ -331,6 +377,10 @@ export async function runPlaybackBroadcastBenchmark(input: {
     memberCount: input.memberCount,
     redisUrl: input.redisUrl,
     mode: input.scenario === "redis-broadcast" ? "multi-node" : "single-node",
+    securityConfig: createBenchmarkSecurityConfig({
+      memberCount: input.memberCount,
+      playbackUpdatesPerSecond: input.updatesPerSecond,
+    }),
   });
 
   const sampledWatcherCount = Math.max(
