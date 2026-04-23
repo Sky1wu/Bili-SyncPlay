@@ -1,8 +1,10 @@
 import assert from "node:assert/strict";
+import { EventEmitter } from "node:events";
 import test from "node:test";
 import { buildBenchmarkResult } from "../../bench/lib/cli.js";
 import { ensureRedis } from "../../bench/lib/redis-harness.js";
 import {
+  createBenchMessageCollector,
   runPlaybackBroadcastBenchmark,
   runReconnectStormBenchmark,
 } from "../../bench/lib/room-bench.js";
@@ -11,6 +13,13 @@ import {
   summarizeLatencies,
   summarizeThroughput,
 } from "../../bench/lib/stats.js";
+import { type RawData } from "ws";
+
+class FakeMessageSocket extends EventEmitter {
+  emitMessage(message: Record<string, unknown>) {
+    this.emit("message", Buffer.from(JSON.stringify(message)) as RawData);
+  }
+}
 
 test("benchmark stats summarize percentile and throughput fields deterministically", () => {
   assert.deepEqual(summarizeLatencies([12, 10, 20, 18, 14]), {
@@ -163,6 +172,45 @@ test("playback benchmark lifts playback rate limits to match benchmark load", as
   assert.equal(benchmark.errors, 0);
 });
 
+test("bench collector keeps only tracked message types and caps buffered states", async () => {
+  const socket = new FakeMessageSocket();
+  const collector = createBenchMessageCollector(socket, {
+    trackedTypes: ["room:state"],
+    maxQueuePerType: 1,
+  });
+
+  try {
+    socket.emitMessage({ type: "room:joined", payload: { ignored: true } });
+    socket.emitMessage({ type: "room:state", payload: { seq: 1 } });
+    socket.emitMessage({ type: "room:state", payload: { seq: 2 } });
+
+    const state = await collector.next("room:state");
+    assert.deepEqual(state.payload, { seq: 2 });
+    assert.equal(await collector.maybeNext("room:joined", 50), null);
+  } finally {
+    collector.detach();
+  }
+});
+
+test("bench collector delivers awaited room state without buffering a storm", async () => {
+  const socket = new FakeMessageSocket();
+  const collector = createBenchMessageCollector(socket, {
+    trackedTypes: ["room:state"],
+    maxQueuePerType: 1,
+  });
+
+  try {
+    const statePromise = collector.next("room:state", 200);
+    socket.emitMessage({ type: "room:state", payload: { seq: 1 } });
+    socket.emitMessage({ type: "room:state", payload: { seq: 2 } });
+
+    const state = await statePromise;
+    assert.deepEqual(state.payload, { seq: 1 });
+  } finally {
+    collector.detach();
+  }
+});
+
 test("ensureRedis reports a controlled startup error when redis-server is unavailable", async () => {
   const originalPath = process.env.PATH;
   const originalRedisUrl = process.env.REDIS_URL;
@@ -206,4 +254,14 @@ test("reconnect benchmark supports member counts above default room and IP limit
 
   assert.equal(benchmark.attempted, 12);
   assert.equal(benchmark.errors, 0);
+});
+
+test("reconnect benchmark reports timeout failures without aborting the run", async () => {
+  const benchmark = await runReconnectStormBenchmark({
+    memberCount: 4,
+    reconnectTimeoutMs: 1,
+  });
+
+  assert.equal(benchmark.attempted, 4);
+  assert.equal(benchmark.completed + benchmark.errors, 4);
 });
