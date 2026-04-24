@@ -62,6 +62,47 @@ test("collectAuditFindings returns high advisory IDs without duplicating transit
   assert.deepEqual(findings[0]?.affected.sort(), ["demo-vulnerable"]);
 });
 
+test("collectAuditFindings follows nested via package chains before adding fallback IDs", () => {
+  const findings = collectAuditFindings(
+    {
+      vulnerabilities: {
+        "demo-app": {
+          name: "demo-app",
+          severity: "high",
+          via: ["demo-wrapper"],
+          range: "1.0.0",
+        },
+        "demo-wrapper": {
+          name: "demo-wrapper",
+          severity: "high",
+          via: ["demo-vulnerable"],
+          range: "1.0.0",
+        },
+        "demo-vulnerable": {
+          name: "demo-vulnerable",
+          severity: "high",
+          via: [
+            {
+              source: 2345678,
+              name: "demo-vulnerable",
+              title: "Nested high advisory",
+              severity: "high",
+              range: "<1.0.1",
+            },
+          ],
+          range: "<1.0.1",
+        },
+      },
+    },
+    "high",
+  );
+
+  assert.deepEqual(
+    findings.map((finding) => finding.id),
+    ["npm:demo-vulnerable:2345678"],
+  );
+});
+
 test("evaluateAuditGate passes when high findings are covered by active allowlist entries", () => {
   const evaluation = evaluateAuditGate(
     createAuditReport(),

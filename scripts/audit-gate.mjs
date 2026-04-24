@@ -69,6 +69,33 @@ function appendFinding(findings, finding) {
   }
 }
 
+function hasSeverityAdvisoryInViaChain(
+  vulnerabilities,
+  packageName,
+  auditLevel,
+  visited = new Set(),
+) {
+  if (visited.has(packageName)) {
+    return false;
+  }
+  visited.add(packageName);
+
+  const vulnerability = asObject(vulnerabilities[packageName]);
+  const via = Array.isArray(vulnerability?.via) ? vulnerability.via : [];
+
+  return via.some((item) => {
+    const advisory = asObject(item);
+    if (advisory) {
+      return isSeverityAtLeast(asString(advisory.severity), auditLevel);
+    }
+
+    return (
+      typeof item === "string" &&
+      hasSeverityAdvisoryInViaChain(vulnerabilities, item, auditLevel, visited)
+    );
+  });
+}
+
 export function collectAuditFindings(report, auditLevel = DEFAULT_AUDIT_LEVEL) {
   const normalizedAuditLevel = normalizeAuditLevel(auditLevel);
   const root = asObject(report);
@@ -112,18 +139,13 @@ export function collectAuditFindings(report, auditLevel = DEFAULT_AUDIT_LEVEL) {
     }
 
     const viaPackages = via.filter((item) => typeof item === "string");
-    const coveredByViaAdvisory = viaPackages.some((viaPackage) => {
-      const viaVulnerability = asObject(vulnerabilities[viaPackage]);
-      const viaList = Array.isArray(viaVulnerability?.via)
-        ? viaVulnerability.via
-        : [];
-      return viaList
-        .map((item) => asObject(item))
-        .filter(Boolean)
-        .some((advisory) =>
-          isSeverityAtLeast(asString(advisory.severity), normalizedAuditLevel),
-        );
-    });
+    const coveredByViaAdvisory = viaPackages.some((viaPackage) =>
+      hasSeverityAdvisoryInViaChain(
+        vulnerabilities,
+        viaPackage,
+        normalizedAuditLevel,
+      ),
+    );
 
     if (
       advisoryObjects.length === 0 &&
