@@ -3,6 +3,7 @@ import {
   assertMetricsPortDoesNotCollide,
   loadRuntimeConfig,
 } from "./config/runtime-config.js";
+import { logEffectiveOriginPolicy } from "./config/security-config.js";
 
 const {
   port,
@@ -15,6 +16,7 @@ const {
 } = await loadRuntimeConfig();
 
 assertMetricsPortDoesNotCollide(metricsPort, port, "PORT");
+logEffectiveOriginPolicy(securityConfig);
 
 const { httpServer, metricsHttpServer } = await createSyncServer(
   securityConfig,

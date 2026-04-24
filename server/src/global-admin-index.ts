@@ -2,6 +2,7 @@ import {
   assertMetricsPortDoesNotCollide,
   loadRuntimeConfig,
 } from "./config/runtime-config.js";
+import { logEffectiveOriginPolicy } from "./config/security-config.js";
 import { createGlobalAdminServer } from "./global-admin-app.js";
 
 const {
@@ -15,6 +16,7 @@ const {
 } = await loadRuntimeConfig();
 
 assertMetricsPortDoesNotCollide(metricsPort, port, "GLOBAL_ADMIN_PORT");
+logEffectiveOriginPolicy(securityConfig);
 
 const { httpServer, metricsHttpServer } = await createGlobalAdminServer(
   securityConfig,

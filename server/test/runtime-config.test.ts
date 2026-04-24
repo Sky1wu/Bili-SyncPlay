@@ -70,6 +70,7 @@ test("runtime config falls back to defaults and env when config file is missing"
       {
         PORT: "9001",
         GLOBAL_ADMIN_ENABLED: "false",
+        ALLOW_MISSING_ORIGIN_IN_DEV: "true",
       },
       { cwd: tempDir },
     );
@@ -87,7 +88,7 @@ test("runtime config falls back to defaults and env when config file is missing"
 test("runtime config loads METRICS_PORT from env and config file", async () => {
   await withTempDir(async (tempDir) => {
     const envConfig = await loadRuntimeConfig(
-      { METRICS_PORT: "9200" },
+      { METRICS_PORT: "9200", ALLOW_MISSING_ORIGIN_IN_DEV: "true" },
       { cwd: tempDir },
     );
     assert.equal(envConfig.metricsPort, 9200);
@@ -97,11 +98,14 @@ test("runtime config loads METRICS_PORT from env and config file", async () => {
       JSON.stringify({ metricsPort: 9300 }),
       "utf8",
     );
-    const fileConfig = await loadRuntimeConfig({}, { cwd: tempDir });
+    const fileConfig = await loadRuntimeConfig(
+      { ALLOW_MISSING_ORIGIN_IN_DEV: "true" },
+      { cwd: tempDir },
+    );
     assert.equal(fileConfig.metricsPort, 9300);
 
     const envOverride = await loadRuntimeConfig(
-      { METRICS_PORT: "9400" },
+      { METRICS_PORT: "9400", ALLOW_MISSING_ORIGIN_IN_DEV: "true" },
       { cwd: tempDir },
     );
     assert.equal(envOverride.metricsPort, 9400);
@@ -111,7 +115,7 @@ test("runtime config loads METRICS_PORT from env and config file", async () => {
 test("runtime config keeps metricsPort undefined when METRICS_PORT is blank", async () => {
   await withTempDir(async (tempDir) => {
     const config = await loadRuntimeConfig(
-      { METRICS_PORT: "   " },
+      { METRICS_PORT: "   ", ALLOW_MISSING_ORIGIN_IN_DEV: "true" },
       { cwd: tempDir },
     );
     assert.equal(config.metricsPort, undefined);
@@ -233,6 +237,7 @@ test("environment variables override config file values", async () => {
         ROOM_STORE_PROVIDER: "redis",
         REDIS_NAMESPACE: "env-ns",
         INSTANCE_ID: "room-node-b",
+        ALLOW_MISSING_ORIGIN_IN_DEV: "true",
       },
       { cwd: tempDir },
     );
@@ -263,6 +268,7 @@ test("runtime config ignores file values for sensitive admin secrets", async () 
         ADMIN_USERNAME: "admin",
         ADMIN_PASSWORD_HASH: "hash",
         ADMIN_SESSION_SECRET: "secret",
+        ALLOW_MISSING_ORIGIN_IN_DEV: "true",
       },
       { cwd: tempDir },
     );
@@ -341,11 +347,14 @@ test("redisNamespace is loaded from config file and passable through env overrid
       "utf8",
     );
 
-    const configFromFile = await loadRuntimeConfig({}, { cwd: tempDir });
+    const configFromFile = await loadRuntimeConfig(
+      { ALLOW_MISSING_ORIGIN_IN_DEV: "true" },
+      { cwd: tempDir },
+    );
     assert.equal(configFromFile.persistenceConfig.redisNamespace, "from-file");
 
     const configFromEnv = await loadRuntimeConfig(
-      { REDIS_NAMESPACE: "from-env" },
+      { REDIS_NAMESPACE: "from-env", ALLOW_MISSING_ORIGIN_IN_DEV: "true" },
       { cwd: tempDir },
     );
     assert.equal(configFromEnv.persistenceConfig.redisNamespace, "from-env");
@@ -355,7 +364,7 @@ test("redisNamespace is loaded from config file and passable through env overrid
 test("runtime config loads logLevel from env and config file", async () => {
   await withTempDir(async (tempDir) => {
     const envConfig = await loadRuntimeConfig(
-      { LOG_LEVEL: "warn" },
+      { LOG_LEVEL: "warn", ALLOW_MISSING_ORIGIN_IN_DEV: "true" },
       { cwd: tempDir },
     );
     assert.equal(envConfig.logLevel, "warn");
@@ -365,11 +374,14 @@ test("runtime config loads logLevel from env and config file", async () => {
       JSON.stringify({ logLevel: "debug" }),
       "utf8",
     );
-    const fileConfig = await loadRuntimeConfig({}, { cwd: tempDir });
+    const fileConfig = await loadRuntimeConfig(
+      { ALLOW_MISSING_ORIGIN_IN_DEV: "true" },
+      { cwd: tempDir },
+    );
     assert.equal(fileConfig.logLevel, "debug");
 
     const envOverride = await loadRuntimeConfig(
-      { LOG_LEVEL: "error" },
+      { LOG_LEVEL: "error", ALLOW_MISSING_ORIGIN_IN_DEV: "true" },
       { cwd: tempDir },
     );
     assert.equal(envOverride.logLevel, "error");
@@ -381,6 +393,41 @@ test("runtime config rejects invalid LOG_LEVEL values", async () => {
     await assert.rejects(
       () => loadRuntimeConfig({ LOG_LEVEL: "verbose" }, { cwd: tempDir }),
       /LOG_LEVEL/,
+    );
+  });
+});
+
+test("runtime config rejects empty ALLOWED_ORIGINS without dev override", async () => {
+  await withTempDir(async (tempDir) => {
+    await assert.rejects(
+      () => loadRuntimeConfig({}, { cwd: tempDir }),
+      /ALLOWED_ORIGINS is empty/,
+    );
+  });
+});
+
+test("runtime config rejects ALLOWED_ORIGINS entries with invalid URLs", async () => {
+  await withTempDir(async (tempDir) => {
+    await assert.rejects(
+      () =>
+        loadRuntimeConfig(
+          { ALLOWED_ORIGINS: "bilibili.com" },
+          { cwd: tempDir },
+        ),
+      /not a valid absolute URL/,
+    );
+  });
+});
+
+test("runtime config rejects ALLOWED_ORIGINS entries with unsupported schemes", async () => {
+  await withTempDir(async (tempDir) => {
+    await assert.rejects(
+      () =>
+        loadRuntimeConfig(
+          { ALLOWED_ORIGINS: "ws://bilibili.com" },
+          { cwd: tempDir },
+        ),
+      /unsupported scheme "ws"/,
     );
   });
 });
@@ -399,6 +446,7 @@ test("runtime config resolves explicit config file path from env", async () => {
     const config = await loadRuntimeConfig(
       {
         BILI_SYNCPLAY_CONFIG: "custom-config.json",
+        ALLOW_MISSING_ORIGIN_IN_DEV: "true",
       },
       { cwd: tempDir },
     );

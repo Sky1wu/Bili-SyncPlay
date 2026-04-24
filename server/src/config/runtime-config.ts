@@ -18,7 +18,10 @@ import {
   SERVER_CONFIG_FIELDS,
   SERVER_CONFIG_SCHEMA_TREE,
 } from "./runtime-config-schema.js";
-import { loadSecurityConfig } from "./security-config.js";
+import {
+  assertAllowedOriginsStartupPolicy,
+  loadSecurityConfig,
+} from "./security-config.js";
 
 const LOG_LEVEL_FIELD = SERVER_CONFIG_FIELDS.find(
   (field) => field.path[0] === "logLevel",
@@ -263,7 +266,7 @@ export async function loadRuntimeConfig(
     ...env,
   };
 
-  return {
+  const runtimeConfig: RuntimeConfig = {
     port: parseIntegerEnv(mergedEnv, "PORT", 8787),
     globalAdminPort: parseIntegerEnv(
       mergedEnv,
@@ -284,4 +287,8 @@ export async function loadRuntimeConfig(
     adminConfig: loadAdminConfig(env),
     adminUiConfig: loadAdminUiConfig(mergedEnv),
   };
+
+  assertAllowedOriginsStartupPolicy(runtimeConfig.securityConfig);
+
+  return runtimeConfig;
 }

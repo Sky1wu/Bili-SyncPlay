@@ -6,7 +6,11 @@ import {
 } from "../src/config/admin-config.js";
 import { parseBooleanEnv, parseIntegerEnv } from "../src/config/env.js";
 import { loadPersistenceConfig } from "../src/config/persistence-config.js";
-import { loadSecurityConfig } from "../src/config/security-config.js";
+import {
+  assertAllowedOriginsStartupPolicy,
+  logEffectiveOriginPolicy,
+  loadSecurityConfig,
+} from "../src/config/security-config.js";
 
 test("security config reads overrides and keeps defaults for missing values", () => {
   const config = loadSecurityConfig({
@@ -106,4 +110,76 @@ test("env helpers keep integer and boolean validation semantics", () => {
     () => parseIntegerEnv({ PORT: "87.5" }, "PORT", 8787),
     /must be an integer/,
   );
+});
+
+test("security config rejects origins without a scheme", () => {
+  assert.throws(
+    () => loadSecurityConfig({ ALLOWED_ORIGINS: "bilibili.com" }),
+    /not a valid absolute URL/,
+  );
+});
+
+test("security config rejects origins with unsupported schemes", () => {
+  assert.throws(
+    () => loadSecurityConfig({ ALLOWED_ORIGINS: "ftp://bilibili.com" }),
+    /unsupported scheme "ftp"/,
+  );
+});
+
+test("security config rejects wildcard origins", () => {
+  assert.throws(
+    () => loadSecurityConfig({ ALLOWED_ORIGINS: "https://*.bilibili.com" }),
+    /wildcard, which is not supported/,
+  );
+});
+
+test("security config accepts chrome-extension origins", () => {
+  const config = loadSecurityConfig({
+    ALLOWED_ORIGINS: "chrome-extension://abcdefghijklmnop",
+  });
+  assert.deepEqual(config.allowedOrigins, [
+    "chrome-extension://abcdefghijklmnop",
+  ]);
+});
+
+test("startup policy rejects empty origins outside of dev override", () => {
+  const config = loadSecurityConfig({});
+  assert.deepEqual(config.allowedOrigins, []);
+  assert.equal(config.allowMissingOriginInDev, false);
+  assert.throws(
+    () => assertAllowedOriginsStartupPolicy(config),
+    /ALLOWED_ORIGINS is empty/,
+  );
+});
+
+test("startup policy allows empty origins when dev override is enabled", () => {
+  const config = loadSecurityConfig({ ALLOW_MISSING_ORIGIN_IN_DEV: "true" });
+  assert.doesNotThrow(() => assertAllowedOriginsStartupPolicy(config));
+});
+
+test("logEffectiveOriginPolicy prints final origins and dev override once", () => {
+  const entries: string[] = [];
+  const log = (message: string): void => {
+    entries.push(message);
+  };
+
+  logEffectiveOriginPolicy(
+    {
+      allowedOrigins: ["https://a.example", "https://b.example"],
+      allowMissingOriginInDev: false,
+    } as ReturnType<typeof loadSecurityConfig>,
+    log,
+  );
+  logEffectiveOriginPolicy(
+    {
+      allowedOrigins: [],
+      allowMissingOriginInDev: true,
+    } as ReturnType<typeof loadSecurityConfig>,
+    log,
+  );
+
+  assert.deepEqual(entries, [
+    "[security] ALLOWED_ORIGINS=https://a.example, https://b.example; ALLOW_MISSING_ORIGIN_IN_DEV=false",
+    "[security] ALLOWED_ORIGINS=<none>; ALLOW_MISSING_ORIGIN_IN_DEV=true",
+  ]);
 });
