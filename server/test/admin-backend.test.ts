@@ -10,7 +10,8 @@ import {
   getDefaultSecurityConfig,
   type SyncServerDependencies,
 } from "../src/app.js";
-import type { AdminRole } from "../src/admin/types.js";
+import { createInMemoryAdminSessionStore } from "../src/admin/auth-store.js";
+import type { AdminRole, AdminSession } from "../src/admin/types.js";
 
 const ALLOWED_ORIGIN = "chrome-extension://allowed-extension";
 
@@ -1832,6 +1833,93 @@ test("successful admin login resets the rate-limit counters", async () => {
       body: { username: "admin", password: "wrong" },
     });
     assert.equal(now429.status, 429);
+  } finally {
+    await server.close();
+  }
+});
+
+test("admin login backend outages surface as 500 and do not count toward throttle", async () => {
+  const memory = createInMemoryAdminSessionStore();
+  let outage = true;
+  let saveAttempts = 0;
+  const flakingStore = {
+    async save(tokenId: string, session: AdminSession) {
+      saveAttempts += 1;
+      if (outage) {
+        throw new Error("session-store-down");
+      }
+      await memory.save(tokenId, session);
+    },
+    async get(tokenId: string) {
+      return memory.get(tokenId);
+    },
+    async delete(tokenId: string) {
+      await memory.delete(tokenId);
+    },
+  };
+  const server = await createSyncServer(
+    {
+      ...getDefaultSecurityConfig(),
+      allowedOrigins: [ALLOWED_ORIGIN],
+      rateLimits: {
+        ...getDefaultSecurityConfig().rateLimits,
+        // Limit is 2 failures per IP or username. If the buggy code counted
+        // backend errors as login failures, the third attempt would get 429'd
+        // by the check phase — the 500 assertion below would then fail.
+        adminLoginFailuresPerIpPerMinute: 2,
+        adminLoginFailuresPerUsernamePerMinute: 2,
+      },
+    },
+    getDefaultPersistenceConfig(),
+    {
+      adminConfig: {
+        username: "admin",
+        passwordHash: `sha256:${sha256Hex("secret-123")}`,
+        sessionSecret: "session-secret-123",
+        sessionTtlMs: 60_000,
+        role: "admin",
+        sessionStoreProvider: "memory",
+        eventStoreProvider: "memory",
+        auditStoreProvider: "memory",
+      },
+      serviceVersion: "0.7.0-test",
+      adminSessionStoreOverride: flakingStore,
+    },
+  );
+  await new Promise<void>((resolve, reject) => {
+    server.httpServer.listen(0, "127.0.0.1", () => resolve());
+    server.httpServer.once("error", reject);
+  });
+  const address = server.httpServer.address();
+  if (!address || typeof address === "string") {
+    throw new Error("Failed to determine test server address.");
+  }
+  const httpBaseUrl = `http://127.0.0.1:${address.port}`;
+
+  try {
+    for (let attempt = 0; attempt < 3; attempt += 1) {
+      const outageResponse = await requestJson(
+        httpBaseUrl,
+        "/api/admin/auth/login",
+        {
+          method: "POST",
+          body: { username: "admin", password: "secret-123" },
+        },
+      );
+      assert.equal(outageResponse.status, 500);
+      assert.equal(
+        (outageResponse.body.error as { code: string }).code,
+        "internal_error",
+      );
+    }
+    assert.equal(saveAttempts, 3);
+
+    outage = false;
+    const recovered = await requestJson(httpBaseUrl, "/api/admin/auth/login", {
+      method: "POST",
+      body: { username: "admin", password: "secret-123" },
+    });
+    assert.equal(recovered.status, 200);
   } finally {
     await server.close();
   }

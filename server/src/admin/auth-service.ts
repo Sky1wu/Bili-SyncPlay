@@ -25,6 +25,13 @@ export type AdminAuthService = {
   logout: (token: string) => Promise<void>;
 };
 
+export class InvalidCredentialsError extends Error {
+  constructor() {
+    super("invalid_credentials");
+    this.name = "InvalidCredentialsError";
+  }
+}
+
 function sha256(value: string): Buffer {
   return createHash("sha256").update(value).digest();
 }
@@ -70,7 +77,7 @@ export function createAdminAuthService(
         username !== config.username ||
         !verifyPassword(password, config.passwordHash)
       ) {
-        throw new Error("invalid_credentials");
+        throw new InvalidCredentialsError();
       }
 
       const currentTime = now();

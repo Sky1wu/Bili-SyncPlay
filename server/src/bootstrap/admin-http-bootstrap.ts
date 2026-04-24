@@ -7,6 +7,7 @@ import { createAdminOverviewService } from "../admin/overview-service.js";
 import { createAdminRoomQueryService } from "../admin/room-query-service.js";
 import type { MetricsCollector } from "../admin/metrics.js";
 import type { AdminCommandBus } from "../admin-command-bus.js";
+import type { AdminSessionStore } from "../admin-session-store.js";
 import type { RoomEventBusMessage } from "../room-event-bus.js";
 import type { RoomStore } from "../room-store.js";
 import { createRoomService } from "../room-service.js";
@@ -60,6 +61,7 @@ export async function createSharedAdminHttpBootstrap(args: {
   createOverviewService?: typeof createAdminOverviewService;
   createRoomQueryService?: typeof createAdminRoomQueryService;
   metricsPort?: number;
+  adminSessionStoreOverride?: AdminSessionStore;
 }): Promise<{
   securityPolicy: ReturnType<typeof createSecurityPolicy>;
   httpServer: HttpServer;
@@ -98,6 +100,7 @@ export async function createSharedAdminHttpBootstrap(args: {
     createRoomQueryService: args.createRoomQueryService,
     getRequestIpKey: (request) =>
       securityPolicy.getRemoteAddress(request) ?? "unknown",
+    adminSessionStoreOverride: args.adminSessionStoreOverride,
   });
 
   const metricsOnMain = args.metricsPort === undefined;

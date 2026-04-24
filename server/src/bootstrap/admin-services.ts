@@ -52,6 +52,7 @@ export function createAdminServices(args: {
   createOverviewService?: typeof createAdminOverviewService;
   createRoomQueryService?: typeof createAdminRoomQueryService;
   getRequestIpKey?: (request: IncomingMessage) => string;
+  adminSessionStoreOverride?: AdminSessionStore;
 }): Promise<{
   adminRouter: ReturnType<typeof createAdminRouter>;
   close: () => Promise<void>;
@@ -63,7 +64,9 @@ export function createAdminServices(args: {
     let closeAuditLogService: (() => Promise<void>) | undefined;
 
     if (args.adminConfig) {
-      if (args.adminConfig.sessionStoreProvider === "redis") {
+      if (args.adminSessionStoreOverride) {
+        adminSessionStore = args.adminSessionStoreOverride;
+      } else if (args.adminConfig.sessionStoreProvider === "redis") {
         const redisAdminSessionStore = await createRedisAdminSessionStore(
           args.persistenceConfig.redisUrl,
           {

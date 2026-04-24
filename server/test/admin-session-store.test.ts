@@ -4,7 +4,10 @@ import {
   createInMemoryAdminSessionStore,
   type AuthStore,
 } from "../src/admin/auth-store.js";
-import { createAdminAuthService } from "../src/admin/auth-service.js";
+import {
+  createAdminAuthService,
+  InvalidCredentialsError,
+} from "../src/admin/auth-service.js";
 import type { AdminSession } from "../src/admin/types.js";
 
 test("in-memory admin session store keeps session copies", async () => {
@@ -81,5 +84,63 @@ test("admin auth service authenticates through injected admin session store", as
   assert.equal(
     calls.some((entry) => entry.startsWith("get:")),
     true,
+  );
+});
+
+test("admin auth service throws InvalidCredentialsError only for credential mismatches", async () => {
+  const store = createInMemoryAdminSessionStore();
+  const service = createAdminAuthService(
+    {
+      username: "admin",
+      passwordHash:
+        "sha256:300109590f69536a400b77ef698021586bfce6809dd8782da32ade9c45457231",
+      sessionSecret: "secret",
+      sessionTtlMs: 1000,
+      role: "admin",
+    },
+    store,
+    () => 100,
+  );
+
+  await assert.rejects(
+    service.login("admin", "wrong-password"),
+    (error: unknown) => error instanceof InvalidCredentialsError,
+  );
+
+  await assert.rejects(
+    service.login("nobody", "secret-123"),
+    (error: unknown) => error instanceof InvalidCredentialsError,
+  );
+});
+
+test("admin auth service surfaces session-store outages as non-credential errors", async () => {
+  const brokenStore: AuthStore = {
+    async save() {
+      throw new Error("session-store-down");
+    },
+    async get() {
+      return null;
+    },
+    async delete() {},
+  };
+  const service = createAdminAuthService(
+    {
+      username: "admin",
+      passwordHash:
+        "sha256:300109590f69536a400b77ef698021586bfce6809dd8782da32ade9c45457231",
+      sessionSecret: "secret",
+      sessionTtlMs: 1000,
+      role: "admin",
+    },
+    brokenStore,
+    () => 100,
+  );
+
+  await assert.rejects(
+    service.login("admin", "secret-123"),
+    (error: unknown) =>
+      error instanceof Error &&
+      !(error instanceof InvalidCredentialsError) &&
+      error.message === "session-store-down",
   );
 });

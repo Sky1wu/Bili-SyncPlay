@@ -4,6 +4,7 @@ import {
   TOO_MANY_LOGIN_ATTEMPTS_MESSAGE,
   UNAUTHORIZED_MESSAGE,
 } from "../../messages.js";
+import { InvalidCredentialsError } from "../auth-service.js";
 import { getBearerToken, readJsonBody } from "../request.js";
 import { sendError, sendOk } from "../response.js";
 import type { AdminRouteHandler } from "../router-types.js";
@@ -82,14 +83,22 @@ export const handleAuthRoutes: AdminRouteHandler = async ({
           role: result.admin.role,
         },
       });
-    } catch {
-      options.loginRateLimiter?.registerFailure({ ipKey, username });
-      sendError(
-        response,
-        401,
-        "invalid_credentials",
-        INVALID_CREDENTIALS_MESSAGE,
-      );
+    } catch (error) {
+      // Only count credential mismatches toward the rate limiter. Backend
+      // failures (session store outages, etc.) must not inflate the counter,
+      // otherwise a transient outage can lock legitimate admins out after it
+      // recovers.
+      if (error instanceof InvalidCredentialsError) {
+        options.loginRateLimiter?.registerFailure({ ipKey, username });
+        sendError(
+          response,
+          401,
+          "invalid_credentials",
+          INVALID_CREDENTIALS_MESSAGE,
+        );
+        return true;
+      }
+      throw error;
     }
     return true;
   }
