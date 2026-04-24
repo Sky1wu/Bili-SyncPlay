@@ -5,7 +5,6 @@ coverage/
 *.log
 tmp-test-extension/
 release/
-docs/
 .vscode/
 /.claude/*
 !/.claude/skills/

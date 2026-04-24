@@ -112,8 +112,16 @@ Bili-SyncPlay/
   server/               WebSocket room server
   packages/protocol/    Shared protocol types
   scripts/              Release packaging scripts
+  docs/                 Operations, migration, and policy docs
   .github/workflows/    GitHub Actions workflows
 ```
+
+## Documentation
+
+- [Documentation index](./docs/README.md)
+- [Multi-node operations runbook](./docs/runbook/multi-node-operations.zh-CN.md)
+- [Multi-node global admin migration](./docs/operations/multi-node-global-admin-migration.md)
+- [Privacy policy](./docs/legal/privacy.md)
 
 ## Requirements
 
@@ -578,6 +586,9 @@ The server does not implement L4/L7 load balancing inside the application proces
 
 > Note
 > If you are only doing local development or one-node deployment, you can stay on the single-node setup. The rest of this section is mainly for production multi-node rollout.
+
+For day-2 operations such as scaling, Redis incidents, admin credential rotation, and alert triage, see the
+[multi-node operations runbook](./docs/runbook/multi-node-operations.zh-CN.md).
 
 #### Minimum required shared settings
 

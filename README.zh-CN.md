@@ -112,8 +112,16 @@ Bili-SyncPlay/
   server/               WebSocket 房间服务器
   packages/protocol/    共享协议类型
   scripts/              发布打包脚本
+  docs/                 运维、迁移和政策文档
   .github/workflows/    GitHub Actions 工作流
 ```
+
+## 文档入口
+
+- [文档索引](./docs/README.md)
+- [多节点运维 Runbook](./docs/runbook/multi-node-operations.zh-CN.md)
+- [多节点全局管理面迁移说明](./docs/operations/multi-node-global-admin-migration.zh-CN.md)
+- [隐私权政策](./docs/legal/privacy.zh-CN.md)
 
 ## 环境要求
 
@@ -578,6 +586,9 @@ npm run build:release
 
 > 提示
 > 如果你只是本地开发或单机部署，可以继续使用单节点模式。下面这部分主要面向生产多节点部署。
+
+日常扩缩容、Redis 故障、管理员口令轮换和常见告警处理见
+[多节点运维 Runbook](./docs/runbook/multi-node-operations.zh-CN.md)。
 
 #### 最小必配项
 
