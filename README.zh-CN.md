@@ -229,7 +229,9 @@ npm test
 - `npm run format:check`：只检查格式，不改文件
 - `npm run typecheck`：执行 protocol、server、extension 源码的 TypeScript 语义检查
 - `npm run build`：按依赖顺序构建 `protocol`、`server`、`extension`
-- `npm test`：执行 protocol、server、extension 的全仓测试
+- `npm test`：执行 audit gate 测试，以及 protocol、server、extension 的全仓测试
+- `npm run audit`：执行依赖审计门禁；未进入白名单的 `high` 或 `critical` 漏洞会导致失败
+- `npm run test:audit-gate`：执行依赖审计门禁的单元测试
 - `npm run test:server:redis`：显式执行 server 的 Redis 持久化回归测试
 
 开发约定：
@@ -238,6 +240,26 @@ npm test
 - 本地检查前先执行 `npm install` 安装依赖；CI 中统一先执行 `npm ci`，再跑同一套校验流程。
 - 提交前执行 `npm run lint`、`npm run format:check`、`npm run typecheck`、`npm run build`、`npm test`。
 - 完整贡献约束见 [CONTRIBUTING.md](./CONTRIBUTING.md)。
+
+### 依赖审计门禁
+
+CI 会在 `npm ci` 后执行 `npm run audit`。该门禁会运行 `npm audit --json --audit-level=high`，只要发现未被 [`audit-allowlist.json`](./audit-allowlist.json) 中有效条目覆盖的 `high` 或 `critical` 漏洞，就会失败。
+
+当出现 high 级别审计结果时：
+
+1. 优先升级或替换存在漏洞的依赖，并提交对应 lockfile 变更。
+2. 如果暂时没有可用修复且风险已经评估，可以使用 audit gate 输出的 ID 添加短期白名单条目：
+
+```json
+{
+  "id": "npm:<package>:<advisory-source>",
+  "expires": "YYYY-MM-DD",
+  "reason": "为什么可以短期接受，以及后续如何移除"
+}
+```
+
+3. 过期时间应尽量短。过期、格式错误或缺少过期时间的条目都会自动让门禁失败。
+4. 修复或移除漏洞依赖时，应在同一变更中删除对应白名单条目。
 
 ### 基准压测
 

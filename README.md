@@ -229,7 +229,9 @@ Useful command matrix:
 - `npm run format:check`: verify formatting without rewriting
 - `npm run typecheck`: run TypeScript semantic checks across protocol, server, and extension source code
 - `npm run build`: build `protocol`, `server`, and `extension` in dependency order
-- `npm test`: run repository-wide protocol, server, and extension tests
+- `npm test`: run audit gate tests plus repository-wide protocol, server, and extension tests
+- `npm run audit`: run the dependency audit gate, failing on unallowlisted `high` or `critical` vulnerabilities
+- `npm run test:audit-gate`: run unit tests for the dependency audit gate
 - `npm run test:server:redis`: run the explicit Redis regression entry point for server persistence
 
 Development constraints:
@@ -238,6 +240,26 @@ Development constraints:
 - Install dependencies with `npm install` before running local checks; use `npm ci` in CI before the same verification flow.
 - Run `npm run lint`, `npm run format:check`, `npm run typecheck`, `npm run build`, and `npm test` before committing changes.
 - See [CONTRIBUTING.md](./CONTRIBUTING.md) for the full contribution and refactoring constraints.
+
+### Dependency Audit Gate
+
+CI runs `npm run audit` after `npm ci`. The gate executes `npm audit --json --audit-level=high` and fails when any `high` or `critical` vulnerability is not covered by an active entry in [`audit-allowlist.json`](./audit-allowlist.json).
+
+When a high-severity audit finding appears:
+
+1. Prefer updating or replacing the vulnerable dependency and commit the resulting lockfile change.
+2. If a fix is not available yet and the risk has been reviewed, add a short-term allowlist entry using the ID printed by the audit gate:
+
+```json
+{
+  "id": "npm:<package>:<advisory-source>",
+  "expires": "YYYY-MM-DD",
+  "reason": "Why this is accepted temporarily and how it will be removed"
+}
+```
+
+3. Keep the expiry date short. Expired, malformed, or missing-expiry entries fail the gate automatically.
+4. Remove the allowlist entry in the same change that fixes or removes the vulnerable dependency.
 
 ### Benchmark Baselines
 
