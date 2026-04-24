@@ -25,6 +25,27 @@ function asString(value) {
   return typeof value === "string" ? value : undefined;
 }
 
+function asNonEmptyString(value) {
+  const stringValue = asString(value)?.trim();
+  return stringValue ? stringValue : undefined;
+}
+
+export function formatNpmAuditErrorMessage(auditReport) {
+  const root = asObject(auditReport);
+  const auditError = asObject(root?.error);
+  if (!auditError) {
+    return undefined;
+  }
+
+  return (
+    asNonEmptyString(auditError.summary) ??
+    asNonEmptyString(auditError.detail) ??
+    asNonEmptyString(root?.message) ??
+    asNonEmptyString(auditError.message) ??
+    "npm audit returned an error response."
+  );
+}
+
 function normalizeAuditLevel(level) {
   const normalized = String(level ?? DEFAULT_AUDIT_LEVEL).toLowerCase();
   if (!SEVERITY_ORDER.has(normalized)) {
@@ -330,13 +351,9 @@ function runNpmAudit(auditLevel) {
     throw new Error(`Failed to parse npm audit JSON output: ${message}`);
   }
 
-  const auditError = asObject(auditReport.error);
-  if (auditError) {
-    const message =
-      asString(auditError.summary) ??
-      asString(auditError.detail) ??
-      "npm audit returned an error response.";
-    throw new Error(`npm audit failed: ${message}`);
+  const auditErrorMessage = formatNpmAuditErrorMessage(auditReport);
+  if (auditErrorMessage) {
+    throw new Error(`npm audit failed: ${auditErrorMessage}`);
   }
   return auditReport;
 }

@@ -4,6 +4,7 @@ import test from "node:test";
 import {
   collectAuditFindings,
   evaluateAuditGate,
+  formatNpmAuditErrorMessage,
   normalizeAllowlist,
 } from "./audit-gate.mjs";
 
@@ -160,6 +161,19 @@ test("normalizeAllowlist rejects expired or incomplete entries", () => {
   assert.deepEqual(result.entries, []);
   assert.match(result.errors.join("\n"), /expired on 2026-04-23/);
   assert.match(result.errors.join("\n"), /non-empty "reason"/);
+});
+
+test("formatNpmAuditErrorMessage falls back to top-level message when nested fields are blank", () => {
+  assert.equal(
+    formatNpmAuditErrorMessage({
+      error: {
+        summary: "",
+        detail: "   ",
+      },
+      message: "403 Forbidden - audit endpoint rejected the request.",
+    }),
+    "403 Forbidden - audit endpoint rejected the request.",
+  );
 });
 
 test("collectAuditFindings falls back to package IDs when npm omits advisory objects", () => {
