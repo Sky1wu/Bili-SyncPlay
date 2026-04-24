@@ -45,6 +45,19 @@ export function validateAllowedOriginValues(origins: readonly string[]): void {
         `ALLOWED_ORIGINS entry "${origin}" uses unsupported scheme "${parsed.protocol.replace(/:$/, "")}"; expected one of http, https, chrome-extension.`,
       );
     }
+
+    if (parsed.host.length === 0) {
+      throw new SecurityConfigError(
+        `ALLOWED_ORIGINS entry "${origin}" must include a host.`,
+      );
+    }
+
+    const canonical = `${parsed.protocol}//${parsed.host}`;
+    if (origin !== canonical) {
+      throw new SecurityConfigError(
+        `ALLOWED_ORIGINS entry "${origin}" must be a bare origin like "${canonical}" — no path, query, fragment, userinfo, trailing slash, or mixed-case host (HTTP Origin headers are exact-matched).`,
+      );
+    }
   }
 }
 

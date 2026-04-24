@@ -142,6 +142,58 @@ test("security config accepts chrome-extension origins", () => {
   ]);
 });
 
+test("security config rejects origins that include a path", () => {
+  assert.throws(
+    () => loadSecurityConfig({ ALLOWED_ORIGINS: "https://a.example/app" }),
+    /must be a bare origin/,
+  );
+});
+
+test("security config rejects origins with a trailing slash", () => {
+  assert.throws(
+    () => loadSecurityConfig({ ALLOWED_ORIGINS: "https://a.example/" }),
+    /must be a bare origin/,
+  );
+});
+
+test("security config rejects origins with a query string or fragment", () => {
+  assert.throws(
+    () => loadSecurityConfig({ ALLOWED_ORIGINS: "https://a.example?x=1" }),
+    /must be a bare origin/,
+  );
+  assert.throws(
+    () => loadSecurityConfig({ ALLOWED_ORIGINS: "https://a.example#frag" }),
+    /must be a bare origin/,
+  );
+});
+
+test("security config rejects origins with userinfo", () => {
+  assert.throws(
+    () =>
+      loadSecurityConfig({
+        ALLOWED_ORIGINS: "https://user:pass@a.example",
+      }),
+    /must be a bare origin/,
+  );
+});
+
+test("security config rejects chrome-extension origins with a path", () => {
+  assert.throws(
+    () =>
+      loadSecurityConfig({
+        ALLOWED_ORIGINS: "chrome-extension://abcdef/popup.html",
+      }),
+    /must be a bare origin/,
+  );
+});
+
+test("security config rejects origins with a mixed-case host", () => {
+  assert.throws(
+    () => loadSecurityConfig({ ALLOWED_ORIGINS: "https://A.Example" }),
+    /must be a bare origin/,
+  );
+});
+
 test("startup policy rejects empty origins outside of dev override", () => {
   const config = loadSecurityConfig({});
   assert.deepEqual(config.allowedOrigins, []);
