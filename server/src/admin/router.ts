@@ -1,5 +1,6 @@
 import type { IncomingMessage, ServerResponse } from "node:http";
 import { AdminActionError } from "./action-service.js";
+import { requireAdminWriteOrigin } from "./csrf.js";
 import {
   getBearerToken,
   getPathSegments,
@@ -68,6 +69,24 @@ export function createAdminRouter(options: AdminRouterOptions) {
     return true;
   }
 
+  function requireWriteOrigin(
+    request: IncomingMessage,
+    response: ServerResponse,
+  ): boolean {
+    return requireAdminWriteOrigin(
+      request,
+      response,
+      options.writeOriginPolicy,
+    );
+  }
+
+  function getIpKey(request: IncomingMessage): string {
+    if (options.getRequestIpKey) {
+      return options.getRequestIpKey(request);
+    }
+    return request.socket.remoteAddress ?? "unknown";
+  }
+
   return {
     async handle(
       request: IncomingMessage,
@@ -88,6 +107,8 @@ export function createAdminRouter(options: AdminRouterOptions) {
               helpers: {
                 requireAdmin,
                 requireRole,
+                requireWriteOrigin,
+                getIpKey,
               },
             })
           ) {

@@ -116,13 +116,18 @@ async function requestJson(
     method?: string;
     token?: string;
     body?: unknown;
+    origin?: string | null;
   } = {},
 ) {
+  const method = options.method ?? "GET";
+  const originHeader =
+    options.origin === null ? undefined : (options.origin ?? baseUrl);
   const response = await fetch(`${baseUrl}${path}`, {
-    method: options.method ?? "GET",
+    method,
     headers: {
       ...(options.token ? { Authorization: `Bearer ${options.token}` } : {}),
       ...(options.body ? { "content-type": "application/json" } : {}),
+      ...(originHeader ? { Origin: originHeader } : {}),
     },
     body: options.body ? JSON.stringify(options.body) : undefined,
   });
@@ -1459,6 +1464,374 @@ test("metrics can be exposed on a dedicated port distinct from the admin server"
       "/healthz",
     );
     assert.equal(dedicatedOtherPath.status, 404);
+  } finally {
+    await server.close();
+  }
+});
+
+test("admin login rejects requests without an Origin header", async () => {
+  const server = await startAdminServer();
+
+  try {
+    const response = await requestJson(
+      server.httpBaseUrl,
+      "/api/admin/auth/login",
+      {
+        method: "POST",
+        body: { username: "admin", password: "secret-123" },
+        origin: null,
+      },
+    );
+    assert.equal(response.status, 403);
+    assert.equal(
+      (response.body.error as { code: string }).code,
+      "csrf_origin_missing",
+    );
+  } finally {
+    await server.close();
+  }
+});
+
+test("admin login rejects cross-origin requests", async () => {
+  const server = await startAdminServer();
+
+  try {
+    const response = await requestJson(
+      server.httpBaseUrl,
+      "/api/admin/auth/login",
+      {
+        method: "POST",
+        body: { username: "admin", password: "secret-123" },
+        origin: "https://evil.example.com",
+      },
+    );
+    assert.equal(response.status, 403);
+    assert.equal(
+      (response.body.error as { code: string }).code,
+      "csrf_origin_not_allowed",
+    );
+  } finally {
+    await server.close();
+  }
+});
+
+test("admin action routes reject cross-origin POST requests", async () => {
+  const server = await startAdminServer();
+
+  try {
+    const token = await login(server.httpBaseUrl);
+
+    const close = await requestJson(
+      server.httpBaseUrl,
+      "/api/admin/rooms/ROOM1/close",
+      {
+        method: "POST",
+        token,
+        body: { reason: "csrf" },
+        origin: "https://evil.example.com",
+      },
+    );
+    assert.equal(close.status, 403);
+    assert.equal(
+      (close.body.error as { code: string }).code,
+      "csrf_origin_not_allowed",
+    );
+
+    const kick = await requestJson(
+      server.httpBaseUrl,
+      "/api/admin/rooms/ROOM1/members/m1/kick",
+      {
+        method: "POST",
+        token,
+        body: { reason: "csrf" },
+        origin: null,
+      },
+    );
+    assert.equal(kick.status, 403);
+    assert.equal(
+      (kick.body.error as { code: string }).code,
+      "csrf_origin_missing",
+    );
+
+    const disconnect = await requestJson(
+      server.httpBaseUrl,
+      "/api/admin/sessions/sess-1/disconnect",
+      {
+        method: "POST",
+        token,
+        body: { reason: "csrf" },
+        origin: "https://evil.example.com",
+      },
+    );
+    assert.equal(disconnect.status, 403);
+    assert.equal(
+      (disconnect.body.error as { code: string }).code,
+      "csrf_origin_not_allowed",
+    );
+  } finally {
+    await server.close();
+  }
+});
+
+test("admin login response does not set any session cookie", async () => {
+  const server = await startAdminServer();
+
+  try {
+    const response = await fetch(`${server.httpBaseUrl}/api/admin/auth/login`, {
+      method: "POST",
+      headers: {
+        "content-type": "application/json",
+        Origin: server.httpBaseUrl,
+      },
+      body: JSON.stringify({ username: "admin", password: "secret-123" }),
+    });
+    assert.equal(response.status, 200);
+    assert.equal(response.headers.get("set-cookie"), null);
+  } finally {
+    await server.close();
+  }
+});
+
+test("admin auth ignores stray Cookie headers (bearer-only session policy)", async () => {
+  const server = await startAdminServer();
+
+  try {
+    const loginResponse = await requestJson(
+      server.httpBaseUrl,
+      "/api/admin/auth/login",
+      {
+        method: "POST",
+        body: { username: "admin", password: "secret-123" },
+      },
+    );
+    assert.equal(loginResponse.status, 200);
+    const token = (loginResponse.body.data as { token: string }).token;
+
+    const cookieOnly = await fetch(`${server.httpBaseUrl}/api/admin/me`, {
+      method: "GET",
+      headers: {
+        Origin: server.httpBaseUrl,
+        Cookie: `bili-syncplay-admin-token=${token}`,
+      },
+    });
+    assert.equal(cookieOnly.status, 401);
+
+    const bearer = await fetch(`${server.httpBaseUrl}/api/admin/me`, {
+      method: "GET",
+      headers: {
+        Origin: server.httpBaseUrl,
+        Authorization: `Bearer ${token}`,
+      },
+    });
+    assert.equal(bearer.status, 200);
+  } finally {
+    await server.close();
+  }
+});
+
+test("admin login failures are rate-limited per IP independent of WS connection limits", async () => {
+  const server = await createSyncServer(
+    {
+      ...getDefaultSecurityConfig(),
+      allowedOrigins: [ALLOWED_ORIGIN],
+      connectionAttemptsPerMinute: 1000,
+      rateLimits: {
+        ...getDefaultSecurityConfig().rateLimits,
+        adminLoginFailuresPerIpPerMinute: 3,
+        adminLoginFailuresPerUsernamePerMinute: 100,
+      },
+    },
+    getDefaultPersistenceConfig(),
+    {
+      adminConfig: {
+        username: "admin",
+        passwordHash: `sha256:${sha256Hex("secret-123")}`,
+        sessionSecret: "session-secret-123",
+        sessionTtlMs: 60_000,
+        role: "admin",
+        sessionStoreProvider: "memory",
+        eventStoreProvider: "memory",
+        auditStoreProvider: "memory",
+      },
+      serviceVersion: "0.7.0-test",
+    },
+  );
+  await new Promise<void>((resolve, reject) => {
+    server.httpServer.listen(0, "127.0.0.1", () => resolve());
+    server.httpServer.once("error", reject);
+  });
+  const address = server.httpServer.address();
+  if (!address || typeof address === "string") {
+    throw new Error("Failed to determine test server address.");
+  }
+  const httpBaseUrl = `http://127.0.0.1:${address.port}`;
+
+  try {
+    for (let attempt = 0; attempt < 3; attempt += 1) {
+      const response = await requestJson(httpBaseUrl, "/api/admin/auth/login", {
+        method: "POST",
+        body: { username: `user-${attempt}`, password: "wrong" },
+      });
+      assert.equal(response.status, 401);
+    }
+
+    const throttled = await requestJson(httpBaseUrl, "/api/admin/auth/login", {
+      method: "POST",
+      body: { username: "user-4", password: "wrong" },
+    });
+    assert.equal(throttled.status, 429);
+    assert.equal(
+      (throttled.body.error as { code: string }).code,
+      "too_many_login_attempts",
+    );
+    assert.equal(
+      (throttled.body.error as { details: { dimension: string } }).details
+        .dimension,
+      "ip",
+    );
+
+    const blockedForValid = await requestJson(
+      httpBaseUrl,
+      "/api/admin/auth/login",
+      {
+        method: "POST",
+        body: { username: "admin", password: "secret-123" },
+      },
+    );
+    assert.equal(blockedForValid.status, 429);
+  } finally {
+    await server.close();
+  }
+});
+
+test("admin login failures are rate-limited per username case-insensitively", async () => {
+  const server = await createSyncServer(
+    {
+      ...getDefaultSecurityConfig(),
+      allowedOrigins: [ALLOWED_ORIGIN],
+      rateLimits: {
+        ...getDefaultSecurityConfig().rateLimits,
+        adminLoginFailuresPerIpPerMinute: 1000,
+        adminLoginFailuresPerUsernamePerMinute: 2,
+      },
+    },
+    getDefaultPersistenceConfig(),
+    {
+      adminConfig: {
+        username: "admin",
+        passwordHash: `sha256:${sha256Hex("secret-123")}`,
+        sessionSecret: "session-secret-123",
+        sessionTtlMs: 60_000,
+        role: "admin",
+        sessionStoreProvider: "memory",
+        eventStoreProvider: "memory",
+        auditStoreProvider: "memory",
+      },
+      serviceVersion: "0.7.0-test",
+    },
+  );
+  await new Promise<void>((resolve, reject) => {
+    server.httpServer.listen(0, "127.0.0.1", () => resolve());
+    server.httpServer.once("error", reject);
+  });
+  const address = server.httpServer.address();
+  if (!address || typeof address === "string") {
+    throw new Error("Failed to determine test server address.");
+  }
+  const httpBaseUrl = `http://127.0.0.1:${address.port}`;
+
+  try {
+    const first = await requestJson(httpBaseUrl, "/api/admin/auth/login", {
+      method: "POST",
+      body: { username: "Admin", password: "wrong" },
+    });
+    assert.equal(first.status, 401);
+
+    const second = await requestJson(httpBaseUrl, "/api/admin/auth/login", {
+      method: "POST",
+      body: { username: "admin", password: "wrong" },
+    });
+    assert.equal(second.status, 401);
+
+    const third = await requestJson(httpBaseUrl, "/api/admin/auth/login", {
+      method: "POST",
+      body: { username: "ADMIN", password: "wrong" },
+    });
+    assert.equal(third.status, 429);
+    assert.equal(
+      (third.body.error as { details: { dimension: string } }).details
+        .dimension,
+      "username",
+    );
+  } finally {
+    await server.close();
+  }
+});
+
+test("successful admin login resets the rate-limit counters", async () => {
+  const server = await createSyncServer(
+    {
+      ...getDefaultSecurityConfig(),
+      allowedOrigins: [ALLOWED_ORIGIN],
+      rateLimits: {
+        ...getDefaultSecurityConfig().rateLimits,
+        adminLoginFailuresPerIpPerMinute: 3,
+        adminLoginFailuresPerUsernamePerMinute: 3,
+      },
+    },
+    getDefaultPersistenceConfig(),
+    {
+      adminConfig: {
+        username: "admin",
+        passwordHash: `sha256:${sha256Hex("secret-123")}`,
+        sessionSecret: "session-secret-123",
+        sessionTtlMs: 60_000,
+        role: "admin",
+        sessionStoreProvider: "memory",
+        eventStoreProvider: "memory",
+        auditStoreProvider: "memory",
+      },
+      serviceVersion: "0.7.0-test",
+    },
+  );
+  await new Promise<void>((resolve, reject) => {
+    server.httpServer.listen(0, "127.0.0.1", () => resolve());
+    server.httpServer.once("error", reject);
+  });
+  const address = server.httpServer.address();
+  if (!address || typeof address === "string") {
+    throw new Error("Failed to determine test server address.");
+  }
+  const httpBaseUrl = `http://127.0.0.1:${address.port}`;
+
+  try {
+    for (let attempt = 0; attempt < 2; attempt += 1) {
+      const fail = await requestJson(httpBaseUrl, "/api/admin/auth/login", {
+        method: "POST",
+        body: { username: "admin", password: "wrong" },
+      });
+      assert.equal(fail.status, 401);
+    }
+
+    const success = await requestJson(httpBaseUrl, "/api/admin/auth/login", {
+      method: "POST",
+      body: { username: "admin", password: "secret-123" },
+    });
+    assert.equal(success.status, 200);
+
+    for (let attempt = 0; attempt < 3; attempt += 1) {
+      const again = await requestJson(httpBaseUrl, "/api/admin/auth/login", {
+        method: "POST",
+        body: { username: "admin", password: "wrong" },
+      });
+      assert.equal(again.status, 401);
+    }
+
+    const now429 = await requestJson(httpBaseUrl, "/api/admin/auth/login", {
+      method: "POST",
+      body: { username: "admin", password: "wrong" },
+    });
+    assert.equal(now429.status, 429);
   } finally {
     await server.close();
   }

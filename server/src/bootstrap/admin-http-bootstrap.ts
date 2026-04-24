@@ -96,6 +96,8 @@ export async function createSharedAdminHttpBootstrap(args: {
     serviceName: args.serviceName,
     createOverviewService: args.createOverviewService,
     createRoomQueryService: args.createRoomQueryService,
+    getRequestIpKey: (request) =>
+      securityPolicy.getRemoteAddress(request) ?? "unknown",
   });
 
   const metricsOnMain = args.metricsPort === undefined;

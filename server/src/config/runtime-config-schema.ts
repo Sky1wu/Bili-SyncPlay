@@ -129,6 +129,16 @@ export const SERVER_CONFIG_FIELDS = [
     "RATE_LIMIT_SYNC_PING_BURST",
     "positiveInteger",
   ),
+  createField(
+    ["security", "rateLimits", "adminLoginFailuresPerIpPerMinute"],
+    "RATE_LIMIT_ADMIN_LOGIN_FAILURES_PER_IP_PER_MINUTE",
+    "positiveInteger",
+  ),
+  createField(
+    ["security", "rateLimits", "adminLoginFailuresPerUsernamePerMinute"],
+    "RATE_LIMIT_ADMIN_LOGIN_FAILURES_PER_USERNAME_PER_MINUTE",
+    "positiveInteger",
+  ),
   createField(["persistence", "provider"], "ROOM_STORE_PROVIDER", "enum", [
     "memory",
     "redis",

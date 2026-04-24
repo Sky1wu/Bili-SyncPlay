@@ -68,13 +68,17 @@ async function requestJson(
     method?: string;
     token?: string;
     body?: unknown;
+    origin?: string | null;
   } = {},
 ) {
+  const originHeader =
+    options.origin === null ? undefined : (options.origin ?? baseUrl);
   const response = await fetch(`${baseUrl}${path}`, {
     method: options.method ?? "GET",
     headers: {
       ...(options.token ? { Authorization: `Bearer ${options.token}` } : {}),
       ...(options.body ? { "content-type": "application/json" } : {}),
+      ...(originHeader ? { Origin: originHeader } : {}),
     },
     body: options.body ? JSON.stringify(options.body) : undefined,
   });

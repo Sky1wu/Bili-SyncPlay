@@ -1,7 +1,9 @@
 import type { IncomingMessage, ServerResponse } from "node:http";
 import type { AdminAuthService } from "./auth-service.js";
+import type { AdminWriteOriginPolicy } from "./csrf.js";
 import type { GlobalAuditQueryResult } from "./global-audit-store.js";
 import type { GlobalEventStore } from "./global-event-store.js";
+import type { AdminLoginRateLimiter } from "./login-rate-limit.js";
 import type {
   AdminRole,
   AdminSession,
@@ -47,6 +49,9 @@ export type AdminRouterOptions = {
   eventStore: GlobalEventStore;
   serviceName: string;
   now?: () => number;
+  writeOriginPolicy: AdminWriteOriginPolicy;
+  loginRateLimiter?: AdminLoginRateLimiter;
+  getRequestIpKey?: (request: IncomingMessage) => string;
 };
 
 export type AdminRouteHelpers = {
@@ -59,6 +64,11 @@ export type AdminRouteHelpers = {
     role: AdminRole,
     response: ServerResponse,
   ) => boolean;
+  requireWriteOrigin: (
+    request: IncomingMessage,
+    response: ServerResponse,
+  ) => boolean;
+  getIpKey: (request: IncomingMessage) => string;
 };
 
 export type AdminRouteInput = {

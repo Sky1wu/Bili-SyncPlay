@@ -18,6 +18,9 @@ export const handleActionRoutes: AdminRouteHandler = async ({
     segments[2] === "rooms" &&
     segments[4] === "close"
   ) {
+    if (!helpers.requireWriteOrigin(request, response)) {
+      return true;
+    }
     const roomCode = requireNonEmptyString(
       requireSegment(segments, 3, "roomCode"),
       "roomCode",
@@ -42,6 +45,9 @@ export const handleActionRoutes: AdminRouteHandler = async ({
     segments[2] === "rooms" &&
     segments[4] === "expire"
   ) {
+    if (!helpers.requireWriteOrigin(request, response)) {
+      return true;
+    }
     const roomCode = requireNonEmptyString(
       requireSegment(segments, 3, "roomCode"),
       "roomCode",
@@ -66,6 +72,9 @@ export const handleActionRoutes: AdminRouteHandler = async ({
     segments[2] === "rooms" &&
     segments[4] === "clear-video"
   ) {
+    if (!helpers.requireWriteOrigin(request, response)) {
+      return true;
+    }
     const roomCode = requireNonEmptyString(
       requireSegment(segments, 3, "roomCode"),
       "roomCode",
@@ -94,6 +103,9 @@ export const handleActionRoutes: AdminRouteHandler = async ({
     segments[4] === "members" &&
     segments[6] === "kick"
   ) {
+    if (!helpers.requireWriteOrigin(request, response)) {
+      return true;
+    }
     const roomCode = requireNonEmptyString(
       requireSegment(segments, 3, "roomCode"),
       "roomCode",
@@ -125,6 +137,9 @@ export const handleActionRoutes: AdminRouteHandler = async ({
     segments[2] === "sessions" &&
     segments[4] === "disconnect"
   ) {
+    if (!helpers.requireWriteOrigin(request, response)) {
+      return true;
+    }
     const targetSessionId = requireNonEmptyString(
       requireSegment(segments, 3, "sessionId"),
       "sessionId",

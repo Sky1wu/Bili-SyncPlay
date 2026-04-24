@@ -1,6 +1,7 @@
 import {
   ADMIN_AUTH_UNAVAILABLE_MESSAGE,
   INVALID_CREDENTIALS_MESSAGE,
+  TOO_MANY_LOGIN_ATTEMPTS_MESSAGE,
   UNAUTHORIZED_MESSAGE,
 } from "../../messages.js";
 import { getBearerToken, readJsonBody } from "../request.js";
@@ -12,6 +13,10 @@ const MAX_ADMIN_USERNAME_LENGTH = 128;
 const MAX_ADMIN_PASSWORD_LENGTH = 512;
 const MAX_ADMIN_TOKEN_LENGTH = 1024;
 
+// Admin sessions are issued as opaque bearer tokens delivered via the
+// `Authorization` header. Cookies are intentionally not used for admin auth,
+// which avoids the need to maintain cookie security attributes and neutralizes
+// classic CSRF against session cookies. The regression tests cover this policy.
 export const handleAuthRoutes: AdminRouteHandler = async ({
   request,
   response,
@@ -20,6 +25,9 @@ export const handleAuthRoutes: AdminRouteHandler = async ({
   options,
 }) => {
   if (request.method === "POST" && pathname === "/api/admin/auth/login") {
+    if (!helpers.requireWriteOrigin(request, response)) {
+      return true;
+    }
     if (!options.authService) {
       sendError(
         response,
@@ -43,8 +51,28 @@ export const handleAuthRoutes: AdminRouteHandler = async ({
       MAX_ADMIN_PASSWORD_LENGTH,
       "password",
     );
+    const ipKey = helpers.getIpKey(request);
+    if (options.loginRateLimiter) {
+      const limitCheck = options.loginRateLimiter.check({ ipKey, username });
+      if (!limitCheck.ok) {
+        const retryAfterSeconds = Math.max(
+          1,
+          Math.ceil(limitCheck.retryAfterMs / 1000),
+        );
+        response.setHeader("retry-after", String(retryAfterSeconds));
+        sendError(
+          response,
+          429,
+          "too_many_login_attempts",
+          TOO_MANY_LOGIN_ATTEMPTS_MESSAGE,
+          { dimension: limitCheck.dimension, retryAfterSeconds },
+        );
+        return true;
+      }
+    }
     try {
       const result = await options.authService.login(username, password);
+      options.loginRateLimiter?.registerSuccess({ ipKey, username });
       sendOk(response, {
         token: result.token,
         expiresAt: result.expiresAt,
@@ -55,6 +83,7 @@ export const handleAuthRoutes: AdminRouteHandler = async ({
         },
       });
     } catch {
+      options.loginRateLimiter?.registerFailure({ ipKey, username });
       sendError(
         response,
         401,
@@ -66,6 +95,9 @@ export const handleAuthRoutes: AdminRouteHandler = async ({
   }
 
   if (request.method === "POST" && pathname === "/api/admin/auth/logout") {
+    if (!helpers.requireWriteOrigin(request, response)) {
+      return true;
+    }
     const token = getBearerToken(request);
     if (token) {
       assertMaxLength(token, MAX_ADMIN_TOKEN_LENGTH, "token");

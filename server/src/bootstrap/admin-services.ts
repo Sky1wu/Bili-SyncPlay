@@ -1,3 +1,4 @@
+import type { IncomingMessage } from "node:http";
 import type { ServerMessage } from "@bili-syncplay/protocol";
 import type { WebSocket } from "ws";
 import { createAdminActionService } from "../admin/action-service.js";
@@ -6,6 +7,7 @@ import { createAuditLogService } from "../admin/audit-log.js";
 import { createInMemoryAdminSessionStore } from "../admin/auth-store.js";
 import { createAdminAuthService } from "../admin/auth-service.js";
 import { createAdminConfigService } from "../admin/config-service.js";
+import { createAdminLoginRateLimiter } from "../admin/login-rate-limit.js";
 import type { GlobalAuditStore } from "../admin/global-audit-store.js";
 import type { GlobalEventStore } from "../admin/global-event-store.js";
 import type { MetricsCollector } from "../admin/metrics.js";
@@ -49,6 +51,7 @@ export function createAdminServices(args: {
   serviceName?: string;
   createOverviewService?: typeof createAdminOverviewService;
   createRoomQueryService?: typeof createAdminRoomQueryService;
+  getRequestIpKey?: (request: IncomingMessage) => string;
 }): Promise<{
   adminRouter: ReturnType<typeof createAdminRouter>;
   close: () => Promise<void>;
@@ -97,6 +100,18 @@ export function createAdminServices(args: {
       args.adminConfig && adminSessionStore
         ? createAdminAuthService(args.adminConfig, adminSessionStore, args.now)
         : undefined;
+    const loginRateLimiter = authService
+      ? createAdminLoginRateLimiter(
+          {
+            failuresPerIpPerMinute:
+              args.securityConfig.rateLimits.adminLoginFailuresPerIpPerMinute,
+            failuresPerUsernamePerMinute:
+              args.securityConfig.rateLimits
+                .adminLoginFailuresPerUsernamePerMinute,
+          },
+          args.now,
+        )
+      : undefined;
     const overviewService = createOverviewService({
       instanceId: args.persistenceConfig.instanceId,
       serviceName: args.serviceName ?? "bili-syncplay-server",
@@ -188,6 +203,11 @@ export function createAdminServices(args: {
       eventStore: args.eventStore,
       serviceName: args.serviceName ?? "bili-syncplay-server",
       now: args.now,
+      writeOriginPolicy: {
+        allowedOrigins: args.securityConfig.allowedOrigins,
+      },
+      loginRateLimiter,
+      getRequestIpKey: args.getRequestIpKey,
     });
 
     return {

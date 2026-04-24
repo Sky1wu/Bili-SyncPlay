@@ -156,6 +156,8 @@ export type SecurityConfig = {
     syncRequestPer10Seconds: number;
     syncPingPerSecond: number;
     syncPingBurst: number;
+    adminLoginFailuresPerIpPerMinute: number;
+    adminLoginFailuresPerUsernamePerMinute: number;
   };
 };
 

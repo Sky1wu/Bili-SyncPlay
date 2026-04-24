@@ -216,6 +216,8 @@ export function getDefaultSecurityConfig(): SecurityConfig {
       syncRequestPer10Seconds: 6,
       syncPingPerSecond: 1,
       syncPingBurst: 2,
+      adminLoginFailuresPerIpPerMinute: 10,
+      adminLoginFailuresPerUsernamePerMinute: 5,
     },
   };
 }

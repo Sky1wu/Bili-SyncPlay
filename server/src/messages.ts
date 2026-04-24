@@ -19,6 +19,9 @@ export const FORBIDDEN_MESSAGE = "Forbidden.";
 export const ADMIN_AUTH_UNAVAILABLE_MESSAGE =
   "Admin authentication is not configured.";
 export const INVALID_CREDENTIALS_MESSAGE = "Invalid username or password.";
+export const CROSS_ORIGIN_REJECTED_MESSAGE = "Cross-origin request rejected.";
+export const TOO_MANY_LOGIN_ATTEMPTS_MESSAGE =
+  "Too many login attempts. Try again later.";
 export const ROOM_VERSION_CONFLICT_MESSAGE = "Room state update conflict.";
 export const ROOM_ACTIVE_MESSAGE =
   "Room still has active members. Close the room instead of expiring it early.";
