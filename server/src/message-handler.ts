@@ -228,15 +228,6 @@ export function createMessageHandler(options: {
         case "room:create": {
           const previousRoomCode = session.roomCode;
           if (
-            !checkProtocolVersion(
-              session,
-              socket,
-              message.payload?.protocolVersion,
-            )
-          ) {
-            return;
-          }
-          if (
             !consumeFixedWindow(
               session.rateLimitState.roomCreate,
               config.rateLimits.roomCreatePerMinute,
@@ -246,6 +237,15 @@ export function createMessageHandler(options: {
           ) {
             handleRateLimitedMessage(session, message.type);
             sendError(socket, "rate_limited", RATE_LIMITED_MESSAGE);
+            return;
+          }
+          if (
+            !checkProtocolVersion(
+              session,
+              socket,
+              message.payload?.protocolVersion,
+            )
+          ) {
             return;
           }
 
@@ -280,15 +280,6 @@ export function createMessageHandler(options: {
         case "room:join": {
           const previousRoomCode = session.roomCode;
           if (
-            !checkProtocolVersion(
-              session,
-              socket,
-              message.payload.protocolVersion,
-            )
-          ) {
-            return;
-          }
-          if (
             !consumeFixedWindow(
               session.rateLimitState.roomJoin,
               config.rateLimits.roomJoinPerMinute,
@@ -298,6 +289,15 @@ export function createMessageHandler(options: {
           ) {
             handleRateLimitedMessage(session, message.type);
             sendError(socket, "rate_limited", RATE_LIMITED_MESSAGE);
+            return;
+          }
+          if (
+            !checkProtocolVersion(
+              session,
+              socket,
+              message.payload.protocolVersion,
+            )
+          ) {
             return;
           }
 
