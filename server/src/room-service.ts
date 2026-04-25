@@ -179,6 +179,13 @@ export function createRoomService(options: {
     runtimeStore.registerSession?.(session);
   }
 
+  function actorDetails(session: Session): Record<string, unknown> {
+    return {
+      actorId: session.memberId ?? session.id,
+      displayName: session.displayName,
+    };
+  }
+
   function clearSessionRoom(session: Session): void {
     session.roomCode = null;
     session.memberId = null;
@@ -617,6 +624,8 @@ export function createRoomService(options: {
     }
 
     const roomCode = session.roomCode;
+    const leavingMemberId = session.memberId ?? session.id;
+    const leavingDisplayName = session.displayName;
     const sessionSnapshot = snapshotJoinedSession(session);
     const removal = session.memberId
       ? runtimeStore.removeMember(roomCode, session.memberId, session)
@@ -638,6 +647,8 @@ export function createRoomService(options: {
         logEvent("room_left", {
           sessionId: session.id,
           roomCode,
+          memberId: leavingMemberId,
+          displayName: leavingDisplayName,
           remoteAddress: session.remoteAddress,
           origin: session.origin,
           result: "ok",
@@ -676,6 +687,8 @@ export function createRoomService(options: {
       logEvent("room_left", {
         sessionId: session.id,
         roomCode,
+        memberId: leavingMemberId,
+        displayName: leavingDisplayName,
         remoteAddress: session.remoteAddress,
         origin: session.origin,
         result: "ok",
@@ -1004,6 +1017,19 @@ export function createRoomService(options: {
         );
       }
 
+      logEvent("video_shared", {
+        roomCode: room.code,
+        sessionId: session.id,
+        ...actorDetails(session),
+        videoTitle: room.sharedVideo?.title ?? video.title,
+        videoId: room.sharedVideo?.videoId ?? video.videoId,
+        url: room.sharedVideo?.url ?? video.url,
+        playState: room.playback?.playState ?? null,
+        currentTime: room.playback?.currentTime ?? null,
+        playbackRate: room.playback?.playbackRate ?? null,
+        result: "ok",
+      });
+
       return { room };
     },
 
@@ -1151,7 +1177,7 @@ export function createRoomService(options: {
       logEvent("playback_update_applied", {
         roomCode: access.persistedRoom.code,
         sessionId: session.id,
-        actorId: nextPlayback.actorId,
+        ...actorDetails(session),
         seq: nextPlayback.seq,
         playState: nextPlayback.playState,
         currentTime: nextPlayback.currentTime,
@@ -1173,8 +1199,41 @@ export function createRoomService(options: {
         "profile:update",
       );
       setSessionDisplayName(session, displayName);
+      let room = access.persistedRoom;
+      if (
+        (session.memberId ?? session.id) === access.persistedRoom.ownerMemberId
+      ) {
+        const updatedRoom = await withVersionRetry(
+          access.persistedRoom.code,
+          async (currentRoom) => {
+            const result = await roomStore.updateRoom(
+              currentRoom.code,
+              currentRoom.version,
+              {
+                ownerDisplayName: session.displayName,
+                lastActiveAt: now(),
+              },
+            );
+            if (!result.ok) {
+              return null;
+            }
+            return result.room;
+          },
+        );
+        if (updatedRoom) {
+          room = updatedRoom;
+        } else {
+          logEvent("room_persist_failed", {
+            roomCode: access.persistedRoom.code,
+            sessionId: session.id,
+            provider: persistence.provider,
+            result: "error",
+            reason: "owner_profile_update_conflict",
+          });
+        }
+      }
       await runtimeStore.flush?.();
-      return { room: access.persistedRoom };
+      return { room };
     },
 
     async getRoomStateForSession(session, memberToken, messageType) {
