@@ -3,10 +3,14 @@ import test from "node:test";
 import {
   applyIncomingPopupState,
   createPopupStateSyncState,
+  getNextPopupRoomTrackingState,
 } from "../src/popup/state-sync";
 import type { BackgroundPopupState } from "../src/shared/messages";
 
-function createPopupState(roomCode: string | null): BackgroundPopupState {
+function createPopupState(
+  roomCode: string | null,
+  overrides: Partial<BackgroundPopupState> = {},
+): BackgroundPopupState {
   return {
     connected: Boolean(roomCode),
     serverUrl: "ws://localhost:8787",
@@ -31,6 +35,7 @@ function createPopupState(roomCode: string | null): BackgroundPopupState {
     clockOffsetMs: null,
     rttMs: null,
     logs: [],
+    ...overrides,
   };
 }
 
@@ -51,4 +56,39 @@ test("query snapshot is accepted as fallback before any port snapshot arrives", 
   assert.equal(applyIncomingPopupState(state, initialState, "query"), true);
   assert.equal(state.popupState?.roomCode, "ROOM01");
   assert.equal(state.hasReceivedPortState, false);
+});
+
+test("room tracking does not start the leave guard for an already joined room", () => {
+  const nextState = getNextPopupRoomTrackingState(
+    {
+      roomActionPending: false,
+      lastKnownPendingCreateRoom: false,
+      lastKnownPendingJoinRoomCode: null,
+      lastKnownRoomCode: null,
+      lastRoomEnteredAt: 0,
+    },
+    createPopupState("ROOM01"),
+    1000,
+  );
+
+  assert.equal(nextState.lastKnownRoomCode, "ROOM01");
+  assert.equal(nextState.lastRoomEnteredAt, 0);
+});
+
+test("room tracking starts the leave guard after a local join resolves", () => {
+  const nextState = getNextPopupRoomTrackingState(
+    {
+      roomActionPending: false,
+      lastKnownPendingCreateRoom: false,
+      lastKnownPendingJoinRoomCode: "ROOM01",
+      lastKnownRoomCode: null,
+      lastRoomEnteredAt: 0,
+    },
+    createPopupState("ROOM01", { pendingJoinRoomCode: null }),
+    1000,
+  );
+
+  assert.equal(nextState.lastKnownRoomCode, "ROOM01");
+  assert.equal(nextState.lastKnownPendingJoinRoomCode, null);
+  assert.equal(nextState.lastRoomEnteredAt, 1000);
 });
