@@ -37,6 +37,7 @@ export type SessionBase = {
   memberId: string | null;
   displayName: string;
   memberToken: string | null;
+  protocolVersion?: number;
   joinedAt: number | null;
   invalidMessageCount: number;
   rateLimitState: SessionRateLimitState;

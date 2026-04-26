@@ -2,6 +2,8 @@ import type {
   ErrorMessage,
   RoomCreatedMessage,
   RoomJoinedMessage,
+  RoomMemberJoinedMessage,
+  RoomMemberLeftMessage,
   RoomStateMessage,
   ServerMessage,
   SyncPongMessage,
@@ -117,6 +119,30 @@ function isRoomStateMessage(value: unknown): value is RoomStateMessage {
   );
 }
 
+function isRoomMemberJoinedMessage(
+  value: unknown,
+): value is RoomMemberJoinedMessage {
+  return (
+    isRecord(value) &&
+    value.type === "room:member-joined" &&
+    isRecord(value.payload) &&
+    isRoomCode(value.payload.roomCode) &&
+    isRoomMember(value.payload.member)
+  );
+}
+
+function isRoomMemberLeftMessage(
+  value: unknown,
+): value is RoomMemberLeftMessage {
+  return (
+    isRecord(value) &&
+    value.type === "room:member-left" &&
+    isRecord(value.payload) &&
+    isRoomCode(value.payload.roomCode) &&
+    isRoomMember(value.payload.member)
+  );
+}
+
 export function isErrorMessage(value: unknown): value is ErrorMessage {
   return (
     isRecord(value) &&
@@ -150,6 +176,10 @@ export function isServerMessage(value: unknown): value is ServerMessage {
       return isRoomJoinedMessage(value);
     case "room:state":
       return isRoomStateMessage(value);
+    case "room:member-joined":
+      return isRoomMemberJoinedMessage(value);
+    case "room:member-left":
+      return isRoomMemberLeftMessage(value);
     case "error":
       return isErrorMessage(value);
     case "sync:pong":

@@ -1,4 +1,5 @@
 import assert from "node:assert/strict";
+import { PROTOCOL_VERSION } from "@bili-syncplay/protocol";
 import {
   createSyncServer,
   getDefaultPersistenceConfig,
@@ -287,7 +288,12 @@ async function connectParticipants(
         wsUrl,
         socket,
         inbox: createBenchMessageCollector(socket, {
-          trackedTypes: ["room:created", "room:joined", "room:state"],
+          trackedTypes: [
+            "room:created",
+            "room:joined",
+            "room:state",
+            "room:member-joined",
+          ],
         }),
       };
     }),
@@ -357,7 +363,10 @@ async function initializeRoom(
   ownerSeed.socket.send(
     JSON.stringify({
       type: "room:create",
-      payload: { displayName: ownerSeed.displayName },
+      payload: {
+        displayName: ownerSeed.displayName,
+        protocolVersion: PROTOCOL_VERSION,
+      },
     }),
   );
 
@@ -380,13 +389,14 @@ async function initializeRoom(
           roomCode: createdPayload.roomCode,
           joinToken: createdPayload.joinToken,
           displayName: joinerSeed.displayName,
+          protocolVersion: PROTOCOL_VERSION,
         },
       }),
     );
 
     const joined = await joinerSeed.inbox.next("room:joined");
     await joinerSeed.inbox.next("room:state");
-    await ownerSeed.inbox.next("room:state");
+    await ownerSeed.inbox.next("room:member-joined");
 
     const joinedPayload = joined.payload as {
       memberToken: string;
@@ -686,6 +696,7 @@ export async function runReconnectStormBenchmark(input: {
                 joinToken: environment.joinToken,
                 displayName: seed.displayName,
                 memberToken: seed.memberToken,
+                protocolVersion: PROTOCOL_VERSION,
               },
             }),
           );

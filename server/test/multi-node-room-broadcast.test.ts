@@ -45,14 +45,14 @@ test("cross-node room broadcasts sync join, shared video, playback updates, and 
 
     const joined = await joinerCollector.next("room:joined");
     const joinerJoinedState = await joinerCollector.next("room:state");
-    const ownerSawJoin = await ownerCollector.next("room:state");
+    const ownerSawJoin = await ownerCollector.next("room:member-joined");
     assert.equal(
       (joinerJoinedState.payload as { members: Array<unknown> }).members.length,
       2,
     );
     assert.equal(
-      (ownerSawJoin.payload as { members: Array<unknown> }).members.length,
-      2,
+      (ownerSawJoin.payload as { member: { name: string } }).member.name,
+      "Bob",
     );
 
     owner.send(
@@ -159,10 +159,10 @@ test("cross-node room broadcasts sync join, shared video, playback updates, and 
       }),
     );
 
-    const ownerSawLeave = await ownerCollector.next("room:state");
+    const ownerSawLeave = await ownerCollector.next("room:member-left");
     assert.equal(
-      (ownerSawLeave.payload as { members: Array<unknown> }).members.length,
-      1,
+      (ownerSawLeave.payload as { member: { name: string } }).member.name,
+      "Bob",
     );
     assert.equal(await ownerCollector.maybeNext("room:state", 150), null);
     assert.equal(await joinerCollector.maybeNext("room:state", 150), null);

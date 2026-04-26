@@ -335,7 +335,7 @@ test("profile updates are reflected in redis-backed room state views", async (t)
       );
       await joinerCollector.next("room:joined");
       await joinerCollector.next("room:state");
-      await ownerCollector.next("room:state");
+      await ownerCollector.next("room:member-joined");
 
       owner.send(
         JSON.stringify({

@@ -48,7 +48,7 @@ test("global admin executes cross-node kick_member and disconnect_session action
     );
     const joined = await joinerCollector.next("room:joined");
     await joinerCollector.next("room:state");
-    await ownerCollector.next("room:state");
+    await ownerCollector.next("room:member-joined");
 
     const roomCode = (created.payload as { roomCode: string }).roomCode;
     const roomDetail = await requestJson(

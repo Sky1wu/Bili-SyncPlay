@@ -227,9 +227,10 @@ export async function createSyncServer(
     publishRoomEvent,
     instanceId: persistenceConfig.instanceId,
     metricsCollector,
-    onRoomJoined: (session, roomCode) => {
+    onRoomJoined: async (session, roomCode) => {
       runtimeStore.registerSession(session);
       runtimeStore.markSessionJoinedRoom(session.id, roomCode);
+      await runtimeStore.flush?.();
     },
     onRoomLeft: (session, roomCode) => {
       runtimeStore.registerSession(session);

@@ -12,6 +12,7 @@ import assert from "node:assert/strict";
 import { once } from "node:events";
 import test from "node:test";
 import { WebSocket, type RawData } from "ws";
+import { PROTOCOL_VERSION } from "@bili-syncplay/protocol";
 import {
   createSyncServer,
   getDefaultPersistenceConfig,
@@ -114,7 +115,7 @@ test("e2e smoke: create room → join → share video → playback update → me
     ownerSocket.send(
       JSON.stringify({
         type: "room:create",
-        payload: { displayName: "Alice" },
+        payload: { displayName: "Alice", protocolVersion: PROTOCOL_VERSION },
       }),
     );
 
@@ -141,6 +142,7 @@ test("e2e smoke: create room → join → share video → playback update → me
           roomCode: createdPayload.roomCode,
           joinToken: createdPayload.joinToken,
           displayName: "Bob",
+          protocolVersion: PROTOCOL_VERSION,
         },
       }),
     );
@@ -159,10 +161,10 @@ test("e2e smoke: create room → join → share video → playback update → me
       "joiner's room:state must list 2 members",
     );
 
-    const ownerStateAfterJoin = await ownerMsg.next("room:state");
+    const ownerStateAfterJoin = await ownerMsg.next("room:member-joined");
     assert.equal(
-      (ownerStateAfterJoin.payload as { members: unknown[] }).members.length,
-      2,
+      (ownerStateAfterJoin.payload as { member: { name: string } }).member.name,
+      "Bob",
       "owner must be notified of second member",
     );
 
@@ -267,10 +269,11 @@ test("e2e smoke: create room → join → share video → playback update → me
       }),
     );
 
-    const ownerStateAfterLeave = await ownerMsg.next("room:state");
+    const ownerStateAfterLeave = await ownerMsg.next("room:member-left");
     assert.equal(
-      (ownerStateAfterLeave.payload as { members: unknown[] }).members.length,
-      1,
+      (ownerStateAfterLeave.payload as { member: { name: string } }).member
+        .name,
+      "Bob",
       "owner must see member count drop to 1 after joiner leaves",
     );
 

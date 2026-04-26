@@ -12,6 +12,22 @@ export type RoomEventBusMessage =
       emittedAt: number;
     }
   | {
+      type: "room_member_joined";
+      roomCode: string;
+      sourceInstanceId: string;
+      emittedAt: number;
+      memberId: string;
+      displayName: string;
+    }
+  | {
+      type: "room_member_left";
+      roomCode: string;
+      sourceInstanceId: string;
+      emittedAt: number;
+      memberId: string;
+      displayName: string;
+    }
+  | {
       type: "room_deleted";
       roomCode: string;
       sourceInstanceId: string;

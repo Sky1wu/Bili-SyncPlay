@@ -125,6 +125,52 @@ test("accepts room:joined when memberId uses max-compatible actor format", () =>
   );
 });
 
+test("accepts room member delta messages", () => {
+  assert.equal(
+    isServerMessage({
+      type: "room:member-joined",
+      payload: {
+        roomCode: "ABC123",
+        member: { id: "member-1", name: "Alice" },
+      },
+    }),
+    true,
+  );
+  assert.equal(
+    isServerMessage({
+      type: "room:member-left",
+      payload: {
+        roomCode: "ABC123",
+        member: { id: "member-2", name: "Bob" },
+      },
+    }),
+    true,
+  );
+});
+
+test("rejects room member delta messages with invalid member payloads", () => {
+  assert.equal(
+    isServerMessage({
+      type: "room:member-joined",
+      payload: {
+        roomCode: "ABC123",
+        member: { id: "member 1", name: "Alice" },
+      },
+    }),
+    false,
+  );
+  assert.equal(
+    isServerMessage({
+      type: "room:member-left",
+      payload: {
+        roomCode: "ABC123",
+        member: { id: "member-2", name: "x".repeat(33) },
+      },
+    }),
+    false,
+  );
+});
+
 test("rejects room:created when memberId format is invalid", () => {
   assert.equal(
     isServerMessage({

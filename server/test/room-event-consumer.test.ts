@@ -4,7 +4,11 @@ import { createInMemoryRoomEventBus } from "../src/room-event-bus.js";
 import { createRoomEventConsumer } from "../src/room-event-consumer.js";
 import type { Session } from "../src/types.js";
 
-function createSession(id: string, roomCode: string): Session {
+function createSession(
+  id: string,
+  roomCode: string,
+  protocolVersion = 2,
+): Session {
   return {
     id,
     connectionState: "attached",
@@ -22,6 +26,7 @@ function createSession(id: string, roomCode: string): Session {
     memberId: id,
     displayName: id,
     memberToken: `token-${id}`,
+    protocolVersion,
     joinedAt: 1_000,
     invalidMessageCount: 0,
     rateLimitState: {
@@ -107,6 +112,172 @@ test("room event consumer sends room state only to local room sessions", async (
       event: "room_event_consumed",
       roomCode: "ROOM01",
       result: "ok",
+    },
+  ]);
+});
+
+test("room event consumer sends member join deltas to other local room sessions", async () => {
+  const bus = createInMemoryRoomEventBus();
+  const joiningSession = createSession("member-a", "ROOM01");
+  const existingSession = createSession("member-b", "ROOM01");
+  const sent: Array<{
+    sessionId: string;
+    type: string;
+    memberId: string;
+    displayName: string;
+  }> = [];
+
+  const consumer = await createRoomEventConsumer({
+    roomEventBus: bus,
+    async getRoomStateByCode() {
+      throw new Error("member delta should not reload room state");
+    },
+    listLocalSessionsByRoom() {
+      return [joiningSession, existingSession];
+    },
+    send(socket, message) {
+      const session =
+        socket === joiningSession.socket ? joiningSession : existingSession;
+      if (
+        message.type === "room:member-joined" ||
+        message.type === "room:member-left"
+      ) {
+        sent.push({
+          sessionId: session.id,
+          type: message.type,
+          memberId: message.payload.member.id,
+          displayName: message.payload.member.name,
+        });
+      }
+    },
+  });
+
+  try {
+    await bus.publish({
+      type: "room_member_joined",
+      roomCode: "ROOM01",
+      sourceInstanceId: "instance-b",
+      emittedAt: 1_100,
+      memberId: "member-a",
+      displayName: "Alice",
+    });
+  } finally {
+    await consumer.close();
+  }
+
+  assert.deepEqual(sent, [
+    {
+      sessionId: "member-b",
+      type: "room:member-joined",
+      memberId: "member-a",
+      displayName: "Alice",
+    },
+  ]);
+});
+
+test("room event consumer sends full room state for legacy member event sessions", async () => {
+  const bus = createInMemoryRoomEventBus();
+  const joiningSession = createSession("member-a", "ROOM01", 2);
+  const legacySession = createSession("member-b", "ROOM01", 1);
+  const sent: Array<{
+    sessionId: string;
+    type: string;
+    memberCount: number;
+  }> = [];
+  let roomStateLoads = 0;
+
+  const consumer = await createRoomEventConsumer({
+    roomEventBus: bus,
+    async getRoomStateByCode(roomCode) {
+      roomStateLoads += 1;
+      return {
+        roomCode,
+        sharedVideo: null,
+        playback: null,
+        members: [
+          { id: "member-a", name: "Alice" },
+          { id: "member-b", name: "Bob" },
+        ],
+      };
+    },
+    listLocalSessionsByRoom() {
+      return [joiningSession, legacySession];
+    },
+    send(socket, message) {
+      const session =
+        socket === joiningSession.socket ? joiningSession : legacySession;
+      sent.push({
+        sessionId: session.id,
+        type: message.type,
+        memberCount:
+          message.type === "room:state" ? message.payload.members.length : 1,
+      });
+    },
+  });
+
+  try {
+    await bus.publish({
+      type: "room_member_joined",
+      roomCode: "ROOM01",
+      sourceInstanceId: "instance-b",
+      emittedAt: 1_100,
+      memberId: "member-a",
+      displayName: "Alice",
+    });
+  } finally {
+    await consumer.close();
+  }
+
+  assert.equal(roomStateLoads, 1);
+  assert.deepEqual(sent, [
+    {
+      sessionId: "member-b",
+      type: "room:state",
+      memberCount: 2,
+    },
+  ]);
+});
+
+test("room event consumer sends member leave deltas to remaining room sessions", async () => {
+  const bus = createInMemoryRoomEventBus();
+  const remainingSession = createSession("member-b", "ROOM01");
+  const sent: Array<{ type: string; memberId: string }> = [];
+
+  const consumer = await createRoomEventConsumer({
+    roomEventBus: bus,
+    async getRoomStateByCode() {
+      throw new Error("member delta should not reload room state");
+    },
+    listLocalSessionsByRoom() {
+      return [remainingSession];
+    },
+    send(_socket, message) {
+      if (message.type === "room:member-left") {
+        sent.push({
+          type: message.type,
+          memberId: message.payload.member.id,
+        });
+      }
+    },
+  });
+
+  try {
+    await bus.publish({
+      type: "room_member_left",
+      roomCode: "ROOM01",
+      sourceInstanceId: "instance-b",
+      emittedAt: 1_100,
+      memberId: "member-a",
+      displayName: "Alice",
+    });
+  } finally {
+    await consumer.close();
+  }
+
+  assert.deepEqual(sent, [
+    {
+      type: "room:member-left",
+      memberId: "member-a",
     },
   ]);
 });

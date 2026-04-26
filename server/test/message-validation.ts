@@ -15,7 +15,7 @@ import {
   INVALID_JSON_MESSAGE,
 } from "../src/app.js";
 import { createInMemoryRoomStore, type RoomStore } from "../src/room-store.js";
-import type { ServerMessage } from "@bili-syncplay/protocol";
+import { PROTOCOL_VERSION, type ServerMessage } from "@bili-syncplay/protocol";
 
 const ALLOWED_ORIGIN = "chrome-extension://allowed-extension";
 
@@ -593,7 +593,10 @@ test("updates member display names in room state after profile:update", async ()
       owner.send(
         JSON.stringify({
           type: "room:create",
-          payload: { displayName: "Guest-123" },
+          payload: {
+            displayName: "Guest-123",
+            protocolVersion: PROTOCOL_VERSION,
+          },
         }),
       );
       const created = await ownerCollector.next("room:created");
@@ -606,12 +609,13 @@ test("updates member display names in room state after profile:update", async ()
             roomCode: created.payload.roomCode,
             joinToken: created.payload.joinToken,
             displayName: "Bob",
+            protocolVersion: PROTOCOL_VERSION,
           },
         }),
       );
       const joined = await joinerCollector.next("room:joined");
       await joinerCollector.next("room:state");
-      await ownerCollector.next("room:state");
+      await ownerCollector.next("room:member-joined");
 
       owner.send(
         JSON.stringify({
@@ -1238,11 +1242,28 @@ test("reconnect join reuses the same member identity and does not emit a leave f
     owner.send(
       JSON.stringify({
         type: "room:create",
-        payload: { displayName: "Alice" },
+        payload: { displayName: "Alice", protocolVersion: PROTOCOL_VERSION },
       }),
     );
     const created = await ownerCollector.next("room:created");
     await ownerCollector.next("room:state");
+
+    const observer = await connectClient(server.url);
+    const observerCollector = createMessageCollector(observer);
+    observer.send(
+      JSON.stringify({
+        type: "room:join",
+        payload: {
+          roomCode: created.payload.roomCode,
+          joinToken: created.payload.joinToken,
+          displayName: "Bob",
+          protocolVersion: PROTOCOL_VERSION,
+        },
+      }),
+    );
+    const observerJoined = await observerCollector.next("room:joined");
+    await observerCollector.next("room:state");
+    await ownerCollector.next("room:member-joined");
 
     const reconnectingOwner = await connectClient(server.url);
     const reconnectingCollector = createMessageCollector(reconnectingOwner);
@@ -1254,6 +1275,7 @@ test("reconnect join reuses the same member identity and does not emit a leave f
           joinToken: created.payload.joinToken,
           memberToken: created.payload.memberToken,
           displayName: "Alice",
+          protocolVersion: PROTOCOL_VERSION,
         },
       }),
     );
@@ -1265,9 +1287,20 @@ test("reconnect join reuses the same member identity and does not emit a leave f
     const firstState = await reconnectingCollector.next("room:state");
     assert.deepEqual(firstState.payload.members, [
       { id: created.payload.memberId, name: "Alice" },
+      { id: observerJoined.payload.memberId, name: "Bob" },
     ]);
+    const observerSawReconnect =
+      await observerCollector.next("room:member-joined");
+    assert.equal(
+      observerSawReconnect.payload.member.id,
+      created.payload.memberId,
+    );
 
     await once(owner, "close");
+    await assert.rejects(
+      observerCollector.next("room:member-left", 300),
+      /Timed out waiting for message type room:member-left/,
+    );
     const postReplaceState = await maybeWaitForMessageType(
       reconnectingOwner,
       "room:state",
@@ -1280,6 +1313,7 @@ test("reconnect join reuses the same member identity and does not emit a leave f
     }
 
     await closeClient(reconnectingOwner);
+    await closeClient(observer);
   } finally {
     await server.close();
   }

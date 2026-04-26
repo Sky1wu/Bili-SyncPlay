@@ -22,9 +22,31 @@ function parseMessage(payload: string): RoomEventBusMessage | null {
     if (
       parsed.type !== "room_state_updated" &&
       parsed.type !== "room_member_changed" &&
+      parsed.type !== "room_member_joined" &&
+      parsed.type !== "room_member_left" &&
       parsed.type !== "room_deleted"
     ) {
       return null;
+    }
+
+    if (
+      parsed.type === "room_member_joined" ||
+      parsed.type === "room_member_left"
+    ) {
+      if (
+        typeof parsed.memberId !== "string" ||
+        typeof parsed.displayName !== "string"
+      ) {
+        return null;
+      }
+      return {
+        type: parsed.type,
+        roomCode: parsed.roomCode,
+        sourceInstanceId: parsed.sourceInstanceId,
+        emittedAt: parsed.emittedAt,
+        memberId: parsed.memberId,
+        displayName: parsed.displayName,
+      };
     }
 
     return {

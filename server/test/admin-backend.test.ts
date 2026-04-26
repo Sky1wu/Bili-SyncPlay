@@ -4,6 +4,7 @@ import { once } from "node:events";
 import { readFile } from "node:fs/promises";
 import test from "node:test";
 import { WebSocket, type RawData } from "ws";
+import { PROTOCOL_VERSION } from "@bili-syncplay/protocol";
 import {
   createSyncServer,
   getDefaultPersistenceConfig,
@@ -301,7 +302,7 @@ test("admin endpoints support auth, overview, rooms, and events without breaking
       socket.send(
         JSON.stringify({
           type: "room:create",
-          payload: { displayName: "Alice" },
+          payload: { displayName: "Alice", protocolVersion: PROTOCOL_VERSION },
         }),
       );
       const created = await collector.next("room:created");
@@ -841,7 +842,7 @@ test("redis-backed admin events and audit logs are queryable across server insta
       socket.send(
         JSON.stringify({
           type: "room:create",
-          payload: { displayName: "Alice" },
+          payload: { displayName: "Alice", protocolVersion: PROTOCOL_VERSION },
         }),
       );
       const created = await collector.next("room:created");
@@ -937,7 +938,7 @@ test("operator can execute admin actions and query audit logs", async () => {
       owner.send(
         JSON.stringify({
           type: "room:create",
-          payload: { displayName: "Alice" },
+          payload: { displayName: "Alice", protocolVersion: PROTOCOL_VERSION },
         }),
       );
       const created = await ownerCollector.next("room:created");
@@ -992,6 +993,7 @@ test("operator can execute admin actions and query audit logs", async () => {
               roomCode,
               joinToken: (created.payload as { joinToken: string }).joinToken,
               displayName: "Bob",
+              protocolVersion: PROTOCOL_VERSION,
             },
           }),
         );
@@ -999,7 +1001,7 @@ test("operator can execute admin actions and query audit logs", async () => {
         kickedMemberToken = (joined.payload as { memberToken: string })
           .memberToken;
         await joinerCollector.next("room:state");
-        await ownerCollector.next("room:state");
+        await ownerCollector.next("room:member-joined");
 
         const kick = await requestJson(
           server.httpBaseUrl,
@@ -1027,6 +1029,7 @@ test("operator can execute admin actions and query audit logs", async () => {
               joinToken: (created.payload as { joinToken: string }).joinToken,
               memberToken: kickedMemberToken,
               displayName: "Bob",
+              protocolVersion: PROTOCOL_VERSION,
             },
           }),
         );

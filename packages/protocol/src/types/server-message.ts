@@ -1,5 +1,5 @@
 import type { ErrorCode, RoomCode } from "./common.js";
-import type { RoomState } from "./domain.js";
+import type { RoomMember, RoomState } from "./domain.js";
 
 export interface RoomCreatedMessage {
   type: "room:created";
@@ -27,6 +27,22 @@ export interface RoomStateMessage {
   payload: RoomState;
 }
 
+export interface RoomMemberJoinedMessage {
+  type: "room:member-joined";
+  payload: {
+    roomCode: RoomCode;
+    member: RoomMember;
+  };
+}
+
+export interface RoomMemberLeftMessage {
+  type: "room:member-left";
+  payload: {
+    roomCode: RoomCode;
+    member: RoomMember;
+  };
+}
+
 export interface ErrorMessage {
   type: "error";
   payload: {
@@ -48,5 +64,7 @@ export type ServerMessage =
   | RoomCreatedMessage
   | RoomJoinedMessage
   | RoomStateMessage
+  | RoomMemberJoinedMessage
+  | RoomMemberLeftMessage
   | ErrorMessage
   | SyncPongMessage;

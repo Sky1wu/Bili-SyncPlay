@@ -114,9 +114,11 @@ export function createRoomService(options: {
     displayName?: string,
     previousMemberToken?: string,
   ) => Promise<{ room: PersistedRoom; memberToken: string }>;
-  leaveRoomForSession: (
-    session: Session,
-  ) => Promise<{ room: PersistedRoom | null; notifyRoom?: boolean }>;
+  leaveRoomForSession: (session: Session) => Promise<{
+    room: PersistedRoom | null;
+    notifyRoom?: boolean;
+    memberRemoved?: boolean;
+  }>;
   shareVideoForSession: (
     session: Session,
     memberToken: string,
@@ -620,9 +622,11 @@ export function createRoomService(options: {
     return readyState === OPEN;
   }
 
-  async function leaveCurrentRoom(
-    session: Session,
-  ): Promise<{ room: PersistedRoom | null; notifyRoom?: boolean }> {
+  async function leaveCurrentRoom(session: Session): Promise<{
+    room: PersistedRoom | null;
+    notifyRoom?: boolean;
+    memberRemoved?: boolean;
+  }> {
     if (!session.roomCode) {
       return { room: null };
     }
@@ -657,7 +661,7 @@ export function createRoomService(options: {
           origin: session.origin,
           result: "ok",
         });
-        return { room: persistedRoom };
+        return { room: persistedRoom, memberRemoved: removal.removed };
       }
 
       const expiresAt = now() + persistence.emptyRoomTtlMs;
@@ -698,7 +702,7 @@ export function createRoomService(options: {
         result: "ok",
       });
 
-      return { room: updatedRoom };
+      return { room: updatedRoom, memberRemoved: removal.removed };
     } catch (error) {
       const reason =
         error instanceof RoomServiceError &&
@@ -785,7 +789,7 @@ export function createRoomService(options: {
       });
 
       if (swallowWithNotifyRoom) {
-        return { room: null, notifyRoom: true };
+        return { room: null, notifyRoom: true, memberRemoved: removal.removed };
       }
 
       if (error instanceof RoomServiceError) {
