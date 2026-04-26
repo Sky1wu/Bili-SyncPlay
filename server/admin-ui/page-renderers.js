@@ -781,7 +781,7 @@ export function createPageLoaders(options) {
                           (event) => `
                         <tr>
                           <td>${renderTimeBlock(event.timestamp, "事件")}</td>
-                          <td>${renderRuntimeEventStoryCell(event)}</td>
+                          <td>${renderRuntimeEventStoryCell(event, { omitRoomContext: true })}</td>
                           <td>${event.sessionId ? `<span class="code">${escapeHtml(event.sessionId)}</span>` : renderEmptyValue()}</td>
                           <td>${event.result ? renderResultBadge(event.result) : renderEmptyValue()}</td>
                           <td><button class="button link" type="button" data-view-json='${escapeHtml(JSON.stringify(event.details))}'>查看 JSON</button></td>

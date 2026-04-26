@@ -300,7 +300,17 @@ test("room detail renders playback position as media timestamp", async () => {
             },
           },
           members: [],
-          recentEvents: [],
+          recentEvents: [
+            {
+              id: "event-1",
+              timestamp: Date.now(),
+              event: "room_joined",
+              roomCode: "ROOM8A",
+              sessionId: "session-1",
+              result: "ok",
+              details: { displayName: "Alice" },
+            },
+          ],
         };
       },
     },
@@ -327,6 +337,8 @@ test("room detail renders playback position as media timestamp", async () => {
 
   assert.equal(page.html.includes("<dt>当前时间</dt><dd>1:02:03</dd>"), true);
   assert.equal(page.html.includes("3723.4s"), false);
+  assert.equal(page.html.includes("Alice 加入了房间"), true);
+  assert.equal(page.html.includes("Alice 加入了房间 · 房间 ROOM8A"), false);
 });
 
 test("danger room actions require confirmed config before execution", async () => {
