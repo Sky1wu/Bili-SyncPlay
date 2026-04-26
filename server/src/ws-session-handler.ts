@@ -298,16 +298,20 @@ export function createWsConnectionHandler(args: {
         const decoded = r.toString("utf8");
         return decoded.length > 0 ? decoded : "";
       };
-      const cleanup = cleanupSessionAfterClose({
-        session,
-        code,
-        reason,
-        messageHandler: args.messageHandler,
-        runtimeStore: args.runtimeStore,
-        securityPolicy: args.securityPolicy,
-        logEvent: args.logEvent,
-        decodeCloseReason,
-      });
+      const inFlightMessageHandling = messageQueue;
+      const cleanup = (async () => {
+        await inFlightMessageHandling.catch(() => undefined);
+        await cleanupSessionAfterClose({
+          session,
+          code,
+          reason,
+          messageHandler: args.messageHandler,
+          runtimeStore: args.runtimeStore,
+          securityPolicy: args.securityPolicy,
+          logEvent: args.logEvent,
+          decodeCloseReason,
+        });
+      })();
       args.pendingSessionCleanup.add(cleanup);
       void cleanup.finally(() => {
         args.pendingSessionCleanup.delete(cleanup);
