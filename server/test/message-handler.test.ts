@@ -916,3 +916,82 @@ test("message handler keeps room:join successful when bootstrap state fails", as
   assert.ok(events.includes("room_state_bootstrap_failed"));
   assert.ok(events.includes("room_joined"));
 });
+
+test("message handler skips joined delta when session leaves during bootstrap state", async () => {
+  const sent: string[] = [];
+  const errors: string[] = [];
+  const events: string[] = [];
+  const published: string[] = [];
+  const session = createSession("joiner");
+
+  const handler = createMessageHandler({
+    config: CONFIG,
+    roomService: {
+      async createRoomForSession() {
+        throw new Error("unreachable");
+      },
+      async joinRoomForSession(currentSession) {
+        currentSession.roomCode = "ROOM01";
+        currentSession.memberId = "member-2";
+        currentSession.memberToken = "member-token-2";
+        return {
+          room: { code: "ROOM01" },
+          memberToken: "member-token-2",
+        };
+      },
+      async leaveRoomForSession() {
+        return { room: null };
+      },
+      async shareVideoForSession() {
+        throw new Error("unreachable");
+      },
+      async updatePlaybackForSession() {
+        throw new Error("unreachable");
+      },
+      async updateProfileForSession() {
+        throw new Error("unreachable");
+      },
+      async getRoomStateForSession(currentSession) {
+        currentSession.connectionState = "detached";
+        currentSession.socket = null;
+        currentSession.roomCode = null;
+        currentSession.memberId = null;
+        currentSession.memberToken = null;
+        return {
+          roomCode: "ROOM01",
+          sharedVideo: null,
+          playback: null,
+          members: [{ id: "member-2", name: "Alice" }],
+        };
+      },
+    },
+    logEvent(event) {
+      events.push(event);
+    },
+    send(_socket, message) {
+      sent.push(message.type);
+    },
+    sendError(_socket, code) {
+      errors.push(code);
+    },
+    async publishRoomEvent(message) {
+      published.push(message.type);
+    },
+    instanceId: "node-a",
+  });
+
+  await handler.handleClientMessage(session, {
+    type: "room:join",
+    payload: {
+      roomCode: "ROOM01",
+      joinToken: "join-token-1",
+      protocolVersion: 2,
+    },
+  });
+
+  assert.deepEqual(sent, ["room:joined"]);
+  assert.deepEqual(errors, []);
+  assert.deepEqual(published, []);
+  assert.ok(events.includes("room_join_delta_skipped"));
+  assert.ok(!events.includes("room_joined"));
+});

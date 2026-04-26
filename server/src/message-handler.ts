@@ -141,6 +141,9 @@ export function createMessageHandler(options: {
         memberToken,
         messageType,
       );
+      if (!hasAttachedSocket(session)) {
+        return;
+      }
       send(session.socket, {
         type: "room:state",
         payload: state,
@@ -365,27 +368,45 @@ export function createMessageHandler(options: {
               options.onRoomLeft?.(session, previousRoomCode);
             }
             options.onRoomJoined?.(session, room.code, previousRoomCode);
+            const joinedRoomCode = room.code;
+            const joinedMemberId = session.memberId ?? session.id;
+            const joinedDisplayName = session.displayName;
             send(socket, {
               type: "room:joined",
               payload: {
-                roomCode: room.code,
-                memberId: session.memberId ?? session.id,
+                roomCode: joinedRoomCode,
+                memberId: joinedMemberId,
                 memberToken,
                 serverProtocolVersion: CURRENT_PROTOCOL_VERSION,
               },
             });
             await sendRoomStateToSession(session, memberToken, message.type);
+            if (
+              session.roomCode !== joinedRoomCode ||
+              session.memberId !== joinedMemberId
+            ) {
+              logEvent("room_join_delta_skipped", {
+                sessionId: session.id,
+                roomCode: joinedRoomCode,
+                memberId: joinedMemberId,
+                remoteAddress: session.remoteAddress,
+                origin: session.origin,
+                result: "skipped",
+                reason: "session_no_longer_joined",
+              });
+              return;
+            }
             await publishRoomEvent({
               type: "room_member_joined",
-              roomCode: room.code,
-              memberId: session.memberId ?? session.id,
-              displayName: session.displayName,
+              roomCode: joinedRoomCode,
+              memberId: joinedMemberId,
+              displayName: joinedDisplayName,
             });
             logEvent("room_joined", {
               sessionId: session.id,
-              roomCode: room.code,
-              memberId: session.memberId ?? session.id,
-              displayName: session.displayName,
+              roomCode: joinedRoomCode,
+              memberId: joinedMemberId,
+              displayName: joinedDisplayName,
               remoteAddress: session.remoteAddress,
               origin: session.origin,
               result: "ok",
