@@ -50,11 +50,40 @@ type BenchmarkServer = {
   cleanup: () => Promise<void>;
 };
 
+type ReconnectPhaseSamples = {
+  socketOpen: number[];
+  roomJoined: number[];
+  firstRoomState: number[];
+};
+
 const SHARED_VIDEO_URL = "https://www.bilibili.com/video/BV1xx411c7mD?p=1";
 const SHARED_VIDEO_TITLE = "Benchmark Episode";
 
 function wait(ms: number) {
   return new Promise((resolve) => setTimeout(resolve, ms));
+}
+
+export function recordReconnectJoinPhaseResults(input: {
+  phaseSamplesMs: ReconnectPhaseSamples;
+  joinSentAtMs: number;
+  joinedResult: PromiseSettledResult<number>;
+  firstStateResult: PromiseSettledResult<number>;
+}): boolean {
+  if (input.joinedResult.status === "fulfilled") {
+    input.phaseSamplesMs.roomJoined.push(
+      input.joinedResult.value - input.joinSentAtMs,
+    );
+  }
+  if (input.firstStateResult.status === "fulfilled") {
+    input.phaseSamplesMs.firstRoomState.push(
+      input.firstStateResult.value - input.joinSentAtMs,
+    );
+  }
+
+  return (
+    input.joinedResult.status === "fulfilled" &&
+    input.firstStateResult.status === "fulfilled"
+  );
 }
 
 type BenchMessageCollectorOptions = {
@@ -605,6 +634,11 @@ export async function runReconnectStormBenchmark(input: {
 
   const startedAtMs = Date.now();
   const latencySamplesMs: number[] = [];
+  const phaseSamplesMs: ReconnectPhaseSamples = {
+    socketOpen: [],
+    roomJoined: [],
+    firstRoomState: [],
+  };
   let completed = 0;
   let errors = 0;
   let completedAtMs = startedAtMs;
@@ -623,21 +657,27 @@ export async function runReconnectStormBenchmark(input: {
           socket = await connectClient(seed.wsUrl, {
             openTimeoutMs: input.reconnectTimeoutMs,
           });
+          const socketOpenedAtMs = Date.now();
+          phaseSamplesMs.socketOpen?.push(
+            socketOpenedAtMs - reconnectStartedAtMs,
+          );
           inbox = createBenchMessageCollector(socket, {
             trackedTypes: ["room:joined", "room:state"],
           });
           const remainingTimeoutMs =
-            input.reconnectTimeoutMs - (Date.now() - reconnectStartedAtMs);
+            input.reconnectTimeoutMs -
+            (socketOpenedAtMs - reconnectStartedAtMs);
           if (remainingTimeoutMs <= 0) {
             throw new Error(
               `Reconnect socket open consumed the ${input.reconnectTimeoutMs}ms timeout budget.`,
             );
           }
-          const joinedPromise = inbox.next("room:joined", remainingTimeoutMs);
-          const firstStatePromise = inbox.next(
-            "room:state",
-            remainingTimeoutMs,
-          );
+          const joinedPromise = inbox
+            .next("room:joined", remainingTimeoutMs)
+            .then(() => Date.now());
+          const firstStatePromise = inbox
+            .next("room:state", remainingTimeoutMs)
+            .then(() => Date.now());
           socket.send(
             JSON.stringify({
               type: "room:join",
@@ -649,7 +689,20 @@ export async function runReconnectStormBenchmark(input: {
               },
             }),
           );
-          await Promise.all([joinedPromise, firstStatePromise]);
+          const joinSentAtMs = Date.now();
+          const [joinedResult, firstStateResult] = await Promise.allSettled([
+            joinedPromise,
+            firstStatePromise,
+          ]);
+          const completedRequiredPhases = recordReconnectJoinPhaseResults({
+            phaseSamplesMs,
+            joinSentAtMs,
+            joinedResult,
+            firstStateResult,
+          });
+          if (!completedRequiredPhases) {
+            throw new Error("Reconnect did not complete every required phase.");
+          }
           latencySamplesMs.push(Date.now() - reconnectStartedAtMs);
           completed += 1;
         } catch {
@@ -673,6 +726,7 @@ export async function runReconnectStormBenchmark(input: {
     completed,
     errors,
     latencySamplesMs,
+    phaseSamplesMs,
     startedAtMs,
     completedAtMs,
   };
