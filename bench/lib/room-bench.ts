@@ -50,11 +50,40 @@ type BenchmarkServer = {
   cleanup: () => Promise<void>;
 };
 
+type ReconnectPhaseSamples = {
+  socketOpen: number[];
+  roomJoined: number[];
+  firstRoomState: number[];
+};
+
 const SHARED_VIDEO_URL = "https://www.bilibili.com/video/BV1xx411c7mD?p=1";
 const SHARED_VIDEO_TITLE = "Benchmark Episode";
 
 function wait(ms: number) {
   return new Promise((resolve) => setTimeout(resolve, ms));
+}
+
+export function recordReconnectJoinPhaseResults(input: {
+  phaseSamplesMs: ReconnectPhaseSamples;
+  joinSentAtMs: number;
+  joinedResult: PromiseSettledResult<number>;
+  firstStateResult: PromiseSettledResult<number>;
+}): boolean {
+  if (input.joinedResult.status === "fulfilled") {
+    input.phaseSamplesMs.roomJoined.push(
+      input.joinedResult.value - input.joinSentAtMs,
+    );
+  }
+  if (input.firstStateResult.status === "fulfilled") {
+    input.phaseSamplesMs.firstRoomState.push(
+      input.firstStateResult.value - input.joinSentAtMs,
+    );
+  }
+
+  return (
+    input.joinedResult.status === "fulfilled" &&
+    input.firstStateResult.status === "fulfilled"
+  );
 }
 
 type BenchMessageCollectorOptions = {
@@ -605,7 +634,7 @@ export async function runReconnectStormBenchmark(input: {
 
   const startedAtMs = Date.now();
   const latencySamplesMs: number[] = [];
-  const phaseSamplesMs: Record<string, number[]> = {
+  const phaseSamplesMs: ReconnectPhaseSamples = {
     socketOpen: [],
     roomJoined: [],
     firstRoomState: [],
@@ -661,12 +690,19 @@ export async function runReconnectStormBenchmark(input: {
             }),
           );
           const joinSentAtMs = Date.now();
-          const [joinedAtMs, firstStateAtMs] = await Promise.all([
+          const [joinedResult, firstStateResult] = await Promise.allSettled([
             joinedPromise,
             firstStatePromise,
           ]);
-          phaseSamplesMs.roomJoined?.push(joinedAtMs - joinSentAtMs);
-          phaseSamplesMs.firstRoomState?.push(firstStateAtMs - joinSentAtMs);
+          const completedRequiredPhases = recordReconnectJoinPhaseResults({
+            phaseSamplesMs,
+            joinSentAtMs,
+            joinedResult,
+            firstStateResult,
+          });
+          if (!completedRequiredPhases) {
+            throw new Error("Reconnect did not complete every required phase.");
+          }
           latencySamplesMs.push(Date.now() - reconnectStartedAtMs);
           completed += 1;
         } catch {

@@ -5,6 +5,7 @@ import { buildBenchmarkResult } from "../../bench/lib/cli.js";
 import { ensureRedis } from "../../bench/lib/redis-harness.js";
 import {
   createBenchMessageCollector,
+  recordReconnectJoinPhaseResults,
   runPlaybackBroadcastBenchmark,
   runReconnectStormBenchmark,
 } from "../../bench/lib/room-bench.js";
@@ -138,6 +139,28 @@ test("benchmark result includes optional phase latency summaries", () => {
       maxMs: 160,
     },
   });
+});
+
+test("reconnect phase recording preserves completed join ack when room state fails", () => {
+  const phaseSamplesMs = {
+    socketOpen: [],
+    roomJoined: [],
+    firstRoomState: [],
+  };
+
+  const completedRequiredPhases = recordReconnectJoinPhaseResults({
+    phaseSamplesMs,
+    joinSentAtMs: 1_000,
+    joinedResult: { status: "fulfilled", value: 1_050 },
+    firstStateResult: {
+      status: "rejected",
+      reason: new Error("Timed out waiting for room:state"),
+    },
+  });
+
+  assert.equal(completedRequiredPhases, false);
+  assert.deepEqual(phaseSamplesMs.roomJoined, [50]);
+  assert.deepEqual(phaseSamplesMs.firstRoomState, []);
 });
 
 test("playback benchmark skips drain bookkeeping when no watchers are sampled", async () => {
