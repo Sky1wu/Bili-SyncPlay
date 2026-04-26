@@ -48,7 +48,11 @@ export function bindPopupActions(args: {
       return;
     }
     void args.sendPopupLog("Create room button clicked");
-    patchUiState({ localStatusMessage: null, roomActionPending: true });
+    patchUiState({
+      localRoomEntryPending: true,
+      localStatusMessage: null,
+      roomActionPending: true,
+    });
     try {
       const state = await sendPopupAction({ type: "popup:create-room" });
       args.applyActionState(state);
@@ -299,6 +303,7 @@ export function bindPopupActions(args: {
       return;
     }
     patchUiState({
+      localRoomEntryPending: true,
       localStatusMessage: null,
       roomCodeDraft: `${invite.roomCode}:${invite.joinToken}`,
     });

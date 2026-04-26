@@ -2,6 +2,7 @@ import type { BackgroundPopupState } from "../shared/messages";
 
 export interface PopupRoomTrackingState {
   roomActionPending: boolean;
+  localRoomEntryPending: boolean;
   lastKnownPendingCreateRoom: boolean;
   lastKnownPendingJoinRoomCode: string | null;
   lastKnownRoomCode: string | null;
@@ -46,11 +47,13 @@ export function getNextPopupRoomTrackingState(
   | "lastKnownPendingJoinRoomCode"
   | "lastKnownRoomCode"
   | "lastRoomEnteredAt"
+  | "localRoomEntryPending"
 > {
   const enteredRoomFromLocalAction =
     !currentState.lastKnownRoomCode &&
     Boolean(nextState.roomCode) &&
-    (currentState.roomActionPending ||
+    (currentState.localRoomEntryPending ||
+      currentState.roomActionPending ||
       currentState.lastKnownPendingCreateRoom ||
       Boolean(currentState.lastKnownPendingJoinRoomCode));
 
@@ -61,5 +64,8 @@ export function getNextPopupRoomTrackingState(
     lastRoomEnteredAt: enteredRoomFromLocalAction
       ? now
       : currentState.lastRoomEnteredAt,
+    localRoomEntryPending: enteredRoomFromLocalAction
+      ? false
+      : currentState.localRoomEntryPending,
   };
 }

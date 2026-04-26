@@ -2,6 +2,7 @@ import { createStore, type StateStore } from "../shared/create-store";
 
 export interface PopupUiState {
   roomActionPending: boolean;
+  localRoomEntryPending: boolean;
   lastKnownPendingCreateRoom: boolean;
   lastKnownPendingJoinRoomCode: string | null;
   lastKnownRoomCode: string | null;
@@ -18,6 +19,7 @@ export type PopupUiStateStore = StateStore<PopupUiState>;
 export function createPopupUiState(): PopupUiState {
   return {
     roomActionPending: false,
+    localRoomEntryPending: false,
     lastKnownPendingCreateRoom: false,
     lastKnownPendingJoinRoomCode: null,
     lastKnownRoomCode: null,

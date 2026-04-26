@@ -62,6 +62,7 @@ test("room tracking does not start the leave guard for an already joined room", 
   const nextState = getNextPopupRoomTrackingState(
     {
       roomActionPending: false,
+      localRoomEntryPending: false,
       lastKnownPendingCreateRoom: false,
       lastKnownPendingJoinRoomCode: null,
       lastKnownRoomCode: null,
@@ -79,6 +80,7 @@ test("room tracking starts the leave guard after a local join resolves", () => {
   const nextState = getNextPopupRoomTrackingState(
     {
       roomActionPending: false,
+      localRoomEntryPending: false,
       lastKnownPendingCreateRoom: false,
       lastKnownPendingJoinRoomCode: "ROOM01",
       lastKnownRoomCode: null,
@@ -90,5 +92,42 @@ test("room tracking starts the leave guard after a local join resolves", () => {
 
   assert.equal(nextState.lastKnownRoomCode, "ROOM01");
   assert.equal(nextState.lastKnownPendingJoinRoomCode, null);
+  assert.equal(nextState.localRoomEntryPending, false);
   assert.equal(nextState.lastRoomEnteredAt, 1000);
+});
+
+test("room tracking keeps local create intent until the created room arrives", () => {
+  const pendingState = getNextPopupRoomTrackingState(
+    {
+      roomActionPending: true,
+      localRoomEntryPending: true,
+      lastKnownPendingCreateRoom: false,
+      lastKnownPendingJoinRoomCode: null,
+      lastKnownRoomCode: null,
+      lastRoomEnteredAt: 0,
+    },
+    createPopupState(null, { pendingCreateRoom: false }),
+    1000,
+  );
+
+  assert.equal(pendingState.localRoomEntryPending, true);
+  assert.equal(pendingState.lastKnownRoomCode, null);
+  assert.equal(pendingState.lastRoomEnteredAt, 0);
+
+  const enteredState = getNextPopupRoomTrackingState(
+    {
+      roomActionPending: false,
+      localRoomEntryPending: pendingState.localRoomEntryPending,
+      lastKnownPendingCreateRoom: pendingState.lastKnownPendingCreateRoom,
+      lastKnownPendingJoinRoomCode: pendingState.lastKnownPendingJoinRoomCode,
+      lastKnownRoomCode: pendingState.lastKnownRoomCode,
+      lastRoomEnteredAt: pendingState.lastRoomEnteredAt,
+    },
+    createPopupState("ROOM01"),
+    2000,
+  );
+
+  assert.equal(enteredState.localRoomEntryPending, false);
+  assert.equal(enteredState.lastKnownRoomCode, "ROOM01");
+  assert.equal(enteredState.lastRoomEnteredAt, 2000);
 });
