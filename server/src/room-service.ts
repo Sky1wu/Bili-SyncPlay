@@ -169,14 +169,18 @@ export function createRoomService(options: {
         runtimeStore.isMemberTokenBlocked(roomCode, memberToken, currentTime),
       ));
 
-  function setSessionDisplayName(session: Session, displayName?: string): void {
+  function setSessionDisplayName(
+    session: Session,
+    displayName?: string,
+  ): boolean {
     const nextDisplayName = displayName?.trim();
     if (!nextDisplayName || nextDisplayName === session.displayName) {
-      return;
+      return false;
     }
 
     session.displayName = nextDisplayName;
     runtimeStore.registerSession?.(session);
+    return true;
   }
 
   function actorDetails(session: Session): Record<string, unknown> {
@@ -1198,9 +1202,10 @@ export function createRoomService(options: {
         memberToken,
         "profile:update",
       );
-      setSessionDisplayName(session, displayName);
+      const displayNameChanged = setSessionDisplayName(session, displayName);
       let room = access.persistedRoom;
       if (
+        displayNameChanged &&
         (session.memberId ?? session.id) === access.persistedRoom.ownerMemberId
       ) {
         const updatedRoom = await withVersionRetry(
