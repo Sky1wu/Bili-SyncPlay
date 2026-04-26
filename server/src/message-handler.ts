@@ -94,6 +94,7 @@ export function createMessageHandler(options: {
   instanceId: string;
   metricsCollector?: Pick<MetricsCollector, "observeMessageHandlerDuration">;
   maxPendingPublishes?: number;
+  publishTimeoutMs?: number;
   onRoomJoined?: (
     session: Session,
     roomCode: string,
@@ -114,17 +115,33 @@ export function createMessageHandler(options: {
   const metricsCollector = options.metricsCollector;
   const pendingPublishes = new Set<Promise<void>>();
   const maxPendingPublishes = options.maxPendingPublishes ?? 256;
+  const publishTimeoutMs = options.publishTimeoutMs ?? 5_000;
 
   async function publishRoomEvent(
     type: RoomEventBusMessage["type"],
     roomCode: string,
   ): Promise<void> {
-    await options.publishRoomEvent({
-      type,
-      roomCode,
-      sourceInstanceId: options.instanceId,
-      emittedAt: now(),
+    let timeoutHandle: ReturnType<typeof setTimeout> | null = null;
+    const timeoutPromise = new Promise<never>((_, reject) => {
+      timeoutHandle = setTimeout(() => {
+        reject(new Error(`publish_timed_out_after_${publishTimeoutMs}ms`));
+      }, publishTimeoutMs);
     });
+    try {
+      await Promise.race([
+        options.publishRoomEvent({
+          type,
+          roomCode,
+          sourceInstanceId: options.instanceId,
+          emittedAt: now(),
+        }),
+        timeoutPromise,
+      ]);
+    } finally {
+      if (timeoutHandle !== null) {
+        clearTimeout(timeoutHandle);
+      }
+    }
   }
 
   async function firePublishRoomEvent(
