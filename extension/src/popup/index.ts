@@ -15,6 +15,7 @@ import { createServerUrlDraftState } from "./server-url-draft";
 import {
   applyIncomingPopupState,
   createPopupStateSyncState,
+  getNextPopupRoomTrackingState,
 } from "./state-sync";
 import { getDocumentLanguage, t } from "../shared/i18n";
 
@@ -108,15 +109,9 @@ function applyState(
   if (!applyIncomingPopupState(popupStateSync, state, source)) {
     return false;
   }
-  const previousRoomCode = popupUiStateStore.getState().lastKnownRoomCode;
-  popupUiStateStore.patch({
-    lastKnownPendingCreateRoom: state.pendingCreateRoom,
-    lastKnownPendingJoinRoomCode: state.pendingJoinRoomCode,
-    lastKnownRoomCode: state.roomCode,
-  });
-  if (!previousRoomCode && state.roomCode) {
-    popupUiStateStore.patch({ lastRoomEnteredAt: Date.now() });
-  }
+  popupUiStateStore.patch(
+    getNextPopupRoomTrackingState(popupUiStateStore.getState(), state),
+  );
   return true;
 }
 

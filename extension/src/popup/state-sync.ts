@@ -1,5 +1,13 @@
 import type { BackgroundPopupState } from "../shared/messages";
 
+export interface PopupRoomTrackingState {
+  roomActionPending: boolean;
+  lastKnownPendingCreateRoom: boolean;
+  lastKnownPendingJoinRoomCode: string | null;
+  lastKnownRoomCode: string | null;
+  lastRoomEnteredAt: number;
+}
+
 export interface PopupStateSyncState {
   popupState: BackgroundPopupState | null;
   hasReceivedPortState: boolean;
@@ -26,4 +34,32 @@ export function applyIncomingPopupState(
     state.hasReceivedPortState = true;
   }
   return true;
+}
+
+export function getNextPopupRoomTrackingState(
+  currentState: PopupRoomTrackingState,
+  nextState: BackgroundPopupState,
+  now = Date.now(),
+): Pick<
+  PopupRoomTrackingState,
+  | "lastKnownPendingCreateRoom"
+  | "lastKnownPendingJoinRoomCode"
+  | "lastKnownRoomCode"
+  | "lastRoomEnteredAt"
+> {
+  const enteredRoomFromLocalAction =
+    !currentState.lastKnownRoomCode &&
+    Boolean(nextState.roomCode) &&
+    (currentState.roomActionPending ||
+      currentState.lastKnownPendingCreateRoom ||
+      Boolean(currentState.lastKnownPendingJoinRoomCode));
+
+  return {
+    lastKnownPendingCreateRoom: nextState.pendingCreateRoom,
+    lastKnownPendingJoinRoomCode: nextState.pendingJoinRoomCode,
+    lastKnownRoomCode: nextState.roomCode,
+    lastRoomEnteredAt: enteredRoomFromLocalAction
+      ? now
+      : currentState.lastRoomEnteredAt,
+  };
 }
