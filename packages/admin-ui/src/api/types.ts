@@ -101,7 +101,7 @@ export type ReadyStatus = {
 };
 
 export type RoomStatusFilter = "all" | "active" | "idle";
-export type RoomSortBy = "lastActiveAt" | "createdAt";
+export type RoomSortBy = "lastActiveAt" | "createdAt" | "memberCount";
 export type SortOrder = "asc" | "desc";
 
 export type RoomListQuery = {

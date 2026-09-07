@@ -17,6 +17,7 @@ import {
   createPersistedRoom,
   type OrphanedIndexClaim,
   type RoomDeleteOutcome,
+  type RoomStoreListQuery,
   type RoomStore,
   type RoomUpdateResult,
 } from "./room-store.js";
@@ -1213,17 +1214,7 @@ export async function createRedisRoomStore(
   // other services. Only reads depend on the result, so they await it instead.
   void reconcileRoomIndex().catch(() => undefined);
 
-  async function fetchRooms(
-    query: Pick<
-      RoomListQuery,
-      | "keyword"
-      | "includeExpired"
-      | "page"
-      | "pageSize"
-      | "sortBy"
-      | "sortOrder"
-    >,
-  ) {
+  async function fetchRooms(query: RoomStoreListQuery) {
     await awaitBootstrapReconcile("list_rooms");
 
     // Members are the room codes; ordering here is irrelevant because rooms
@@ -1569,17 +1560,7 @@ export async function createRedisRoomStore(
         ),
       );
     },
-    async listRooms(
-      query: Pick<
-        RoomListQuery,
-        | "keyword"
-        | "includeExpired"
-        | "page"
-        | "pageSize"
-        | "sortBy"
-        | "sortOrder"
-      >,
-    ) {
+    async listRooms(query: RoomStoreListQuery) {
       return await fetchRooms(query);
     },
     // Every branch is a single command against a single key, so each answer is

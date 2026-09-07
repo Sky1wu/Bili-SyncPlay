@@ -110,14 +110,24 @@ export function createAdminRoomQueryService(options: {
   return {
     async listRooms(query: RoomListQuery) {
       const tokens = tokenizeKeyword(query.keyword);
-      const needsRuntime = query.status !== "all" || tokens.length > 0;
+      const needsRuntime =
+        query.status !== "all" ||
+        tokens.length > 0 ||
+        query.sortBy === "memberCount";
       const normalizedQuery: RoomListQuery = {
         ...query,
         keyword: tokens.length > 0 ? query.keyword : undefined,
       };
+      const roomStoreQuery = {
+        ...normalizedQuery,
+        sortBy:
+          normalizedQuery.sortBy === "memberCount"
+            ? ("lastActiveAt" as const)
+            : normalizedQuery.sortBy,
+      };
 
       if (!needsRuntime) {
-        const baseRooms = await options.roomStore.listRooms(normalizedQuery);
+        const baseRooms = await options.roomStore.listRooms(roomStoreQuery);
         const total = await options.roomStore.countRooms(normalizedQuery);
         const roomItems = await Promise.all(
           baseRooms.map(async (room) =>
@@ -143,7 +153,7 @@ export function createAdminRoomQueryService(options: {
       }
 
       const allRooms = await options.roomStore.listRooms({
-        ...normalizedQuery,
+        ...roomStoreQuery,
         keyword: undefined,
         page: 1,
         pageSize: Number.MAX_SAFE_INTEGER,
@@ -163,6 +173,14 @@ export function createAdminRoomQueryService(options: {
         }
         return true;
       });
+
+      if (normalizedQuery.sortBy === "memberCount") {
+        const factor = normalizedQuery.sortOrder === "asc" ? 1 : -1;
+        filtered.sort(
+          (left, right) =>
+            (left.sessions.length - right.sessions.length) * factor,
+        );
+      }
 
       const total = filtered.length;
       const start = (normalizedQuery.page - 1) * normalizedQuery.pageSize;

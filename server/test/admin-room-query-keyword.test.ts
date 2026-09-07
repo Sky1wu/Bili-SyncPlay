@@ -243,3 +243,36 @@ test("blank keyword falls back to the unfiltered fast path", async () => {
   const result = await service.listRooms({ ...baseQuery, keyword: "   " });
   assert.equal(result.pagination.total, 3);
 });
+
+test("member count sorting happens before pagination", async () => {
+  const { service } = await buildFixture();
+
+  const descending = await service.listRooms({
+    ...baseQuery,
+    pageSize: 2,
+    sortBy: "memberCount",
+  });
+  assert.equal(descending.pagination.total, 3);
+  assert.deepEqual(
+    descending.items.map((item) => [item.roomCode, item.memberCount]),
+    [
+      ["ROOMAA", 2],
+      ["ROOMBB", 1],
+    ],
+  );
+
+  const ascending = await service.listRooms({
+    ...baseQuery,
+    pageSize: 2,
+    sortBy: "memberCount",
+    sortOrder: "asc",
+  });
+  assert.equal(ascending.pagination.total, 3);
+  assert.deepEqual(
+    ascending.items.map((item) => [item.roomCode, item.memberCount]),
+    [
+      ["ROOMCC", 0],
+      ["ROOMBB", 1],
+    ],
+  );
+});

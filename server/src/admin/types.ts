@@ -62,7 +62,7 @@ export type AdminErrorResponse = {
 };
 
 export type RoomListStatus = "active" | "idle" | "all";
-export type RoomSortBy = "createdAt" | "lastActiveAt";
+export type RoomSortBy = "createdAt" | "lastActiveAt" | "memberCount";
 export type SortOrder = "asc" | "desc";
 
 export type RoomListQuery = {

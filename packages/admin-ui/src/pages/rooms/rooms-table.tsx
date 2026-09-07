@@ -54,7 +54,9 @@ export function RoomsTable({
     const sortBy: RoomSortBy = hasSorter
       ? activeSorter?.field === "createdAt"
         ? "createdAt"
-        : "lastActiveAt"
+        : activeSorter?.field === "memberCount"
+          ? "memberCount"
+          : "lastActiveAt"
       : (query.sortBy ?? "lastActiveAt");
     const sortOrder = hasSorter
       ? activeSorter?.order === "ascend"
@@ -121,8 +123,10 @@ export function RoomsTable({
         },
         {
           title: "状态",
-          dataIndex: "isActive",
+          dataIndex: "memberCount",
           width: 110,
+          sorter: true,
+          sortOrder: controlledSortOrder("memberCount"),
           render: (_value, room) => <RoomStatusTag room={room} />,
         },
         {
