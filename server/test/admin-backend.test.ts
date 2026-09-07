@@ -451,6 +451,87 @@ test("admin endpoints support auth, overview, rooms, and events without breaking
   }
 });
 
+test("admin room endpoint sorts all rooms by member count before pagination", async () => {
+  const roomStore = createInMemoryRoomStore();
+  await roomStore.createRoom({
+    code: "ROOMA1",
+    joinToken: "join-token-room-a",
+    createdAt: 100,
+  });
+  await roomStore.createRoom({
+    code: "ROOMB2",
+    joinToken: "join-token-room-b",
+    createdAt: 200,
+  });
+  const server = await startAdminServer({ roomStore });
+  const sockets: WebSocket[] = [];
+
+  const joinRoom = async (
+    roomCode: string,
+    joinToken: string,
+    displayName: string,
+  ) => {
+    const socket = await connectClient(server.wsUrl);
+    sockets.push(socket);
+    const collector = createMessageCollector(socket);
+    socket.send(
+      JSON.stringify({
+        type: "room:join",
+        payload: {
+          roomCode,
+          joinToken,
+          displayName,
+          protocolVersion: PROTOCOL_VERSION,
+        },
+      }),
+    );
+    await collector.next("room:joined");
+    await collector.next("room:state");
+  };
+
+  try {
+    await joinRoom("ROOMA1", "join-token-room-a", "Alice");
+    await joinRoom("ROOMB2", "join-token-room-b", "Bob");
+    await joinRoom("ROOMB2", "join-token-room-b", "Carol");
+    const token = await login(server.httpBaseUrl);
+
+    const descending = await requestJson(
+      server.httpBaseUrl,
+      "/api/admin/rooms?page=1&pageSize=1&sortBy=memberCount&sortOrder=desc",
+      { token },
+    );
+    assert.equal(descending.status, 200);
+    const descendingData = descending.body.data as {
+      items: Array<{ roomCode: string; memberCount: number }>;
+      pagination: { total: number };
+    };
+    assert.equal(descendingData.pagination.total, 2);
+    assert.equal(descendingData.items.length, 1);
+    assert.equal(descendingData.items[0]?.roomCode, "ROOMB2");
+    assert.equal(descendingData.items[0]?.memberCount, 2);
+
+    const ascending = await requestJson(
+      server.httpBaseUrl,
+      "/api/admin/rooms?page=1&pageSize=1&sortBy=memberCount&sortOrder=asc",
+      { token },
+    );
+    assert.equal(ascending.status, 200);
+    const ascendingItems = (
+      ascending.body.data as {
+        items: Array<{ roomCode: string; memberCount: number }>;
+      }
+    ).items;
+    assert.equal(ascendingItems.length, 1);
+    assert.equal(ascendingItems[0]?.roomCode, "ROOMA1");
+    assert.equal(ascendingItems[0]?.memberCount, 1);
+  } finally {
+    for (const socket of sockets) {
+      await closeClient(socket);
+    }
+    await server.close();
+  }
+});
+
 test("admin UI endpoints support CORS preflights and responses for allowed origins", async () => {
   const server = await startAdminServer();
 

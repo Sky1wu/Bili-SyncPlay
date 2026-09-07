@@ -45,6 +45,13 @@ export type RoomDeleteOutcome = "deleted" | "already_deleted" | "superseded";
 /** Chooses whether this read owns its deadline or is inside a maintenance pass. */
 export type RoomReadCaller = "request" | "maintenance_pass";
 
+export type RoomStoreListQuery = Pick<
+  RoomListQuery,
+  "keyword" | "includeExpired" | "page" | "pageSize" | "sortOrder"
+> & {
+  sortBy: Exclude<RoomListQuery["sortBy"], "memberCount">;
+};
+
 /**
  * What an update is allowed to overwrite.
  *
@@ -173,17 +180,7 @@ export type RoomStore = {
   acknowledgeOrphanedIndexClaims?: (
     claims: readonly OrphanedIndexClaim[],
   ) => Promise<void>;
-  listRooms: (
-    query: Pick<
-      RoomListQuery,
-      | "keyword"
-      | "includeExpired"
-      | "page"
-      | "pageSize"
-      | "sortBy"
-      | "sortOrder"
-    >,
-  ) => Promise<PersistedRoom[]>;
+  listRooms: (query: RoomStoreListQuery) => Promise<PersistedRoom[]>;
   countRooms: (
     query: Pick<RoomListQuery, "keyword" | "includeExpired">,
   ) => Promise<number>;
@@ -256,7 +253,7 @@ export function createInMemoryRoomStore(
   function sortRooms(
     left: PersistedRoom,
     right: PersistedRoom,
-    query: Pick<RoomListQuery, "sortBy" | "sortOrder">,
+    query: Pick<RoomStoreListQuery, "sortBy" | "sortOrder">,
   ): number {
     const factor = query.sortOrder === "asc" ? 1 : -1;
     return (left[query.sortBy] - right[query.sortBy]) * factor;

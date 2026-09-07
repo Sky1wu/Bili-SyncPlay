@@ -41,7 +41,10 @@ export function queryFromSearchParams(params: URLSearchParams): RoomListQuery {
     keyword: params.get("keyword") ?? undefined,
     page: Number.isInteger(page) && page > 0 ? page : 1,
     pageSize: Number.isInteger(pageSize) && pageSize > 0 ? pageSize : 20,
-    sortBy: sortBy === "createdAt" ? "createdAt" : "lastActiveAt",
+    sortBy:
+      sortBy === "createdAt" || sortBy === "memberCount"
+        ? sortBy
+        : "lastActiveAt",
     sortOrder: params.get("sortOrder") === "asc" ? "asc" : "desc",
     includeExpired: params.get("includeExpired") === "true",
   };

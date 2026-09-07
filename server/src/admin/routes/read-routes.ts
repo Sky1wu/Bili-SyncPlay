@@ -37,6 +37,7 @@ export const handleReadRoutes: AdminRouteHandler = async ({
     }
     const queryParams = getQueryParams(request);
     const status = queryParams.get("status");
+    const sortBy = queryParams.get("sortBy");
     const query: RoomListQuery = {
       status:
         status === "active" || status === "idle" || status === "all"
@@ -49,8 +50,8 @@ export const handleReadRoutes: AdminRouteHandler = async ({
         100,
       ),
       sortBy:
-        queryParams.get("sortBy") === "createdAt"
-          ? "createdAt"
+        sortBy === "createdAt" || sortBy === "memberCount"
+          ? sortBy
           : "lastActiveAt",
       sortOrder: queryParams.get("sortOrder") === "asc" ? "asc" : "desc",
       includeExpired: queryParams.get("includeExpired") === "true",

@@ -265,6 +265,25 @@ describe("RoomsPage", () => {
     });
   });
 
+  it("sorts the status column by room member count", async () => {
+    const listRooms = vi.fn().mockResolvedValue(makeListResult([makeRoom()]));
+    const user = userEvent.setup({ delay: null });
+    renderRooms(createOperatorAuth({ listRooms }));
+
+    expect(await screen.findByText("ROOM1")).toBeTruthy();
+    await user.click(screen.getByRole("columnheader", { name: /状态/ }));
+
+    await waitFor(() => {
+      expect(listRooms).toHaveBeenCalledWith(
+        expect.objectContaining({
+          page: 1,
+          sortBy: "memberCount",
+          sortOrder: "asc",
+        }),
+      );
+    });
+  });
+
   it("drops the previous room's detail while switching rooms", async () => {
     const room1 = makeRoom();
     const room2 = makeRoom({ roomCode: "ROOM2" });
